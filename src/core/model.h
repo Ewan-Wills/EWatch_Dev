@@ -11,6 +11,7 @@ enum class Screen : uint8_t {
   SystemApps,       // sub-page of AppList — Settings/diagnostics/PowerOff
   Settings,         // sub-menu of settings sections
   SettingsTime,     // sub-page: clock set
+  SettingsDate,     // sub-page: calendar set
   SettingsSleep,    // sub-page: idle timeout + wake sources
   SettingsDisplay,  // sub-page: brightness + colors
   SettingsMemory,   // sub-page: heap / PSRAM / flash usage
@@ -18,6 +19,7 @@ enum class Screen : uint8_t {
   Viewer3D,         // user app (outside src/apps/system)
   Media,            // user app: image / video viewer
   QRCode,           // user app: phone / email / website share QR
+  AnimDemo,         // user app: anim framework showcase
   PowerOff
 };
 

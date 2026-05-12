@@ -10,12 +10,19 @@
 #include "event.h"
 
 // ---------- I/O request queue (cross-task -> taskIO) ----------
+struct RTCWrite {
+  uint8_t  h, m, s;
+  uint8_t  weekday;
+  uint8_t  day, month;
+  uint16_t year;
+};
 static QueueHandle_t rtcWriteQueue = nullptr;
 
-void requestSetRTC(uint8_t h, uint8_t m, uint8_t s) {
+void requestSetRTC(uint8_t h, uint8_t m, uint8_t s,
+                   uint8_t weekday, uint8_t day, uint8_t month, uint16_t year) {
   if (!rtcWriteQueue) return;
-  uint32_t packed = ((uint32_t)h << 16) | ((uint32_t)m << 8) | s;
-  xQueueSend(rtcWriteQueue, &packed, 0);
+  RTCWrite r{ h, m, s, weekday, day, month, year };
+  xQueueSend(rtcWriteQueue, &r, 0);
 }
 
 // ---------- low-level I/O ----------
@@ -42,12 +49,19 @@ bool readRTC(uint8_t &h, uint8_t &m, uint8_t &s,
   return true;
 }
 
-bool writeRTC(uint8_t h, uint8_t m, uint8_t s) {
+bool writeRTC(uint8_t h, uint8_t m, uint8_t s,
+              uint8_t weekday, uint8_t day, uint8_t month, uint16_t year) {
+  uint8_t yy = (year >= 2000) ? (year - 2000) : 0;
+  if (yy > 99) yy = 99;
   Wire.beginTransmission(I2C_ADDR_RV3028);
   Wire.write(0x00);
-  Wire.write(dec2bcd(s) & 0x7F);
-  Wire.write(dec2bcd(m) & 0x7F);
-  Wire.write(dec2bcd(h) & 0x3F);
+  Wire.write(dec2bcd(s)     & 0x7F);
+  Wire.write(dec2bcd(m)     & 0x7F);
+  Wire.write(dec2bcd(h)     & 0x3F);
+  Wire.write(weekday        & 0x07);
+  Wire.write(dec2bcd(day)   & 0x3F);
+  Wire.write(dec2bcd(month) & 0x1F);
+  Wire.write(dec2bcd(yy));
   return Wire.endTransmission() == 0;
 }
 
@@ -129,7 +143,7 @@ void controllerInit() {
   Wire.write(0x70);
   Wire.endTransmission();
 
-  rtcWriteQueue = xQueueCreate(2, sizeof(uint32_t));
+  rtcWriteQueue = xQueueCreate(2, sizeof(RTCWrite));
 }
 
 // ---------- FreeRTOS tasks ----------
@@ -153,12 +167,9 @@ static void taskIO(void *) {
 
   for (;;) {
     // ---- Drain pending RTC writes from other tasks ----
-    uint32_t packed;
-    while (rtcWriteQueue && xQueueReceive(rtcWriteQueue, &packed, 0) == pdPASS) {
-      uint8_t h = (packed >> 16) & 0xFF;
-      uint8_t mm = (packed >> 8) & 0xFF;
-      uint8_t s = packed & 0xFF;
-      writeRTC(h, mm, s);
+    RTCWrite r;
+    while (rtcWriteQueue && xQueueReceive(rtcWriteQueue, &r, 0) == pdPASS) {
+      writeRTC(r.h, r.m, r.s, r.weekday, r.day, r.month, r.year);
     }
 
     // ---- Touch state machine ----
@@ -204,11 +215,28 @@ static void taskIO(void *) {
           static uint32_t lastGMs = 0;
           uint32_t now = millis();
           if (g != lastG || now - lastGMs > 400) {
-            Event ge = makeEvent(EventType::Gesture);
-            ge.x = touchpad.data.x;
-            ge.y = touchpad.data.y;
-            ge.gesture = g;
-            postEvent(ge);
+            if (g == Gesture::SwipeRight) {
+              // Global "back": every view already handles ButtonShort as
+              // the back affordance, so route swipe-right through the same
+              // path instead of inventing a new event type. Suppressed in
+              // Media and the 3D viewer — those apps want their own swipe
+              // semantics (or simply nothing), so the user backs out via
+              // the physical button / visible back chevron.
+              Screen scr;
+              { ModelLock lk; scr = model.screen; }
+              bool noBackSwipe =
+                  (scr == Screen::Viewer3D || scr == Screen::Media);
+              if (!noBackSwipe) {
+                Event back = makeEvent(EventType::ButtonShort);
+                postEvent(back);
+              }
+            } else {
+              Event ge = makeEvent(EventType::Gesture);
+              ge.x = touchpad.data.x;
+              ge.y = touchpad.data.y;
+              ge.gesture = g;
+              postEvent(ge);
+            }
           }
           lastG = g; lastGMs = now;
         }

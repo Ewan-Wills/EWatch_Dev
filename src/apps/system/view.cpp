@@ -9,6 +9,7 @@
 #include "viewer3d.h"
 #include "media.h"
 #include "qr.h"
+#include "anim_demo.h"
 
 // ---------- shared draw helpers ----------
 static const int16_t W = 240;
@@ -148,13 +149,34 @@ public:
     }
   }
   void onEvent(const Event &e) override {
-    if (e.type != EventType::Touch) return;
-    if (inRect(e.x, e.y, PWR_HIT_X, PWR_HIT_Y, PWR_HIT_W, PWR_HIT_H)) {
-      sleepNow();
+    // Swipe-left is the only way into the app list now — a plain tap stays
+    // on the watch face so the user has to commit a gesture intentionally.
+    if (e.type == EventType::Gesture && e.gesture == Gesture::SwipeLeft) {
+      hapticBuzz(60, 70);
+      switchTo(Screen::AppList);
+      pressActive = false;
       return;
     }
-    hapticBuzz(60, 70);
-    switchTo(Screen::AppList);
+    // Tap-vs-swipe for the power icon: defer the sleep action to TouchUp and
+    // bail if the finger moved (i.e. the user was actually starting a swipe).
+    if (e.type == EventType::Touch) {
+      pressX = e.x; pressY = e.y;
+      pressInPower = inRect(e.x, e.y, PWR_HIT_X, PWR_HIT_Y, PWR_HIT_W, PWR_HIT_H);
+      pressMoved = false;
+      pressActive = true;
+      return;
+    }
+    if (e.type == EventType::TouchHold && pressActive) {
+      int dx = (int)e.x - pressX, dy = (int)e.y - pressY;
+      if (dx * dx + dy * dy > 16 * 16) pressMoved = true;
+      return;
+    }
+    if (e.type == EventType::TouchUp) {
+      if (pressActive && pressInPower && !pressMoved) sleepNow();
+      pressActive = false;
+      pressInPower = false;
+      return;
+    }
   }
 private:
   // Power-icon hit zone (top-right corner) and visual placement. The hit zone
@@ -164,6 +186,12 @@ private:
   static const int16_t PWR_HIT_X = 130, PWR_HIT_Y = 0;
   static const int16_t PWR_HIT_W = 110, PWR_HIT_H = 92;
   static const int16_t PWR_CX = 212, PWR_CY = 24, PWR_R = 13;
+
+  // Tap-vs-swipe disambiguation state for the power icon.
+  bool     pressActive   = false;
+  bool     pressInPower  = false;
+  bool     pressMoved    = false;
+  uint16_t pressX = 0, pressY = 0;
 
   uint16_t cachedBg = BLACK;
   uint16_t cachedFg = WHITE;
@@ -490,9 +518,10 @@ public:
     gfx->print("Settings");
     gfx->drawFastHLine(20, 46, 200, DARKGREY);
     drawTile(0, "Time",    NAVY,      "set the clock");
-    drawTile(1, "Sleep",   DARKGREEN, "auto-sleep + wake");
-    drawTile(2, "Display", PURPLE,    "brightness + colors");
-    drawTile(3, "Memory",  MAROON,    "heap / PSRAM usage");
+    drawTile(1, "Date",    DARKCYAN,  "set the calendar");
+    drawTile(2, "Sleep",   DARKGREEN, "auto-sleep + wake");
+    drawTile(3, "Display", PURPLE,    "brightness + colors");
+    drawTile(4, "Memory",  MAROON,    "heap / PSRAM usage");
   }
   void onEvent(const Event &e) override {
     if (e.type == EventType::ButtonShort) {
@@ -502,14 +531,15 @@ public:
       switchTo(Screen::SystemApps); return;
     }
     if (e.type == EventType::Touch) {
-      for (int i = 0; i < 4; i++) {
+      for (int i = 0; i < 5; i++) {
         int16_t y = TILE_Y0 + i * TILE_STRIDE;
         if (inRect(e.x, e.y, 12, y, W - 24, TILE_H)) {
           hapticBuzz(80, 60);
           if (i == 0) switchTo(Screen::SettingsTime);
-          if (i == 1) switchTo(Screen::SettingsSleep);
-          if (i == 2) switchTo(Screen::SettingsDisplay);
-          if (i == 3) switchTo(Screen::SettingsMemory);
+          if (i == 1) switchTo(Screen::SettingsDate);
+          if (i == 2) switchTo(Screen::SettingsSleep);
+          if (i == 3) switchTo(Screen::SettingsDisplay);
+          if (i == 4) switchTo(Screen::SettingsMemory);
           return;
         }
       }
@@ -517,20 +547,20 @@ public:
   }
 private:
   static const int16_t TILE_Y0     = 54;
-  static const int16_t TILE_H      = 48;
-  static const int16_t TILE_STRIDE = 56;
+  static const int16_t TILE_H      = 40;
+  static const int16_t TILE_STRIDE = 46;
   bool needsFullRedraw = true;
 
   void drawTile(int i, const char *title, uint16_t color, const char *sub) {
     int16_t y = TILE_Y0 + i * TILE_STRIDE;
-    gfx->fillRoundRect(12, y, W - 24, TILE_H, 8, color);
-    gfx->drawRoundRect(12, y, W - 24, TILE_H, 8, WHITE);
+    gfx->fillRoundRect(12, y, W - 24, TILE_H, 6, color);
+    gfx->drawRoundRect(12, y, W - 24, TILE_H, 6, WHITE);
     gfx->setTextColor(WHITE, color);
     gfx->setTextSize(2);
-    gfx->setCursor(18, y + 6);
+    gfx->setCursor(16, y + 4);
     gfx->print(title);
     gfx->setTextSize(1);
-    gfx->setCursor(18, y + 32);
+    gfx->setCursor(16, y + 24);
     gfx->print(sub);
   }
 };
@@ -569,8 +599,32 @@ struct RampPlusMinus {
 };
 
 // =====================================================================
+// Shared helpers for SettingsTime/Date — leap years, days-in-month, and
+// Sakamoto's weekday computation. Defined at file scope so both views
+// can reuse them.
+// =====================================================================
+static bool kvIsLeap(uint16_t y) {
+  return (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0);
+}
+static uint8_t kvDaysInMonth(uint16_t y, uint8_t mo) {
+  static const uint8_t kDays[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
+  if (mo < 1 || mo > 12) return 31;
+  uint8_t d = kDays[mo - 1];
+  if (mo == 2 && kvIsLeap(y)) d = 29;
+  return d;
+}
+// 0=Sunday..6=Saturday. Sakamoto's algorithm.
+static uint8_t kvSakamoto(uint16_t y, uint8_t mo, uint8_t d) {
+  static const int t[] = {0,3,2,5,0,3,5,1,4,6,2,4};
+  int yy = y;
+  if (mo < 3) yy -= 1;
+  return (uint8_t)((yy + yy/4 - yy/100 + yy/400 + t[mo-1] + d) % 7);
+}
+
+// =====================================================================
 // SettingsTime — set HH:MM:SS on the RV-3028. Three +/- columns with the
-// hold-to-ramp UX.
+// hold-to-ramp UX. Date fields are preserved by reading them from the
+// model and writing them back unchanged.
 // =====================================================================
 class SettingsTimeView : public View, RampPlusMinus {
 public:
@@ -634,7 +688,13 @@ public:
         return;
       }
       if (inRect(e.x, e.y, SAVE_X, ACT_Y, ACT_W, ACT_H)) {
-        requestSetRTC(h, m, s);
+        // Preserve the model's current date so writeRTC doesn't clobber it.
+        uint8_t  wd, dd, mo;
+        uint16_t yr;
+        { ModelLock lk;
+          wd = model.weekday; dd = model.day;
+          mo = model.month;   yr = model.year; }
+        requestSetRTC(h, m, s, wd, dd, mo, yr);
         hapticBuzz(120, 70);
         switchTo(Screen::Settings);
       }
@@ -674,6 +734,159 @@ private:
     char buf[3];
     for (int c = 0; c < 3; c++) {
       uint8_t v = (c == 0) ? h : (c == 1) ? m : s;
+      snprintf(buf, sizeof(buf), "%02u", v);
+      int16_t x = COL_X(c) + (COL_W - 6 * 5 * 2) / 2;
+      gfx->setCursor(x, DIGITS_Y);
+      gfx->print(buf);
+    }
+  }
+};
+
+// =====================================================================
+// SettingsDate — set day / month / year on the RV-3028. Same chrome as
+// the time page but the third column shows the last two digits of the
+// year (stored full-width). Day clamps when month/year changes (28/29/
+// 30/31 boundaries) and the weekday register is recomputed on save.
+// =====================================================================
+class SettingsDateView : public View, RampPlusMinus {
+public:
+  void onEnter() override {
+    clearAll();
+    { ModelLock lk;
+      day  = model.rtcOk ? model.day   : 1;
+      mon  = model.rtcOk ? model.month : 1;
+      year = model.rtcOk ? model.year  : 2026; }
+    if (mon < 1 || mon > 12) mon = 1;
+    if (day < 1) day = 1;
+    uint8_t dim = kvDaysInMonth(year, mon);
+    if (day > dim) day = dim;
+    dirty = ALL;
+    stopHold();
+  }
+  void render() override {
+    if (!gfx) return;
+    if (dirty & TITLE) {
+      drawBackButton();
+      gfx->setTextSize(2);
+      gfx->setTextColor(WHITE, BLACK);
+      gfx->setCursor(110, 14);
+      gfx->print("Date");
+      gfx->drawFastHLine(20, 46, 200, DARKGREY);
+
+      // Tiny D / M / YY column labels just under the divider.
+      gfx->setTextSize(1);
+      gfx->setTextColor(DARKGREY, BLACK);
+      const char *labels[] = { "DAY", "MONTH", "YEAR" };
+      for (int c = 0; c < 3; c++) {
+        int16_t x = COL_X(c) + (COL_W - (int16_t)strlen(labels[c]) * 6) / 2;
+        gfx->setCursor(x, 52);
+        gfx->print(labels[c]);
+      }
+
+      for (int c = 0; c < 3; c++) {
+        int16_t x = COL_X(c);
+        gfx->drawRoundRect(x, BTN_PLUS_Y,  COL_W, BTN_H, 6, DARKGREY);
+        gfx->drawRoundRect(x, BTN_MINUS_Y, COL_W, BTN_H, 6, DARKGREY);
+        gfx->setTextSize(3);
+        gfx->setTextColor(WHITE, BLACK);
+        gfx->setCursor(x + COL_W / 2 - 9, BTN_PLUS_Y + 12);
+        gfx->print('+');
+        gfx->setCursor(x + COL_W / 2 - 9, BTN_MINUS_Y + 12);
+        gfx->print('-');
+      }
+      gfx->fillRoundRect(SAVE_X, ACT_Y, ACT_W, ACT_H, 6, DARKGREEN);
+      gfx->setTextSize(2);
+      gfx->setTextColor(WHITE, DARKGREEN);
+      gfx->setCursor(SAVE_X + (ACT_W - 48) / 2, ACT_Y + 10);
+      gfx->print("SAVE");
+      dirty &= ~TITLE;
+    }
+    if (dirty & DIGITS) { drawDigits(); dirty &= ~DIGITS; }
+  }
+  void onEvent(const Event &e) override {
+    if (e.type == EventType::ButtonShort) { switchTo(Screen::Settings); return; }
+    if (e.type == EventType::Touch && tappedBack(e.x, e.y)) {
+      switchTo(Screen::Settings); return;
+    }
+    if (e.type == EventType::TouchUp) { stopHold(); return; }
+    if (e.type != EventType::Touch && e.type != EventType::TouchHold) return;
+
+    int col = -1; int8_t sign = 0;
+    for (int c = 0; c < 3; c++) {
+      int16_t x = COL_X(c);
+      if (inRect(e.x, e.y, x, BTN_PLUS_Y,  COL_W, BTN_H)) { col = c; sign = +1; break; }
+      if (inRect(e.x, e.y, x, BTN_MINUS_Y, COL_W, BTN_H)) { col = c; sign = -1; break; }
+    }
+
+    if (e.type == EventType::Touch) {
+      if (col >= 0) {
+        bump(col, sign); hapticBuzz(40, 50);
+        startHold(col, sign);
+        return;
+      }
+      if (inRect(e.x, e.y, SAVE_X, ACT_Y, ACT_W, ACT_H)) {
+        // Preserve current time, write new date + recomputed weekday.
+        uint8_t hh, mm, ss;
+        { ModelLock lk; hh = model.hour; mm = model.minute; ss = model.second; }
+        uint8_t wd = kvSakamoto(year, mon, day);
+        requestSetRTC(hh, mm, ss, wd, day, mon, year);
+        hapticBuzz(120, 70);
+        switchTo(Screen::Settings);
+      }
+      return;
+    }
+    if (e.type == EventType::TouchHold && tickHold(col, sign)) {
+      bump(col, sign);
+    }
+  }
+private:
+  static const int16_t BTN_PLUS_Y  = 66;
+  static const int16_t BTN_H       = 48;
+  static const int16_t DIGITS_Y    = 120;
+  static const int16_t BTN_MINUS_Y = 168;
+  static const int16_t ACT_Y       = 232;
+  static const int16_t ACT_H       = 36;
+  static const int16_t ACT_W       = 200;
+  static const int16_t SAVE_X      = 20;
+  static const int16_t COL_W       = 64;
+  static int16_t COL_X(int c) { return 16 + c * (COL_W + 12); }
+
+  enum DirtyFlags { TITLE = 1, DIGITS = 2, ALL = 3 };
+
+  uint8_t  day = 1, mon = 1;
+  uint16_t year = 2026;
+  uint8_t  dirty = ALL;
+
+  void bump(int col, int8_t d) {
+    if (col == 0) {
+      uint8_t dim = kvDaysInMonth(year, mon);
+      day = ((day - 1 + dim + d) % dim) + 1;
+    }
+    if (col == 1) {
+      mon = ((mon - 1 + 12 + d) % 12) + 1;
+      uint8_t dim = kvDaysInMonth(year, mon);
+      if (day > dim) day = dim;
+    }
+    if (col == 2) {
+      int y = (int)year + d;
+      if (y < 2000) y = 2099;
+      if (y > 2099) y = 2000;
+      year = (uint16_t)y;
+      uint8_t dim = kvDaysInMonth(year, mon);
+      if (day > dim) day = dim;
+    }
+    dirty |= DIGITS;
+  }
+  void drawDigits() {
+    gfx->fillRect(0, DIGITS_Y, W, 44, BLACK);
+    gfx->setTextSize(5);
+    gfx->setTextColor(YELLOW, BLACK);
+    char buf[4];
+    for (int c = 0; c < 3; c++) {
+      uint8_t v;
+      if      (c == 0) v = day;
+      else if (c == 1) v = mon;
+      else             v = (uint8_t)(year % 100);
       snprintf(buf, sizeof(buf), "%02u", v);
       int16_t x = COL_X(c) + (COL_W - 6 * 5 * 2) / 2;
       gfx->setCursor(x, DIGITS_Y);
@@ -1528,6 +1741,7 @@ static const AppEntry kTopApps[] = {
   { "3D Viewer", DARKCYAN,  Screen::Viewer3D   },
   { "Media",     OLIVE,     Screen::Media      },
   { "QR Share",  PURPLE,    Screen::QRCode     },
+  { "Animator",  MAROON,    Screen::AnimDemo   },
   { "System",    NAVY,      Screen::SystemApps },
 };
 static const AppEntry kSystemApps[] = {
@@ -1547,6 +1761,7 @@ static TileListView       vSystemApps(kSystemApps,
                                       "System", Screen::AppList);
 static SettingsView         vSettings;          // sub-menu
 static SettingsTimeView     vSettingsTime;      // page
+static SettingsDateView     vSettingsDate;      // page
 static SettingsSleepView    vSettingsSleep;     // page
 static SettingsDisplayView  vSettingsDisplay;   // page
 static SettingsMemoryView   vSettingsMemory;    // page
@@ -1556,6 +1771,7 @@ static ImuGesturesView    vImuGestures;
 static Viewer3DView       vViewer3D;       // user app — defined in apps/viewer3d.cpp
 static MediaView          vMedia;          // user app — defined in apps/media.cpp
 static QRCodeView         vQRCode;         // user app — defined in apps/qr.cpp
+static AnimDemoView       vAnimDemo;       // user app — defined in apps/anim_demo.cpp
 static PowerOffView       vPowerOff;
 
 View *currentView = nullptr;
@@ -1567,6 +1783,7 @@ View *viewFor(Screen s) {
     case Screen::SystemApps:    return &vSystemApps;
     case Screen::Settings:      return &vSettings;
     case Screen::SettingsTime:    return &vSettingsTime;
+    case Screen::SettingsDate:    return &vSettingsDate;
     case Screen::SettingsSleep:   return &vSettingsSleep;
     case Screen::SettingsDisplay: return &vSettingsDisplay;
     case Screen::SettingsMemory:  return &vSettingsMemory;
@@ -1576,6 +1793,7 @@ View *viewFor(Screen s) {
     case Screen::Viewer3D:      return &vViewer3D;
     case Screen::Media:         return &vMedia;
     case Screen::QRCode:        return &vQRCode;
+    case Screen::AnimDemo:      return &vAnimDemo;
     case Screen::PowerOff:      return &vPowerOff;
   }
   return &vWatch;

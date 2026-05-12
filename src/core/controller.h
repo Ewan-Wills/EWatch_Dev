@@ -13,13 +13,16 @@ void controllerStartTasks();     // launches the FreeRTOS tasks
 // shared I2C bus or the battery ADC sequence and have no internal locking.
 bool readRTC(uint8_t &h, uint8_t &m, uint8_t &s,
              uint8_t &weekday, uint8_t &day, uint8_t &month, uint16_t &year);
-bool writeRTC(uint8_t h, uint8_t m, uint8_t s);
+bool writeRTC(uint8_t h, uint8_t m, uint8_t s,
+              uint8_t weekday, uint8_t day, uint8_t month, uint16_t year);
 bool readAccel(int16_t &x, int16_t &y, int16_t &z);
 bool readBattery(float &volts, uint8_t &pct);
 
 // Thread-safe entry from any task: queue an RTC write to be performed by
-// taskIO at the start of its next cycle.
-void requestSetRTC(uint8_t h, uint8_t m, uint8_t s);
+// taskIO at the start of its next cycle. Caller supplies HMS and date (year
+// as full 4-digit value, weekday 0..6 per RV-3028 convention).
+void requestSetRTC(uint8_t h, uint8_t m, uint8_t s,
+                   uint8_t weekday, uint8_t day, uint8_t month, uint16_t year);
 
 // Enter deep sleep with wake sources configured per the model's wakeOn*
 // flags. If wakeOnImu is set this also configures the MMA8451 motion
