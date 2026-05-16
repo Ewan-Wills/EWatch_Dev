@@ -74,7 +74,10 @@ void TimerView::enterSetting() { mode = Mode::Setting; gfx->fillScreen(BLACK); f
 void TimerView::enterRunning() { mode = Mode::Running; gfx->fillScreen(BLACK); firstDraw = true;
                                  lastShownRemain = 0xFFFFFFFF; }
 void TimerView::enterFired()   { mode = Mode::Fired;   gfx->fillScreen(BLACK); firstDraw = true;
-                                 lastBuzzMs = 0; }
+                                 lastBuzzMs = 0;
+                                 alertCycleStartMs = millis();
+                                 alertPulseStage   = 0;
+                                 lastAlertFlip     = -1; }
 
 // ---------- render ----------
 void TimerView::render() {
@@ -95,10 +98,23 @@ void TimerView::render() {
     }
     case Mode::Fired:
       drawFired();
-      // Pulse the motor roughly once a second until dismissed.
-      if (millis() - lastBuzzMs > 900) {
-        hapticBuzz(320, 200);
-        lastBuzzMs = millis();
+      // Repeating triplet-then-pause buzz pattern. Each ~1.4 s cycle fires
+      // three short pulses (at +0, +220, +440 ms) followed by a longer pause
+      // so the alarm reads as a distinct rhythm, not a single buzz on a loop.
+      {
+        const uint32_t cycleMs  = 1400;
+        const uint32_t pulseAt[3] = { 0, 220, 440 };
+        uint32_t now = millis();
+        uint32_t elapsed = now - alertCycleStartMs;
+        if (elapsed >= cycleMs) {
+          alertCycleStartMs = now;
+          alertPulseStage   = 0;
+          elapsed = 0;
+        }
+        while (alertPulseStage < 3 && elapsed >= pulseAt[alertPulseStage]) {
+          hapticBuzz(220, 110);
+          alertPulseStage++;
+        }
       }
       break;
   }
@@ -253,25 +269,38 @@ void TimerView::drawRunning(uint32_t remainSec) {
 }
 
 void TimerView::drawFired() {
-  // Flash the banner colour at ~3 Hz.
-  bool flip = ((millis() / 300) & 1) != 0;
-  uint16_t fg = flip ? RED : YELLOW;
+  // Full-screen alert: the entire background flashes between RED and BLACK at
+  // ~3 Hz to grab attention from across the room; "TIME UP" stays white,
+  // centred and oversized. Only repaint when the flip phase actually changes
+  // so we don't burn cycles redrawing identical frames.
+  int8_t flip = (int8_t)(((millis() / 320) & 1) != 0);
+  if (flip == lastAlertFlip && !firstDraw) return;
+  lastAlertFlip = flip;
 
-  if (firstDraw) {
-    drawBackButton();
-    drawTitle("Timer");
-    gfx->fillRoundRect(ACT_X, ACT_Y, ACT_W, ACT_H, 8, DARKGREEN);
-    gfx->setTextSize(3);
-    gfx->setTextColor(WHITE, DARKGREEN);
-    gfx->setCursor(ACT_X + (ACT_W - 7 * 18) / 2, ACT_Y + 10);
-    gfx->print("DISMISS");
-    firstDraw = false;
-  }
-  gfx->fillRect(0, 100, W, 70, BLACK);
+  uint16_t bg = flip ? RED : BLACK;
+  gfx->fillScreen(bg);
+
+  // Title — size 5 = 25 px wide / 40 tall per char. "TIME UP" is 7 chars,
+  // so the centred block is 7 * 30 = 210 px, which fits the 240-wide screen
+  // with a 15 px gutter each side. Size 6 wraps the "P" onto a new line.
   gfx->setTextSize(5);
-  gfx->setTextColor(fg, BLACK);
+  gfx->setTextColor(WHITE, bg);
   const char *msg = "TIME UP";
   int16_t tw = (int16_t)strlen(msg) * 6 * 5;
-  gfx->setCursor((W - tw) / 2, 116);
+  gfx->setCursor((W - tw) / 2, 110);
   gfx->print(msg);
+
+  // DISMISS strip: white pill on whichever background is current so it stays
+  // tappable in both flash phases. Same hit rectangle as in setting/running
+  // modes so the existing onEvent code still works.
+  gfx->fillRoundRect(ACT_X, ACT_Y, ACT_W, ACT_H, 8, WHITE);
+  gfx->drawRoundRect(ACT_X, ACT_Y, ACT_W, ACT_H, 8, BLACK);
+  gfx->setTextSize(3);
+  gfx->setTextColor(BLACK, WHITE);
+  gfx->setCursor(ACT_X + (ACT_W - 7 * 18) / 2, ACT_Y + 10);
+  gfx->print("DISMISS");
+
+  // Back chevron in the corner, drawn each flip so it survives the fillScreen.
+  drawBackButton();
+  firstDraw = false;
 }

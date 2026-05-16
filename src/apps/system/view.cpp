@@ -14,7 +14,6 @@
 #include "viewer3d.h"
 #include "media.h"
 #include "qr.h"
-#include "anim_demo.h"
 #include "stopwatch.h"
 #include "timer_app.h"
 #include "wifi_svc.h"
@@ -79,13 +78,217 @@ static bool tappedBack(uint16_t x, uint16_t y) {
 }
 
 // =====================================================================
+// Watch face style profiles. Each profile drives the size + Y position of
+// the time/seconds/date rows on the watch face, plus an optional "double
+// strike" pass that simulates bold by overdrawing one pixel to the right.
+// The user picks an index via the web page or Display settings; persisted as
+// model.watchFaceStyle.
+// =====================================================================
+enum class WatchFaceEffect : uint8_t {
+  Plain   = 0,
+  Bold    = 1,    // overstrike 1 px right
+  Outline = 2,    // 8-direction outline in bg around fg-coloured glyph
+  Shadow  = 3,    // glyph in bg color shifted +2,+2 then fg on top
+};
+
+struct WatchFaceStyle {
+  const char *name;
+  uint8_t  timeSize;     // text size for HH:MM (ignored if digital=true)
+  uint8_t  secSize;      // text size for :SS
+  uint8_t  dateSize;     // text size for date row
+  int16_t  timeY;        // cursor Y for HH:MM (top of digit band)
+  int16_t  secY;         // cursor Y for :SS
+  int16_t  dateY;        // cursor Y for date row
+  WatchFaceEffect effect;
+  bool     digital;      // draw HH:MM as 7-segment digits instead of bitmap
+};
+
+static const WatchFaceStyle kWatchFaceStyles[] = {
+  // name        timeSz secSz dateSz  timeY secY dateY  effect                    digital
+  { "Default",     6,    3,    2,     108,  174,  212,  WatchFaceEffect::Plain,   false },
+  { "Bold",        6,    3,    2,     108,  174,  212,  WatchFaceEffect::Bold,    false },
+  { "Big",         7,    3,    2,     100,  186,  220,  WatchFaceEffect::Plain,   false },
+  { "Slim",        5,    2,    2,     120,  180,  212,  WatchFaceEffect::Plain,   false },
+  { "Outline",     6,    3,    2,     108,  174,  212,  WatchFaceEffect::Outline, false },
+  { "Shadow",      6,    3,    2,     108,  174,  212,  WatchFaceEffect::Shadow,  false },
+  { "Digital",     0,    3,    2,     102,  186,  220,  WatchFaceEffect::Plain,   true  },
+};
+static const int kWatchFaceStyleCount =
+    (int)(sizeof(kWatchFaceStyles) / sizeof(kWatchFaceStyles[0]));
+
+static const WatchFaceStyle &watchFaceStyleFor(uint8_t idx) {
+  if (idx >= kWatchFaceStyleCount) idx = 0;
+  return kWatchFaceStyles[idx];
+}
+
+int watchFaceStyleCount() { return kWatchFaceStyleCount; }
+const char *watchFaceStyleName(int idx) {
+  if (idx < 0 || idx >= kWatchFaceStyleCount) return "";
+  return kWatchFaceStyles[idx].name;
+}
+
+// Draws bitmap-font text with a per-style effect. Uses transparent text (so
+// the multiple overlapping passes for Outline don't erase each other); the
+// caller must have already cleared the band with the background colour.
+static void drawStyledText(Arduino_GFX *g, int16_t x, int16_t y, uint8_t size,
+                           uint16_t fg, uint16_t bg, WatchFaceEffect ef,
+                           const char *text) {
+  g->setTextSize(size);
+  switch (ef) {
+    case WatchFaceEffect::Plain:
+      g->setTextColor(fg);
+      g->setCursor(x, y);
+      g->print(text);
+      break;
+    case WatchFaceEffect::Bold:
+      // Two overlapping passes 1 px apart = chunkier strokes.
+      g->setTextColor(fg);
+      g->setCursor(x, y);     g->print(text);
+      g->setCursor(x + 1, y); g->print(text);
+      break;
+    case WatchFaceEffect::Outline: {
+      // Eight offset copies in fg form a 1 px halo; then a single bg-coloured
+      // copy in the centre punches the interior out so the glyphs read as
+      // hollow stroked letters.
+      g->setTextColor(fg);
+      for (int8_t dx = -1; dx <= 1; dx++)
+        for (int8_t dy = -1; dy <= 1; dy++) {
+          if (dx == 0 && dy == 0) continue;
+          g->setCursor(x + dx, y + dy);
+          g->print(text);
+        }
+      g->setTextColor(bg);
+      g->setCursor(x, y);
+      g->print(text);
+      break;
+    }
+    case WatchFaceEffect::Shadow:
+      g->setTextColor(DARKGREY);
+      g->setCursor(x + 3, y + 3);
+      g->print(text);
+      g->setTextColor(fg);
+      g->setCursor(x, y);
+      g->print(text);
+      break;
+  }
+}
+
+// =====================================================================
+// 7-segment "Digital" renderer for HH:MM. Drawn from filled trapezoids so the
+// segments have angled ends — looks much more like a real LCD watch than the
+// previous square-edged version. Each digit is `dw` wide × `dh` tall with a
+// segment thickness of `t`. Lay out: HH : MM, gap between digits, colon.
+//
+// Segment indexing (Adafruit-typical):
+//   aaa
+//  f   b
+//  f   b
+//   ggg
+//  e   c
+//  e   c
+//   ddd
+// abcdefg
+
+// One horizontal segment — wider in the middle, tapered to a point at each end
+// (an elongated hexagon). Looks like a real 7-seg LCD pip.
+static void drawHSeg(Arduino_GFX *g, int16_t x, int16_t y,
+                     int16_t w, int16_t t, uint16_t color) {
+  // Body: full-thickness rectangle in the middle.
+  g->fillRect(x + t / 2, y, w - t, t, color);
+  // Tapered ends — a triangle of fillRect rows.
+  for (int16_t i = 0; i < t / 2; i++) {
+    int16_t len = (i + 1);
+    g->fillRect(x + (t / 2) - i - 1,         y + i, 1, t - 2 * i, color);
+    g->fillRect(x + w - (t / 2) + i,          y + i, 1, t - 2 * i, color);
+    (void)len;
+  }
+}
+// One vertical segment — same idea rotated 90°.
+static void drawVSeg(Arduino_GFX *g, int16_t x, int16_t y,
+                     int16_t h, int16_t t, uint16_t color) {
+  g->fillRect(x, y + t / 2, t, h - t, color);
+  for (int16_t i = 0; i < t / 2; i++) {
+    g->fillRect(x + i,         y + (t / 2) - i - 1, t - 2 * i, 1, color);
+    g->fillRect(x + i,         y + h - (t / 2) + i, t - 2 * i, 1, color);
+  }
+}
+
+static void draw7SegDigit(Arduino_GFX *g, int16_t x, int16_t y,
+                          int16_t dw, int16_t dh, int16_t t,
+                          uint8_t segs, uint16_t color) {
+  int16_t halfH = dh / 2;
+  // a: top horizontal — spans (x..x+dw), aligned to top.
+  if (segs & 0x40) drawHSeg(g, x, y,                  dw, t, color);
+  // b: upper right vertical — from just below 'a' to just above 'g'.
+  if (segs & 0x20) drawVSeg(g, x + dw - t,     y,             halfH + t / 2, t, color);
+  // c: lower right vertical
+  if (segs & 0x10) drawVSeg(g, x + dw - t,     y + halfH - t / 2, halfH + t / 2, t, color);
+  // d: bottom horizontal
+  if (segs & 0x08) drawHSeg(g, x, y + dh - t,         dw, t, color);
+  // e: lower left vertical
+  if (segs & 0x04) drawVSeg(g, x,              y + halfH - t / 2, halfH + t / 2, t, color);
+  // f: upper left vertical
+  if (segs & 0x02) drawVSeg(g, x,              y,             halfH + t / 2, t, color);
+  // g: middle horizontal
+  if (segs & 0x01) drawHSeg(g, x, y + halfH - t / 2,  dw, t, color);
+}
+
+// Segment table for digits 0-9. Bit 0x40 = a (top), 0x20 = b (UR), 0x10 = c (LR),
+// 0x08 = d (bottom), 0x04 = e (LL), 0x02 = f (UL), 0x01 = g (mid).
+static const uint8_t k7SegDigit[10] = {
+  /*0*/ 0x7E, /*1*/ 0x30, /*2*/ 0x6D, /*3*/ 0x79, /*4*/ 0x33,
+  /*5*/ 0x5B, /*6*/ 0x5F, /*7*/ 0x70, /*8*/ 0x7F, /*9*/ 0x7B,
+};
+
+// Draw a 4-digit HH:MM time at the top of the watch face. Bigger and more
+// generously spaced than the first cut so the LCD-watch look reads at arm's
+// length; ghost the 'off' segments at low intensity (DARKGREY) so the digit
+// silhouette is always visible — same trick a real LCD watch uses.
+static int16_t draw7SegTime(Arduino_GFX *g, int16_t topY,
+                            uint8_t h, uint8_t m,
+                            uint16_t color, uint16_t bg) {
+  const int16_t dw = 40, dh = 70, t = 8;      // bigger digits + thicker segments
+  const int16_t gap = 8;                       // between adjacent digits
+  const int16_t colW = 18;                     // colon block width
+  int16_t totalW = dw * 4 + gap * 3 + colW;
+  int16_t x = (240 - totalW) / 2;
+  g->fillRect(0, topY - 2, 240, dh + 6, bg);
+
+  // Ghost layer: every digit shows all 7 segments at low contrast, so the
+  // active segments overlay it. Skip the ghost when the bg is too light to
+  // resolve DARKGREY against (uncommon).
+  uint16_t ghost = DARKGREY;
+  uint8_t d0 = h / 10, d1 = h % 10, d2 = m / 10, d3 = m % 10;
+  uint8_t segsAll = 0x7F;
+  draw7SegDigit(g, x,                       topY, dw, dh, t, segsAll, ghost);
+  draw7SegDigit(g, x + dw + gap,            topY, dw, dh, t, segsAll, ghost);
+  int16_t colX = x + 2 * (dw + gap);
+  draw7SegDigit(g, colX + colW,             topY, dw, dh, t, segsAll, ghost);
+  draw7SegDigit(g, colX + colW + dw + gap,  topY, dw, dh, t, segsAll, ghost);
+
+  // Active layer.
+  draw7SegDigit(g, x,                       topY, dw, dh, t, k7SegDigit[d0], color);
+  draw7SegDigit(g, x + dw + gap,            topY, dw, dh, t, k7SegDigit[d1], color);
+  int16_t dot = t;
+  int16_t dotX = colX + (colW - dot) / 2;
+  g->fillRect(dotX, topY + dh / 3 - dot / 2,       dot, dot, color);
+  g->fillRect(dotX, topY + (2 * dh) / 3 - dot / 2, dot, dot, color);
+  draw7SegDigit(g, colX + colW,             topY, dw, dh, t, k7SegDigit[d2], color);
+  draw7SegDigit(g, colX + colW + dw + gap,  topY, dw, dh, t, k7SegDigit[d3], color);
+  return topY + dh;
+}
+
+// =====================================================================
 // Watch face — default view.
 // Centered HH:MM, secondary :SS row. Any touch -> AppList.
 // =====================================================================
 class WatchFaceView : public View {
 public:
   void onEnter() override {
-    { ModelLock lk; cachedBg = model.bgColor; cachedFg = model.fgColor; }
+    { ModelLock lk;
+      cachedBg    = model.bgColor;
+      cachedFg    = model.fgColor;
+      cachedStyle = model.watchFaceStyle; }
     if (gfx) {
       gfx->fillScreen(cachedBg);
       drawPowerIcon();
@@ -93,8 +296,9 @@ public:
     }
     cached.h = 99; cached.m = 99; cached.s = 99; cached.rtcOk = false;
     cached.day = 0; cached.month = 0; cached.year = 0; cached.weekday = 9;
-    cached.swRun = false; cached.swSec = 0xFFFFFFFF;
-    cached.tmrOn = false; cached.tmrSec = 0xFFFFFFFF;
+    cached.swRun = false; cached.swMs = 0xFFFFFFFF;
+    cached.tmrOn = false; cached.tmrMs = 0xFFFFFFFF;
+    msTrack.lastSec = 99; msTrack.lastSecMs = millis();
   }
   void render() override {
     if (!gfx) return;
@@ -102,51 +306,75 @@ public:
     { ModelLock lk; snap = model; }
 
     // Repaint the background and force time/seconds/date redraw if the user
-    // has changed colors since we last entered.
-    if (snap.bgColor != cachedBg || snap.fgColor != cachedFg) {
+    // has changed colors OR the font style since we last entered.
+    if (snap.bgColor != cachedBg || snap.fgColor != cachedFg ||
+        snap.watchFaceStyle != cachedStyle) {
       gfx->fillScreen(snap.bgColor);
-      cachedBg = snap.bgColor;
-      cachedFg = snap.fgColor;
+      cachedBg    = snap.bgColor;
+      cachedFg    = snap.fgColor;
+      cachedStyle = snap.watchFaceStyle;
       drawPowerIcon();
       drawWifiIcon(/*force=*/true);
       cached.h = 99; cached.m = 99; cached.s = 99; cached.rtcOk = false;
       cached.day = 0; cached.month = 0; cached.year = 0; cached.weekday = 9;
-      cached.swRun = false; cached.swSec = 0xFFFFFFFF;
-      cached.tmrOn = false; cached.tmrSec = 0xFFFFFFFF;
+      cached.swRun = false; cached.swMs = 0xFFFFFFFF;
+      cached.tmrOn = false; cached.tmrMs = 0xFFFFFFFF;
+      msTrack.lastSec = 99; msTrack.lastSecMs = millis();
     }
 
     drawWifiIcon(/*force=*/false);
 
+    const WatchFaceStyle &fs = watchFaceStyleFor(cachedStyle);
+
     // Big time HH:MM — vertically nudged down a touch now that the header is gone.
     if (snap.hour != cached.h || snap.minute != cached.m ||
         !snap.rtcOk != !cached.rtcOk) {
-      gfx->fillRect(0, 100, W, 60, cachedBg);
-      gfx->setTextSize(6);
-      gfx->setTextColor(snap.rtcOk ? cachedFg : RED, cachedBg);
-      char buf[8];
-      if (snap.rtcOk) snprintf(buf, sizeof(buf), "%02u:%02u", snap.hour, snap.minute);
-      else            strcpy(buf, "--:--");
-      gfx->setCursor(centerX(buf, 6), 108);
-      gfx->print(buf);
+      if (fs.digital) {
+        // 7-segment style. Renderer erases its own band; on RTC failure we
+        // fall back to a centered "--:--" bitmap so the user sees something.
+        if (snap.rtcOk) {
+          draw7SegTime(gfx, fs.timeY, snap.hour, snap.minute, cachedFg, cachedBg);
+        } else {
+          gfx->fillRect(0, 100, W, 68, cachedBg);
+          gfx->setTextSize(6);
+          gfx->setTextColor(RED, cachedBg);
+          const char *buf = "--:--";
+          gfx->setCursor(centerX(buf, 6), 108);
+          gfx->print(buf);
+        }
+      } else {
+        // The repaint band has to cover the tallest style (Big = 56 px tall);
+        // the chrome below (seconds row) lives at y >= 172 so 100..168 is safe.
+        // Outline / Shadow effects need a 3 px bleed margin so the halo of
+        // the previous frame fully overwrites; the band size handles that.
+        gfx->fillRect(0, 100, W, 68, cachedBg);
+        char buf[8];
+        if (snap.rtcOk) snprintf(buf, sizeof(buf), "%02u:%02u", snap.hour, snap.minute);
+        else            strcpy(buf, "--:--");
+        uint16_t fg = snap.rtcOk ? cachedFg : RED;
+        int16_t cx = centerX(buf, fs.timeSize);
+        drawStyledText(gfx, cx, fs.timeY, fs.timeSize, fg, cachedBg, fs.effect, buf);
+      }
       cached.h = snap.hour; cached.m = snap.minute; cached.rtcOk = snap.rtcOk;
     }
 
     // Seconds.
     if (snap.second != cached.s) {
-      gfx->fillRect(0, 172, W, 22, cachedBg);
-      gfx->setTextSize(3);
-      gfx->setTextColor(cachedFg, cachedBg);
+      // Pad the cleared band on each side to swallow shadow / outline bleed.
+      int16_t pad = (fs.effect == WatchFaceEffect::Shadow) ? 4 : 2;
+      gfx->fillRect(0, fs.secY - pad, W, fs.secSize * 8 + 2 * pad, cachedBg);
       char buf[8];
       snprintf(buf, sizeof(buf), ":%02u", snap.second);
-      gfx->setCursor(centerX(buf, 3), 174);
-      gfx->print(buf);
+      int16_t cx = centerX(buf, fs.secSize);
+      drawStyledText(gfx, cx, fs.secY, fs.secSize, cachedFg, cachedBg, fs.effect, buf);
       cached.s = snap.second;
     }
 
     // Date below the seconds row. Redraw only when it changes.
     if (snap.day != cached.day || snap.month != cached.month ||
         snap.year != cached.year || snap.weekday != cached.weekday) {
-      gfx->fillRect(0, 210, W, 20, cachedBg);
+      int16_t pad = (fs.effect == WatchFaceEffect::Shadow) ? 4 : 2;
+      gfx->fillRect(0, fs.dateY - pad, W, fs.dateSize * 8 + 2 * pad, cachedBg);
       if (snap.rtcOk) {
         static const char *kWday[] = { "Sun","Mon","Tue","Wed","Thu","Fri","Sat" };
         static const char *kMon[]  = { "???","Jan","Feb","Mar","Apr","May","Jun",
@@ -155,49 +383,66 @@ public:
         const char *mn = (snap.month >= 1 && snap.month <= 12) ? kMon[snap.month] : "???";
         char buf[20];
         snprintf(buf, sizeof(buf), "%s %u %s %u", wd, snap.day, mn, snap.year);
-        gfx->setTextSize(2);
-        gfx->setTextColor(cachedFg, cachedBg);
-        gfx->setCursor(centerX(buf, 2), 212);
-        gfx->print(buf);
+        int16_t cx = centerX(buf, fs.dateSize);
+        drawStyledText(gfx, cx, fs.dateY, fs.dateSize, cachedFg, cachedBg, fs.effect, buf);
       }
       cached.day = snap.day; cached.month = snap.month;
       cached.year = snap.year; cached.weekday = snap.weekday;
     }
 
     // Stopwatch / timer status lines — shown only while each is active.
+    // Both lines now display milliseconds. The stopwatch has native ms
+    // precision; the timer is anchored at second precision in the RTC, so we
+    // interpolate inside the current second using millis() — we record the
+    // millis() value at which we last saw `snap.second` change.
+    if (snap.second != msTrack.lastSec) {
+      msTrack.lastSec      = snap.second;
+      msTrack.lastSecMs    = millis();
+    }
+    uint32_t fracMs = millis() - msTrack.lastSecMs;
+    if (fracMs > 999) fracMs = 999;
+
     uint32_t epoch = snap.rtcOk
         ? rtcEpochSec(snap.year, snap.month, snap.day,
                       snap.hour, snap.minute, snap.second)
         : 0;
 
     bool     swRun = stopwatchRunning();
-    uint32_t swSec = swRun ? stopwatchElapsedMs(epoch, millis()) / 1000u : 0;
-    if (swRun != cached.swRun || swSec != cached.swSec) {
+    uint32_t swMs  = swRun ? stopwatchElapsedMs(epoch, millis()) : 0;
+    if (swRun != cached.swRun || swMs != cached.swMs) {
       gfx->fillRect(0, 236, W, 18, cachedBg);
       if (swRun) {
-        char buf[20];
-        fmtClock(buf, sizeof(buf), "SW ", swSec);
+        char buf[24];
+        fmtClockMs(buf, sizeof(buf), "SW ", swMs);
         gfx->setTextSize(2);
         gfx->setTextColor(GREEN, cachedBg);
         gfx->setCursor(centerX(buf, 2), 238);
         gfx->print(buf);
       }
-      cached.swRun = swRun; cached.swSec = swSec;
+      cached.swRun = swRun; cached.swMs = swMs;
     }
 
     bool     tmrOn  = timerArmed();
     uint32_t tmrSec = tmrOn ? timerRemainingSec(epoch) : 0;
-    if (tmrOn != cached.tmrOn || tmrSec != cached.tmrSec) {
+    // Subtract the fractional millis of the current RTC second so the timer
+    // ticks down smoothly between RTC updates. Clamp at zero so we never go
+    // negative around the deadline (controller will fire the alarm then).
+    uint32_t tmrMs = 0;
+    if (tmrOn) {
+      uint32_t total = tmrSec * 1000u;
+      tmrMs = (total > fracMs) ? (total - fracMs) : 0;
+    }
+    if (tmrOn != cached.tmrOn || tmrMs != cached.tmrMs) {
       gfx->fillRect(0, 258, W, 20, cachedBg);
       if (tmrOn) {
-        char buf[20];
-        fmtClock(buf, sizeof(buf), "T-", tmrSec);
+        char buf[24];
+        fmtClockMs(buf, sizeof(buf), "T-", tmrMs);
         gfx->setTextSize(2);
         gfx->setTextColor(ORANGE, cachedBg);
         gfx->setCursor(centerX(buf, 2), 260);
         gfx->print(buf);
       }
-      cached.tmrOn = tmrOn; cached.tmrSec = tmrSec;
+      cached.tmrOn = tmrOn; cached.tmrMs = tmrMs;
     }
   }
   void onEvent(const Event &e) override {
@@ -265,24 +510,38 @@ private:
     int8_t   bars;     // 0..3
   } wifiCache{false, WifiMode::AP, false, -1};
 
-  uint16_t cachedBg = BLACK;
-  uint16_t cachedFg = WHITE;
+  uint16_t cachedBg    = BLACK;
+  uint16_t cachedFg    = WHITE;
+  uint8_t  cachedStyle = 0xFF;       // force first-draw diff vs. model
   struct {
     uint8_t  h, m, s;
     bool     rtcOk;
     uint8_t  day, month, weekday;
     uint16_t year;
     bool     swRun, tmrOn;
-    uint32_t swSec, tmrSec;
+    uint32_t swMs, tmrMs;
   } cached{99,99,99,false,0,0,9,0,false,false,0xFFFFFFFF,0xFFFFFFFF};
 
-  // "prefix" + H:MM:SS / MM:SS depending on magnitude.
-  static void fmtClock(char *buf, size_t n, const char *prefix, uint32_t sec) {
-    uint32_t hh = sec / 3600, mm = (sec % 3600) / 60, ss = sec % 60;
-    if (hh > 0) snprintf(buf, n, "%s%lu:%02lu:%02lu", prefix,
-                         (unsigned long)hh, (unsigned long)mm, (unsigned long)ss);
-    else        snprintf(buf, n, "%s%02lu:%02lu", prefix,
-                         (unsigned long)mm, (unsigned long)ss);
+  // Tracks the millis() value at which we last observed an RTC second change,
+  // so we can interpolate sub-second progress for the timer display.
+  struct {
+    uint8_t  lastSec   = 99;
+    uint32_t lastSecMs = 0;
+  } msTrack;
+
+  // "prefix" + H:MM:SS.mmm / MM:SS.mmm depending on magnitude.
+  static void fmtClockMs(char *buf, size_t n, const char *prefix, uint32_t ms) {
+    uint32_t totalSec = ms / 1000u;
+    uint32_t msPart   = ms % 1000u;
+    uint32_t hh = totalSec / 3600u;
+    uint32_t mm = (totalSec % 3600u) / 60u;
+    uint32_t ss = totalSec % 60u;
+    if (hh > 0) snprintf(buf, n, "%s%lu:%02lu:%02lu.%03lu", prefix,
+                         (unsigned long)hh, (unsigned long)mm,
+                         (unsigned long)ss, (unsigned long)msPart);
+    else        snprintf(buf, n, "%s%02lu:%02lu.%03lu", prefix,
+                         (unsigned long)mm, (unsigned long)ss,
+                         (unsigned long)msPart);
   }
 
   void drawPowerIcon() {
@@ -385,8 +644,9 @@ struct AppEntry {
   const char *subtitle;            // short description (may be "")
 };
 
-// Set to 0 to silence carousel instrumentation once the bug is found.
-#define CAROUSEL_DEBUG 1
+// Set to 1 to re-enable the per-stage carousel breadcrumbs we used to track
+// down the framebuffer-overflow crash.
+#define CAROUSEL_DEBUG 0
 
 #if CAROUSEL_DEBUG
   // Flush after every print: when the device panics we lose anything still in
@@ -429,11 +689,14 @@ public:
       CAR_LOG("onEnter: frameCanvas() returned null — bailing");
       return;
     }
-    cur          = 0;
-    // Tile slides in from below on entry.
-    scrollPos    = -1.0f;
-    scrollFrom   = -1.0f;
-    scrollTo     = 0.0f;
+    // Keep `cur` across visits so coming back from a sub-app lands you on the
+    // tile you launched from, not always tile 0. First-ever entry uses the
+    // class default (0).
+    if (cur < 0 || cur >= N) cur = 0;
+    // Tile slides in from one slot below the target on entry.
+    scrollPos    = (float)cur - 1.0f;
+    scrollFrom   = (float)cur - 1.0f;
+    scrollTo     = (float)cur;
     scrollStart  = millis();
     scrollDuration = 500;
     pulseStart   = 0;
@@ -1764,6 +2027,206 @@ private:
 };
 
 // =====================================================================
+// SettingsFont — watch face font picker. Shows every kWatchFaceStyles entry
+// as a tappable row; tapping selects + saves immediately so the user can
+// switch back to the watch face and see the new look. The currently saved
+// style is highlighted; the in-progress selection is bordered. Back returns
+// to the Settings carousel.
+// =====================================================================
+class SettingsFontView : public View {
+public:
+  void onEnter() override {
+    clearAll();
+    { ModelLock lk;
+      int n = watchFaceStyleCount();
+      sel = (model.watchFaceStyle < (uint8_t)n) ? model.watchFaceStyle : 0; }
+    firstDraw = true;
+  }
+  void render() override {
+    if (!gfx) return;
+    if (firstDraw) {
+      drawBackButton();
+      gfx->setTextSize(2);
+      gfx->setTextColor(WHITE, BLACK);
+      gfx->setCursor(108, 14);
+      gfx->print("Font");
+      gfx->drawFastHLine(20, 46, 200, DARKGREY);
+      drawAllRows();
+      firstDraw = false;
+    }
+  }
+  void onEvent(const Event &e) override {
+    if (e.type == EventType::ButtonShort) { switchTo(Screen::Settings); return; }
+    if (e.type != EventType::Touch) return;
+    if (tappedBack(e.x, e.y)) { switchTo(Screen::Settings); return; }
+    int n = watchFaceStyleCount();
+    for (int i = 0; i < n; i++) {
+      int16_t y = rowY(i);
+      if (inRect(e.x, e.y, ROW_X, y, ROW_W, ROW_H)) {
+        sel = (uint8_t)i;
+        { ModelLock lk; model.watchFaceStyle = sel; model.revision++; }
+        Storage::save();
+        hapticBuzz(60, 60);
+        drawAllRows();
+        return;
+      }
+    }
+  }
+private:
+  uint8_t sel = 0;
+  bool    firstDraw = true;
+
+  static const int16_t ROW_X  = 16;
+  static const int16_t ROW_W  = 208;
+  static const int16_t ROW_H  = 34;
+  static const int16_t ROW0_Y = 60;
+  static const int16_t ROW_GAP = 6;
+
+  static int16_t rowY(int i) { return ROW0_Y + i * (ROW_H + ROW_GAP); }
+
+  void drawAllRows() {
+    int n = watchFaceStyleCount();
+    for (int i = 0; i < n; i++) drawRow(i, (uint8_t)i == sel);
+  }
+  void drawRow(int i, bool active) {
+    int16_t y = rowY(i);
+    uint16_t bg = active ? DARKGREEN : DARKGREY;
+    gfx->fillRoundRect(ROW_X, y, ROW_W, ROW_H, 6, bg);
+    gfx->drawRoundRect(ROW_X, y, ROW_W, ROW_H, 6, WHITE);
+    const char *nm = watchFaceStyleName(i);
+    gfx->setTextSize(2);
+    gfx->setTextColor(WHITE, bg);
+    int16_t lw = (int16_t)strlen(nm) * 12;
+    gfx->setCursor(ROW_X + (ROW_W - lw) / 2, y + 10);
+    gfx->print(nm);
+  }
+};
+
+// =====================================================================
+// SettingsHaptics — vibration strength slider (0..100%). Tap +/- to step in
+// 10% increments; SAVE writes through to NVS and updates the haptic driver
+// so every subsequent buzz uses the new strength immediately. A preview buzz
+// fires on each step so the user can feel the new level live.
+// =====================================================================
+class SettingsHapticsView : public View, RampPlusMinus {
+public:
+  void onEnter() override {
+    clearAll();
+    { ModelLock lk; strength = model.hapticStrength; }
+    dirty = ALL;
+    stopHold();
+  }
+  void render() override {
+    if (!gfx) return;
+    if (dirty & TITLE) {
+      drawBackButton();
+      gfx->setTextSize(2);
+      gfx->setTextColor(WHITE, BLACK);
+      gfx->setCursor(86, 14);
+      gfx->print("Haptics");
+      gfx->drawFastHLine(20, 46, 200, DARKGREY);
+      drawRowChrome();
+      gfx->fillRoundRect(SAVE_X, ACT_Y, ACT_W, ACT_H, 6, DARKGREEN);
+      gfx->setTextSize(2);
+      gfx->setTextColor(WHITE, DARKGREEN);
+      gfx->setCursor(SAVE_X + (ACT_W - 48) / 2, ACT_Y + 10);
+      gfx->print("SAVE");
+      dirty &= ~TITLE;
+    }
+    if (dirty & VALUE) { drawValue(); dirty &= ~VALUE; }
+  }
+  void onEvent(const Event &e) override {
+    if (e.type == EventType::ButtonShort) {
+      // Restore the saved strength so the live preview doesn't stick.
+      uint8_t saved; { ModelLock lk; saved = model.hapticStrength; }
+      hapticSetStrengthPct(saved);
+      switchTo(Screen::Settings); return;
+    }
+    if (e.type == EventType::Touch && tappedBack(e.x, e.y)) {
+      uint8_t saved; { ModelLock lk; saved = model.hapticStrength; }
+      hapticSetStrengthPct(saved);
+      switchTo(Screen::Settings); return;
+    }
+    if (e.type == EventType::TouchUp) { stopHold(); return; }
+    if (e.type != EventType::Touch && e.type != EventType::TouchHold) return;
+
+    int8_t sign = 0;
+    if (inRect(e.x, e.y, MINUS_X, ROW_Y, BTN_W, BTN_H))      sign = -1;
+    else if (inRect(e.x, e.y, PLUS_X, ROW_Y, BTN_W, BTN_H))  sign = +1;
+
+    if (e.type == EventType::Touch) {
+      if (sign != 0) {
+        bump(sign);
+        // Preview the new strength so the user can feel the difference live.
+        hapticSetStrengthPct(strength);
+        hapticBuzz(200, 60);
+        startHold(0, sign);
+        return;
+      }
+      if (inRect(e.x, e.y, SAVE_X, ACT_Y, ACT_W, ACT_H)) {
+        { ModelLock lk; model.hapticStrength = strength; model.revision++; }
+        Storage::save();
+        hapticSetStrengthPct(strength);
+        hapticBuzz(160, 80);
+        switchTo(Screen::Settings);
+      }
+      return;
+    }
+    if (e.type == EventType::TouchHold) {
+      int dummy = 0;
+      if (tickHold(dummy, sign)) { bump(sign); hapticSetStrengthPct(strength); }
+    }
+  }
+private:
+  static const int16_t ROW_Y   = 96;
+  static const int16_t BTN_H   = 48;
+  static const int16_t BTN_W   = 56;
+  static const int16_t MINUS_X = 16;
+  static const int16_t PLUS_X  = 240 - 16 - BTN_W;
+  static const int16_t VAL_X   = MINUS_X + BTN_W;
+  static const int16_t VAL_W   = PLUS_X - VAL_X;
+  static const int16_t ACT_Y   = 200;
+  static const int16_t ACT_H   = 44;
+  static const int16_t ACT_W   = 200;
+  static const int16_t SAVE_X  = 20;
+
+  enum DirtyFlags { TITLE = 1, VALUE = 2, ALL = 3 };
+  uint8_t strength = 100;
+  uint8_t dirty = ALL;
+
+  void bump(int8_t d) {
+    int v = (int)strength + d * 10;
+    if (v < 0)   v = 0;
+    if (v > 100) v = 100;
+    strength = (uint8_t)v;
+    dirty |= VALUE;
+  }
+  void drawRowChrome() {
+    gfx->setTextSize(1);
+    gfx->setTextColor(DARKGREY, BLACK);
+    gfx->setCursor(20, ROW_Y - 14);
+    gfx->print("Strength");
+    gfx->drawRoundRect(MINUS_X, ROW_Y, BTN_W, BTN_H, 6, DARKGREY);
+    gfx->drawRoundRect(PLUS_X,  ROW_Y, BTN_W, BTN_H, 6, DARKGREY);
+    gfx->setTextSize(4);
+    gfx->setTextColor(WHITE, BLACK);
+    gfx->setCursor(MINUS_X + BTN_W / 2 - 12, ROW_Y + 10);
+    gfx->print('-');
+    gfx->setCursor(PLUS_X  + BTN_W / 2 - 12, ROW_Y + 10);
+    gfx->print('+');
+  }
+  void drawValue() {
+    gfx->fillRect(VAL_X, ROW_Y, VAL_W, BTN_H, BLACK);
+    char buf[8]; snprintf(buf, sizeof(buf), "%u%%", (unsigned)strength);
+    gfx->setTextSize(4);
+    gfx->setTextColor(YELLOW, BLACK);
+    int16_t bw = (int16_t)strlen(buf) * 24;
+    gfx->setCursor(VAL_X + (VAL_W - bw) / 2, ROW_Y + 10);
+    gfx->print(buf);
+  }
+};
+
+// =====================================================================
 // SettingsMemory — live readout of internal heap, PSRAM, and app-flash use.
 // Each row shows USED/TOTAL in KiB, a percentage, and a horizontal fill bar.
 // Refreshes a couple of times a second since these numbers move slowly.
@@ -2009,12 +2472,14 @@ public:
     if (last.mode != snap.wifiMode || last.en != snap.wifiEnabled)
       drawModeBtns(snap.wifiMode);
     Snap cur{ snap.wifiEnabled, snap.wifiMode, snap.wifiConnected,
-              snap.wifiRssi, snap.wifiApClients, snap.rtcOk, "" };
+              snap.wifiRssi, snap.wifiApClients, snap.rtcOk,
+              snap.wifiIpV4, "" };
     strncpy(cur.ssid, snap.wifiSsid, 32);
     bool statusChanged =
        last.en != cur.en || last.mode != cur.mode ||
        last.conn != cur.conn || last.rssi != cur.rssi ||
-       last.cli  != cur.cli || strncmp(last.ssid, cur.ssid, 32) != 0;
+       last.cli  != cur.cli || last.ip != cur.ip ||
+       strncmp(last.ssid, cur.ssid, 32) != 0;
     if (statusChanged) drawStatus(cur);
     last = cur;
   }
@@ -2043,8 +2508,9 @@ private:
   struct Snap {
     bool     en; WifiMode mode; bool conn;
     int8_t   rssi; uint8_t cli; bool rtcOk;
+    uint32_t ip;
     char     ssid[33];
-  } last{false, WifiMode::AP, false, 0, 0, false, ""};
+  } last{false, WifiMode::AP, false, 0, 0, false, 0, ""};
   bool firstDraw = true;
 
   static const int16_t ENA_X = 20, ENA_Y = 60,  ENA_W = 200, ENA_H = 40;
@@ -2107,6 +2573,13 @@ private:
         gfx->print(buf);
         gfx->setTextColor(WHITE, BLACK);
         gfx->setCursor(12, STAT_Y + 14);
+        if (s.ip) {
+          snprintf(buf, sizeof(buf), "http://%u.%u.%u.%u/",
+                   (unsigned)(s.ip       & 0xFF), (unsigned)((s.ip >>  8) & 0xFF),
+                   (unsigned)((s.ip >> 16) & 0xFF), (unsigned)((s.ip >> 24) & 0xFF));
+          gfx->print(buf);
+        }
+        gfx->setCursor(12, STAT_Y + 28);
         snprintf(buf, sizeof(buf), "RSSI %d dBm", (int)s.rssi);
         gfx->print(buf);
       } else {
@@ -2465,7 +2938,6 @@ static const AppEntry kTopApps[] = {
   { "QR Share",  PURPLE,   Screen::QRCode,     "share contact info"   },
   { "Stopwatch", DARKCYAN, Screen::Stopwatch,  "count-up timer"       },
   { "Timer",     MAROON,   Screen::Timer,      "countdown + alarm"    },
-  { "Animator",  OLIVE,    Screen::AnimDemo,   "framework demo"       },
   { "System",    NAVY,     Screen::SystemApps, "settings & sensors"   },
 };
 static const AppEntry kSystemApps[] = {
@@ -2480,6 +2952,8 @@ static const AppEntry kSettingsEntries[] = {
   { "Date",    DARKCYAN,  Screen::SettingsDate,    "set the calendar"     },
   { "Sleep",   DARKGREEN, Screen::SettingsSleep,   "auto-sleep + wake"    },
   { "Display", PURPLE,    Screen::SettingsDisplay, "brightness + colors"  },
+  { "Font",    OLIVE,     Screen::SettingsFont,    "watch face style"     },
+  { "Haptics", DARKCYAN,  Screen::SettingsHaptics, "buzz strength"        },
 #if defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
   { "WiFi",    DARKCYAN,  Screen::SettingsWifi,    "host AP / join WiFi"  },
 #endif
@@ -2492,14 +2966,16 @@ static CarouselView       vAppList(kTopApps,
                                    "Apps", Screen::Watch, /*wrap=*/true);
 static CarouselView       vSystemApps(kSystemApps,
                                       sizeof(kSystemApps) / sizeof(kSystemApps[0]),
-                                      "System", Screen::AppList);
+                                      "System", Screen::AppList, /*wrap=*/true);
 static CarouselView       vSettings(kSettingsEntries,
                                     sizeof(kSettingsEntries) / sizeof(kSettingsEntries[0]),
-                                    "Settings", Screen::SystemApps);
+                                    "Settings", Screen::SystemApps, /*wrap=*/true);
 static SettingsTimeView     vSettingsTime;       // page
 static SettingsDateView     vSettingsDate;       // page
 static SettingsSleepView    vSettingsSleep;      // page
 static SettingsDisplayView  vSettingsDisplay;    // page
+static SettingsFontView     vSettingsFont;       // page
+static SettingsHapticsView  vSettingsHaptics;    // page
 static SettingsMemoryView   vSettingsMemory;     // page
 static SettingsWifiView     vSettingsWifi;       // page
 static SettingsKnownNetsView vSettingsKnownNets; // page
@@ -2509,7 +2985,6 @@ static ImuGesturesView    vImuGestures;
 static Viewer3DView       vViewer3D;       // user app — defined in apps/viewer3d.cpp
 static MediaView          vMedia;          // user app — defined in apps/media.cpp
 static QRCodeView         vQRCode;         // user app — defined in apps/qr.cpp
-static AnimDemoView       vAnimDemo;       // user app — defined in apps/anim_demo.cpp
 static StopwatchView      vStopwatch;      // user app — defined in apps/stopwatch.cpp
 static TimerView          vTimer;          // user app — defined in apps/timer_app.cpp
 static PowerOffView       vPowerOff;
@@ -2526,6 +3001,8 @@ View *viewFor(Screen s) {
     case Screen::SettingsDate:    return &vSettingsDate;
     case Screen::SettingsSleep:   return &vSettingsSleep;
     case Screen::SettingsDisplay: return &vSettingsDisplay;
+    case Screen::SettingsFont:    return &vSettingsFont;
+    case Screen::SettingsHaptics: return &vSettingsHaptics;
     case Screen::SettingsMemory:  return &vSettingsMemory;
     case Screen::SettingsWifi:    return &vSettingsWifi;
     case Screen::SettingsKnownNets: return &vSettingsKnownNets;
@@ -2535,7 +3012,6 @@ View *viewFor(Screen s) {
     case Screen::Viewer3D:      return &vViewer3D;
     case Screen::Media:         return &vMedia;
     case Screen::QRCode:        return &vQRCode;
-    case Screen::AnimDemo:      return &vAnimDemo;
     case Screen::Stopwatch:     return &vStopwatch;
     case Screen::Timer:         return &vTimer;
     case Screen::PowerOff:      return &vPowerOff;
@@ -2545,10 +3021,12 @@ View *viewFor(Screen s) {
 
 void switchTo(Screen s) {
   View *next = viewFor(s);
+#if CAROUSEL_DEBUG
   Serial.printf("[NAV %lu] switchTo(%d) cur=%p (vt=%p) next=%p (vt=%p)\n",
                 (unsigned long)millis(), (int)s,
                 (void*)currentView, currentView ? *(void**)currentView : nullptr,
                 (void*)next,        next        ? *(void**)next        : nullptr);
+#endif
   if (currentView == next) return;
   if (currentView) currentView->onExit();
   { ModelLock lk; model.screen = s; model.revision++; }

@@ -14,6 +14,8 @@ enum class Screen : uint8_t {
   SettingsDate,     // sub-page: calendar set
   SettingsSleep,    // sub-page: idle timeout + wake sources
   SettingsDisplay,  // sub-page: brightness + colors
+  SettingsFont,     // sub-page: watch face font picker
+  SettingsHaptics,  // sub-page: vibration strength
   SettingsMemory,   // sub-page: heap / PSRAM / flash usage
   SettingsWifi,     // sub-page: WiFi enable + mode + status
   SettingsKnownNets,// sub-page: list of saved networks (delete only)
@@ -21,7 +23,6 @@ enum class Screen : uint8_t {
   Viewer3D,         // user app (outside src/apps/system)
   Media,            // user app: image / video viewer
   QRCode,           // user app: phone / email / website share QR
-  AnimDemo,         // user app: anim framework showcase
   Stopwatch,        // user app: count-up stopwatch
   Timer,            // user app: countdown timer (wakes from sleep)
   PowerOff
@@ -78,6 +79,23 @@ struct Model {
   uint16_t bgColor    = 0x0000;     // RGB565 — BLACK
   uint16_t fgColor    = 0xFFFF;     // RGB565 — WHITE
 
+  // Haptic feedback strength as a percentage (0 = off, 100 = full motor).
+  // Every hapticBuzz() call scales its PWM intensity by this factor, so this
+  // single slider tames every alert/UI buzz on the device.
+  uint8_t  hapticStrength = 100;
+
+  // Local-time offset from UTC in minutes. Used by the NTP sync button to
+  // convert SNTP's UTC reading into local time before writing the RTC.
+  // -720..+840 covers every real-world timezone including half-hour offsets.
+  // Default 60 = UK BST. Saved over NVS, so any change persists across boots.
+  int16_t  tzOffsetMin = 60;
+
+  // Watch face style index. Indexes into kWatchFaceStyles in view.cpp; each
+  // style is a size + draw-mode profile for the time / seconds / date lines.
+  // Stored as uint8_t so the enum can grow without breaking the persisted
+  // schema; the watch face clamps invalid values back to 0.
+  uint8_t  watchFaceStyle = 0;
+
   // WiFi configuration (persisted).
   bool     wifiEnabled = false;
   WifiMode wifiMode    = WifiMode::AP;
@@ -88,6 +106,9 @@ struct Model {
   int8_t   wifiRssi      = 0;
   char     wifiSsid[33]  = "";       // STA-connected SSID or AP SSID
   uint8_t  wifiApClients = 0;
+  // Current radio IPv4 (0 = none). softAP IP in AP mode, DHCP-assigned IP in
+  // STA mode. Stored as IPAddress::operator uint32_t() (little-endian bytes).
+  uint32_t wifiIpV4      = 0;
 };
 
 extern Model            model;

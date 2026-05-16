@@ -17,7 +17,10 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <DNSServer.h>
+#include <ESPmDNS.h>
 #include <esp_wifi.h>
+#include <esp_sntp.h>
+#include <time.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/semphr.h>
@@ -26,7 +29,9 @@
 #include "model.h"
 #include "storage.h"
 #include "display.h"          // backlightSet for the brightness slider
+#include "haptic.h"           // hapticSetStrengthPct on save
 #include "controller.h"       // requestSetRTC
+#include "view.h"             // watchFaceStyleCount / watchFaceStyleName
 
 // ---------- desired vs actual state ----------
 enum class RadioState : uint8_t { Off, AP, Scanning, Connecting, Connected };
@@ -128,6 +133,10 @@ static String htmlPage() {
   WifiMode wMode;
   bool     rtcOk, wConn;
   int8_t   rssi;
+  int16_t  tzMin;
+  uint8_t  wfStyle;
+  uint8_t  haptStr;
+  uint32_t ipRaw;
   char     curSsid[33];
   { ModelLock lk;
     wt  = model.wakeOnTouch;     wb  = model.wakeOnButton;  wi  = model.wakeOnImu;
@@ -141,7 +150,12 @@ static String htmlPage() {
     wConn = model.wifiConnected; rssi = model.wifiRssi;
     strncpy(curSsid, model.wifiSsid, 32); curSsid[32] = '\0';
     apClients = model.wifiApClients;
+    ipRaw = model.wifiIpV4;
+    tzMin = model.tzOffsetMin;
+    wfStyle = model.watchFaceStyle;
+    haptStr = model.hapticStrength;
   }
+  IPAddress ipObj(ipRaw);
   String bgHex = rgb565ToHex(bg);
   String fgHex = rgb565ToHex(fg);
 
@@ -172,11 +186,16 @@ static String htmlPage() {
          "</style>"
          "<h1>EWatch</h1>");
   h += "<p class=muted>Saves: "; h += saveCount;
-  h += " &middot; AP clients: "; h += apClients;
+  if (wMode == WifiMode::AP) {
+    h += " &middot; AP clients: "; h += apClients;
+  }
   if (wifiOn && wMode == WifiMode::Client) {
     h += " &middot; STA: ";
     if (wConn) { h += esc(curSsid); h += " ("; h += rssi; h += " dBm)"; }
     else h += "scanning";
+  }
+  if (ipRaw) {
+    h += " &middot; IP: "; h += ipObj.toString();
   }
   h += "</p>";
 
@@ -249,7 +268,16 @@ static String htmlPage() {
   h += bgHex;
   h += F("></div><div><label>Foreground</label><input type=color name=fg value=");
   h += fgHex;
-  h += F("></div></div></fieldset>");
+  h += F("></div></div>"
+         "<label>Watch face font</label>"
+         "<select name=wfStyle>");
+  int wfCount = watchFaceStyleCount();
+  for (int i = 0; i < wfCount; i++) {
+    h += "<option value="; h += i;
+    if (i == wfStyle) h += " selected";
+    h += '>'; h += esc(watchFaceStyleName(i)); h += "</option>";
+  }
+  h += F("</select></fieldset>");
 
   h += F("<fieldset><legend>Sleep &amp; Wake</legend>"
          "<label>Auto-sleep after (sec, 0 = never)</label>"
@@ -271,6 +299,15 @@ static String htmlPage() {
   if (wi) h += " checked";
   h += F("><label for=wif>Wake on motion (IMU)</label></div></fieldset>");
 
+  h += F("<fieldset><legend>Haptics</legend>"
+         "<label>Vibration strength <span id=hpv>");
+  h += haptStr;
+  h += F("</span> % (0 = silent)</label>"
+         "<input type=range name=haptStr min=0 max=100 value=");
+  h += haptStr;
+  h += F(" oninput=\"document.getElementById('hpv').textContent=this.value\">"
+         "</fieldset>");
+
   h += F("<fieldset><legend>Time &amp; Date</legend>");
   if (!rtcOk) h += F("<p style='color:#f93'>(RTC not detected — writes may fail)</p>");
   char hms[12]; snprintf(hms, sizeof(hms), "%02u:%02u:%02u", hh, mm, ss);
@@ -286,11 +323,30 @@ static String htmlPage() {
     if (i == wd) h += " selected";
     h += '>'; h += i; h += " - "; h += days[i]; h += "</option>";
   }
-  h += F("</select></fieldset>"
+  h += F("</select>"
+         "<label>Timezone offset from UTC (minutes; e.g. 60 = UTC+1, -480 = UTC-8)</label>"
+         "<input type=number name=tzOff min=-720 max=840 step=15 value=");
+  h += tzMin;
+  h += F("></fieldset>"
          "<button>Save settings</button></form>"
-         "<p class=muted>Open AP \"");
-  h += AP_SSID;
-  h += F("\". Settings persist to NVS.</p>");
+         // The NTP form is its own POST so the user can sync without resaving
+         // the manual time/date inputs above. Sync uses the SAVED tz offset
+         // (default 60 = UK BST).
+         "<form method=POST action=/ntp style='margin-top:.6em'>"
+         "<button style='background:#247'>Sync time from internet (BST)</button>"
+         "<p class=muted>Requires WiFi in Client mode and internet access. "
+         "Uses pool.ntp.org and the timezone offset shown above "
+         "(60 = UK BST; set 0 if you want GMT in winter). "
+         "Save first if you changed the offset.</p></form>"
+         "<p class=muted>");
+  if (wMode == WifiMode::AP) {
+    h += F("Connected via AP \"");
+    h += AP_SSID;
+    h += F("\". Settings persist to NVS.");
+  } else {
+    h += F("Reachable at http://ewatch.local/ or the IP shown above. Settings persist to NVS.");
+  }
+  h += F("</p>");
   return h;
 }
 
@@ -313,6 +369,12 @@ static void handleSave() {
   if (parseHexColor(server.arg("bg"), r, g, b)) bg = rgb565From888(r, g, b);
   if (parseHexColor(server.arg("fg"), r, g, b)) fg = rgb565From888(r, g, b);
 
+  int16_t tzOff = (int16_t) constrain(server.arg("tzOff").toInt(), -720, 840);
+  int wfMax = watchFaceStyleCount();
+  uint8_t wfStyle = (uint8_t) constrain(server.arg("wfStyle").toInt(),
+                                        0, wfMax > 0 ? wfMax - 1 : 0);
+  uint8_t haptStr = (uint8_t) constrain(server.arg("haptStr").toInt(), 0, 100);
+
   { ModelLock lk;
     model.brightness       = br;
     model.bgColor          = bg;
@@ -323,10 +385,14 @@ static void handleSave() {
     model.wakeOnTouch      = wt;
     model.wakeOnButton     = wb;
     model.wakeOnImu        = wi;
+    model.tzOffsetMin      = tzOff;
+    model.watchFaceStyle   = wfStyle;
+    model.hapticStrength   = haptStr;
     model.revision++;
   }
   Storage::save();
   backlightSet(br);
+  hapticSetStrengthPct(haptStr);
 
   String tStr = server.arg("time");
   String dStr = server.arg("date");
@@ -391,10 +457,117 @@ static void handleKnownScan() {
   server.send(303);
 }
 
+// Trigger SNTP, wait for a valid epoch, then push it through to the RTC. Only
+// meaningful when the watch is on a network with internet access (AP mode is
+// LAN-only, so we refuse there rather than waste the user's 5 s).
+static void handleNtp() {
+  if (actual != RadioState::Connected) {
+    server.send(503, "text/plain",
+                "NTP needs WiFi in Client mode and an internet connection.\n"
+                "Switch to Client, save a network, then retry.\n");
+    return;
+  }
+  int16_t tzMin;
+  { ModelLock lk; tzMin = model.tzOffsetMin; }
+
+  Serial.printf("WEB: NTP sync requested (tzOff=%d min)\n", (int)tzMin);
+  // configTime sets the gmtOffset and starts SNTP with the given server. We
+  // pass 0 for the daylight-savings field because the model only carries a
+  // raw UTC offset — daylight handling is the user's call.
+  configTime((long)tzMin * 60L, 0, "pool.ntp.org", "time.google.com",
+             "time.cloudflare.com");
+
+  // Wait up to 5 s for the first SNTP reply to be applied.
+  struct tm ti;
+  bool got = false;
+  uint32_t t0 = millis();
+  while (millis() - t0 < 5000) {
+    if (getLocalTime(&ti, 100)) { got = true; break; }
+  }
+
+  if (!got) {
+    sntp_stop();
+    server.send(504, "text/plain",
+                "NTP sync timed out after 5 s.\n"
+                "Check internet connectivity and try again.\n");
+    Serial.println("WEB: NTP timed out");
+    return;
+  }
+
+  // tm_year is years since 1900; tm_mon is 0-11; tm_wday is 0=Sunday.
+  uint16_t yr = (uint16_t)(ti.tm_year + 1900);
+  uint8_t  mo = (uint8_t)(ti.tm_mon + 1);
+  uint8_t  dy = (uint8_t)ti.tm_mday;
+  uint8_t  hh = (uint8_t)ti.tm_hour;
+  uint8_t  mm = (uint8_t)ti.tm_min;
+  uint8_t  ss = (uint8_t)ti.tm_sec;
+  uint8_t  wd = (uint8_t)ti.tm_wday;
+  requestSetRTC(hh, mm, ss, wd, dy, mo, yr);
+
+  Serial.printf("WEB: NTP sync OK -> %04u-%02u-%02u %02u:%02u:%02u (wd=%u)\n",
+                yr, mo, dy, hh, mm, ss, wd);
+  // The RTC write is queued for the IO task; one cycle (~20 ms) settles it.
+  // Bounce back to the form so the user sees the updated values.
+  sntp_stop();
+  server.sendHeader("Location", "/");
+  server.send(303);
+}
+
 static void handleNotFound() {
-  String loc = String("http://") + WiFi.softAPIP().toString() + "/";
+  // Captive-portal-style redirect to '/'. In AP mode the DNS server already
+  // funnels every hostname here, but a few platforms hit a fixed probe URL —
+  // redirect those to root using whichever address we're actually serving on.
+  IPAddress ip = (actual == RadioState::AP) ? WiFi.softAPIP() : WiFi.localIP();
+  String loc = String("http://") + ip.toString() + "/";
   server.sendHeader("Location", loc, true);
   server.send(302, "text/plain", loc);
+}
+
+// ---------- HTTP server lifecycle (shared by AP + STA modes) ----------
+// The settings web UI is reachable in both modes:
+//   * AP mode: http://192.168.4.1/ (DNS captive portal redirects every host)
+//   * STA mode: http://<DHCP-IP>/ on the joined network, or http://ewatch.local/
+// `serverUp` tracks the WebServer; `dnsUp` tracks the captive-portal DNS that
+// only makes sense in AP mode.
+static bool dnsUp = false;
+static bool mdnsUp = false;
+
+static void startServer() {
+  if (serverUp) return;
+  server.on("/",            HTTP_GET,  handleRoot);
+  server.on("/save",        HTTP_POST, handleSave);
+  server.on("/wifi",        HTTP_POST, handleWifi);
+  server.on("/ntp",         HTTP_POST, handleNtp);
+  server.on("/known/add",   HTTP_POST, handleKnownAdd);
+  server.on("/known/del",   HTTP_POST, handleKnownDel);
+  server.on("/known/scan",  HTTP_POST, handleKnownScan);
+  server.onNotFound(handleNotFound);
+  server.begin();
+  serverUp = true;
+}
+
+static void stopServer() {
+  if (!serverUp) return;
+  server.stop();
+  serverUp = false;
+}
+
+// Advertise as ewatch.local so users don't have to look up the IP.
+static void startMDNS() {
+  if (mdnsUp) return;
+  if (MDNS.begin("ewatch")) {
+    MDNS.addService("http", "tcp", 80);
+    mdnsUp = true;
+    Serial.println("WIFI: mDNS up as ewatch.local");
+  } else {
+    Serial.println("WIFI: mDNS begin failed");
+  }
+}
+
+static void stopMDNS() {
+  if (!mdnsUp) return;
+  MDNS.end();
+  mdnsUp = false;
 }
 
 // ---------- AP lifecycle ----------
@@ -404,29 +577,22 @@ static void startAP() {
   delay(50);
   IPAddress ip = WiFi.softAPIP();
   dns.start(DNS_PORT, "*", ip);
-  server.on("/",            HTTP_GET,  handleRoot);
-  server.on("/save",        HTTP_POST, handleSave);
-  server.on("/wifi",        HTTP_POST, handleWifi);
-  server.on("/known/add",   HTTP_POST, handleKnownAdd);
-  server.on("/known/del",   HTTP_POST, handleKnownDel);
-  server.on("/known/scan",  HTTP_POST, handleKnownScan);
-  server.onNotFound(handleNotFound);
-  server.begin();
-  serverUp = true;
+  dnsUp = true;
+  startServer();
+  startMDNS();
   { ModelLock lk;
     strncpy(model.wifiSsid, AP_SSID, 32); model.wifiSsid[32] = '\0';
     model.wifiConnected = false; model.wifiRssi = 0;
+    model.wifiIpV4 = (uint32_t)ip;
     model.revision++; }
   Serial.printf("WIFI: AP up ssid=%s url=http://%s/\n",
                 AP_SSID, ip.toString().c_str());
 }
 
 static void stopAP() {
-  if (serverUp) {
-    server.stop();
-    dns.stop();
-    serverUp = false;
-  }
+  stopServer();
+  stopMDNS();
+  if (dnsUp) { dns.stop(); dnsUp = false; }
   WiFi.softAPdisconnect(true);
 }
 
@@ -492,6 +658,7 @@ static void teardownToOff() {
   { ModelLock lk;
     model.wifiConnected = false; model.wifiRssi = 0;
     model.wifiSsid[0] = '\0'; model.wifiApClients = 0;
+    model.wifiIpV4 = 0;
     model.revision++; }
   actual = RadioState::Off;
   lastScanLaunchMs = 0;             // allow first scan immediately on re-enable
@@ -577,12 +744,18 @@ static void converge() {
     wl_status_t s = WiFi.status();
     if (s == WL_CONNECTED) {
       actual = RadioState::Connected;
+      IPAddress ip = WiFi.localIP();
+      // Now that we have a routable IP, bring the settings web UI up on the
+      // joined network so other computers can reach it.
+      startServer();
+      startMDNS();
       { ModelLock lk;
         model.wifiConnected = true;
         model.wifiRssi = WiFi.RSSI();
+        model.wifiIpV4 = (uint32_t)ip;
         model.revision++; }
-      Serial.printf("WIFI: connected, IP=%s RSSI=%d\n",
-                    WiFi.localIP().toString().c_str(), (int)WiFi.RSSI());
+      Serial.printf("WIFI: connected, IP=%s url=http://%s/ (ewatch.local) RSSI=%d\n",
+                    ip.toString().c_str(), ip.toString().c_str(), (int)WiFi.RSSI());
       return;
     }
     // Timeout — bounce back to scanning.
@@ -601,8 +774,11 @@ static void converge() {
     wl_status_t s = WiFi.status();
     if (s != WL_CONNECTED) {
       Serial.println("WIFI: disconnected, rescanning");
+      stopServer();
+      stopMDNS();
       actual = RadioState::Scanning;
       { ModelLock lk; model.wifiConnected = false; model.wifiRssi = 0;
+        model.wifiIpV4 = 0;
         model.revision++; }
       scanInFlight    = false;
       lastScanLaunchMs = 0;          // allow immediate rescan on drop
@@ -622,9 +798,9 @@ static void converge() {
 static void taskWifi(void *) {
   for (;;) {
     converge();
-    if (serverUp) {
-      dns.processNextRequest();
-      server.handleClient();
+    if (dnsUp) dns.processNextRequest();
+    if (serverUp) server.handleClient();
+    if (actual == RadioState::AP) {
       uint8_t c = WiFi.softAPgetStationNum();
       ModelLock lk;
       if (model.wifiApClients != c) { model.wifiApClients = c; model.revision++; }

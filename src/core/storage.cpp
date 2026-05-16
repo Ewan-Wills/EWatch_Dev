@@ -47,6 +47,9 @@ void Storage::load() {
   model.wifiEnabled      = prefs.getBool  ("wifiOn",    model.wifiEnabled);
   uint8_t modeRaw        = prefs.getUChar ("wifiMode",  (uint8_t)model.wifiMode);
   model.wifiMode         = (modeRaw <= 1) ? (WifiMode)modeRaw : WifiMode::AP;
+  model.tzOffsetMin      = prefs.getShort ("tzOffMin",  model.tzOffsetMin);
+  model.watchFaceStyle   = prefs.getUChar ("wfStyle",   model.watchFaceStyle);
+  model.hapticStrength   = prefs.getUChar ("haptStr",   model.hapticStrength);
 
   // Known networks blob: read via getBytes into the cache.
   KnownLock klk;
@@ -65,6 +68,8 @@ void Storage::save() {
   bool t, b, i, wEn;
   uint16_t to, off, bg, fg;
   uint8_t  th, br;
+  int16_t  tz;
+  uint8_t  wfs, hap;
   WifiMode wMode;
   { ModelLock lk;
     t   = model.wakeOnTouch;
@@ -77,7 +82,10 @@ void Storage::save() {
     bg  = model.bgColor;
     fg  = model.fgColor;
     wEn = model.wifiEnabled;
-    wMode = model.wifiMode; }
+    wMode = model.wifiMode;
+    tz  = model.tzOffsetMin;
+    wfs = model.watchFaceStyle;
+    hap = model.hapticStrength; }
   prefs.putBool  ("wkTouch",   t);
   prefs.putBool  ("wkButton",  b);
   prefs.putBool  ("wkImu",     i);
@@ -89,6 +97,9 @@ void Storage::save() {
   prefs.putUShort("fgColor",   fg);
   prefs.putBool  ("wifiOn",    wEn);
   prefs.putUChar ("wifiMode",  (uint8_t)wMode);
+  prefs.putShort ("tzOffMin",  tz);
+  prefs.putUChar ("wfStyle",   wfs);
+  prefs.putUChar ("haptStr",   hap);
 }
 
 uint8_t Storage::knownCount() { KnownLock klk; return knownN; }

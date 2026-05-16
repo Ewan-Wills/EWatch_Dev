@@ -27,6 +27,11 @@ private:
   uint32_t lastShownRemain = 0xFFFFFFFF;
   uint32_t lastBuzzMs = 0;
 
+  // Alert state: timer-fired flashing-bg + triplet-buzz pattern.
+  uint32_t alertCycleStartMs = 0;   // start of the current ~1.2 s pattern cycle
+  uint8_t  alertPulseStage   = 0;   // 0..3 — pulses already fired this cycle
+  int8_t   lastAlertFlip     = -1;  // -1 = unknown, 0/1 = drawn state
+
   void enterSetting();
   void enterRunning();
   void enterFired();

@@ -17,3 +17,9 @@ extern View *currentView;
 void  viewsInit();
 void  switchTo(Screen s);
 View *viewFor(Screen s);
+
+// Watch face style picker — defined alongside WatchFaceView in view.cpp.
+// The web settings page and the on-watch Display settings both use these to
+// render and validate the dropdown / row picker.
+int          watchFaceStyleCount();
+const char  *watchFaceStyleName(int idx);

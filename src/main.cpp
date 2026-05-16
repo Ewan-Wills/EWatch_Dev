@@ -226,6 +226,7 @@ void setup() {
   modelInit();
   Storage::begin();
   Storage::load();              // restore persisted settings before tasks run
+  hapticSetStrengthPct(model.hapticStrength);   // honor saved strength immediately
   eventQueueInit();
   viewsInit();                  // paints watch face background under the dark panel
 

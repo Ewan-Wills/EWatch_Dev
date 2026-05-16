@@ -153,7 +153,7 @@ void controllerInit() {
 // is localised. Flushes after every line so the last breadcrumb survives a
 // Guru Meditation panic — without it the UART FIFO can swallow the line that
 // names the faulting call.
-#define IO_DEBUG 1
+#define IO_DEBUG 0
 #if IO_DEBUG
   #define IO_LOG(fmt, ...) do { \
       Serial.printf("[IO %lu/%lu] " fmt "\n", \
