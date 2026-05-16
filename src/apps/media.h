@@ -25,31 +25,15 @@ struct MediaAsset {
   const uint16_t *pixels;       // PROGMEM, frames * w * h entries (RGB565)
 };
 
+// Full-screen swipe carousel: swipe up/down to move between assets, exit only
+// on the physical button or a back-swipe (never a plain tap). render() blocks
+// and drains its own events, so the watch also won't auto-sleep while open.
 class MediaView : public View {
 public:
   void onEnter() override;
   void render()  override;
-  void onEvent(const Event &e) override;
+  void onEvent(const Event &) override {}   // render() drains its own events
 
 private:
-  enum class Mode : uint8_t { List, Player };
-
-  Mode mode = Mode::List;
-  bool needsRedraw = true;
-  int  selectedIdx = -1;
-  int  top = 0;
-
-  // Tap-vs-swipe disambiguation for the list.
-  bool     pressActive   = false;
-  bool     pressConsumed = false;
-  uint16_t pressX = 0, pressY = 0;
-  uint32_t pressTime = 0;
-  int      pressSlot = -1;
-
-  void renderList();
-  void play(const MediaAsset &a);
-  void drawImage(const MediaAsset &a);
-  void drawBuiltinSample();
-  bool playVideo(const MediaAsset &a);     // returns false if user backed out
-  void backToList();
+  int index = 0;
 };

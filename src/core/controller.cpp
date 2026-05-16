@@ -8,6 +8,7 @@
 #include "controller.h"
 #include "view.h"
 #include "event.h"
+#include "apptimer.h"
 
 // ---------- I/O request queue (cross-task -> taskIO) ----------
 struct RTCWrite {
@@ -218,15 +219,12 @@ static void taskIO(void *) {
             if (g == Gesture::SwipeRight) {
               // Global "back": every view already handles ButtonShort as
               // the back affordance, so route swipe-right through the same
-              // path instead of inventing a new event type. Suppressed in
-              // Media and the 3D viewer — those apps want their own swipe
-              // semantics (or simply nothing), so the user backs out via
-              // the physical button / visible back chevron.
+              // path instead of inventing a new event type. Suppressed only
+              // in the 3D viewer, which uses drag-to-rotate and would
+              // otherwise lose horizontal swipes.
               Screen scr;
               { ModelLock lk; scr = model.screen; }
-              bool noBackSwipe =
-                  (scr == Screen::Viewer3D || scr == Screen::Media);
-              if (!noBackSwipe) {
+              if (scr != Screen::Viewer3D) {
                 Event back = makeEvent(EventType::ButtonShort);
                 postEvent(back);
               }
@@ -322,6 +320,19 @@ static void taskIO(void *) {
       postEvent(e);
     }
 
+    // ---- Countdown timer expiry ----
+    // Checked on every RTC read. timerArmed() is persistent (RTC memory), so
+    // this also catches a timer that came due while the watch was asleep.
+    if (ranRtc && rtcOk && timerArmed()) {
+      uint32_t nowEpoch = rtcEpochSec(yr, mo, dy, h, mm, s);
+      if (nowEpoch >= timerDeadlineEpoch()) {
+        timerMarkFired();
+        hapticBuzz(400, 220);                 // strong initial alarm buzz
+        Event e = makeEvent(EventType::TimerExpired);
+        postEvent(e);
+      }
+    }
+
     cycle++;
     vTaskDelay(pdMS_TO_TICKS(20));
   }
@@ -373,6 +384,12 @@ static void taskRender(void *) {
       if (e.type == EventType::ButtonVeryLong) {
         shutdownNow();
       }
+      if (e.type == EventType::TimerExpired) {
+        // Surface the alarm no matter what screen we're on.
+        lastActivity = millis();
+        switchTo(Screen::Timer);
+        continue;                       // don't also dispatch to the old view
+      }
       if (isActivity(e.type)) lastActivity = millis();
       if (currentView) currentView->onEvent(e);
     }
@@ -383,7 +400,11 @@ static void taskRender(void *) {
     { ModelLock lk;
       timeoutSec = model.sleepTimeoutSec;
       scr        = model.screen; }
-    bool blockSleep = (scr == Screen::PowerOff);   // user is mid-action there
+    // Never auto-sleep mid-action: the power screen, or while the user is
+    // looking at a QR code / image (they asked for those to stay lit).
+    bool blockSleep = (scr == Screen::PowerOff)
+                   || (scr == Screen::QRCode)
+                   || (scr == Screen::Media);
     if (timeoutSec > 0 && !blockSleep &&
         (millis() - lastActivity) > (uint32_t)timeoutSec * 1000) {
       enterDeepSleep();   // does not return
@@ -440,11 +461,17 @@ static void configureMmaForJoltWake() {
 void enterDeepSleep() {
   bool wkTouch, wkBtn, wkImu;
   uint16_t toOffSec;
+  uint8_t  rtcH = 0, rtcM = 0, rtcS = 0, rtcDay = 1, rtcMon = 1;
+  uint16_t rtcYear = 2025;
+  bool     rtcOk = false;
   { ModelLock lk;
     wkTouch  = model.wakeOnTouch;
     wkBtn    = model.wakeOnButton;
     wkImu    = model.wakeOnImu;
-    toOffSec = model.sleepToOffSec; }
+    toOffSec = model.sleepToOffSec;
+    rtcH = model.hour; rtcM = model.minute; rtcS = model.second;
+    rtcDay = model.day; rtcMon = model.month; rtcYear = model.year;
+    rtcOk = model.rtcOk; }
 
   // Stop the I/O task so we own the I2C bus for the pre-sleep drain.
   if (ioTaskHandle) vTaskSuspend(ioTaskHandle);
@@ -497,9 +524,19 @@ void enterDeepSleep() {
   if (wkImu) mask |= 1ULL << PIN_MMA_INT1;
   if (mask) esp_sleep_enable_ext1_wakeup(mask, ESP_EXT1_WAKEUP_ANY_HIGH);
 
-  // Auto-power-off timer: wake briefly after the configured idle interval so
-  // main() can drop the LDO latch and fully power off. Disabled when 0.
-  if (toOffSec > 0) {
+  // Timer wake-up. An armed countdown timer takes priority over the
+  // auto-power-off interval: we wake exactly when it should alarm. Otherwise
+  // the auto-power-off timer (sleepToOffSec) is armed as before. main() tells
+  // the two apart on wake by checking timerArmed() + the RTC deadline.
+  bool armedTimerWake = false;
+  if (rtcOk && timerArmed()) {
+    uint32_t nowEpoch = rtcEpochSec(rtcYear, rtcMon, rtcDay, rtcH, rtcM, rtcS);
+    uint32_t remain   = timerRemainingSec(nowEpoch);
+    if (remain == 0) remain = 1;          // fire almost immediately
+    esp_sleep_enable_timer_wakeup((uint64_t)remain * 1000000ULL);
+    armedTimerWake = true;
+  }
+  if (!armedTimerWake && toOffSec > 0) {
     esp_sleep_enable_timer_wakeup((uint64_t)toOffSec * 1000000ULL);
   }
 

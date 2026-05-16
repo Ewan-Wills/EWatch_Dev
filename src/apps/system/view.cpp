@@ -1,15 +1,23 @@
 #include <Arduino_GFX_Library.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <math.h>
 #include "pins.h"
 #include "power.h"
 #include "display.h"
 #include "haptic.h"
 #include "view.h"
+#include "event.h"
 #include "controller.h"
 #include "storage.h"
+#include "apptimer.h"
 #include "viewer3d.h"
 #include "media.h"
 #include "qr.h"
 #include "anim_demo.h"
+#include "stopwatch.h"
+#include "timer_app.h"
+#include "wifi_svc.h"
 
 // ---------- shared draw helpers ----------
 static const int16_t W = 240;
@@ -81,9 +89,12 @@ public:
     if (gfx) {
       gfx->fillScreen(cachedBg);
       drawPowerIcon();
+      drawWifiIcon(/*force=*/true);
     }
     cached.h = 99; cached.m = 99; cached.s = 99; cached.rtcOk = false;
     cached.day = 0; cached.month = 0; cached.year = 0; cached.weekday = 9;
+    cached.swRun = false; cached.swSec = 0xFFFFFFFF;
+    cached.tmrOn = false; cached.tmrSec = 0xFFFFFFFF;
   }
   void render() override {
     if (!gfx) return;
@@ -97,9 +108,14 @@ public:
       cachedBg = snap.bgColor;
       cachedFg = snap.fgColor;
       drawPowerIcon();
+      drawWifiIcon(/*force=*/true);
       cached.h = 99; cached.m = 99; cached.s = 99; cached.rtcOk = false;
       cached.day = 0; cached.month = 0; cached.year = 0; cached.weekday = 9;
+      cached.swRun = false; cached.swSec = 0xFFFFFFFF;
+      cached.tmrOn = false; cached.tmrSec = 0xFFFFFFFF;
     }
+
+    drawWifiIcon(/*force=*/false);
 
     // Big time HH:MM — vertically nudged down a touch now that the header is gone.
     if (snap.hour != cached.h || snap.minute != cached.m ||
@@ -147,6 +163,42 @@ public:
       cached.day = snap.day; cached.month = snap.month;
       cached.year = snap.year; cached.weekday = snap.weekday;
     }
+
+    // Stopwatch / timer status lines — shown only while each is active.
+    uint32_t epoch = snap.rtcOk
+        ? rtcEpochSec(snap.year, snap.month, snap.day,
+                      snap.hour, snap.minute, snap.second)
+        : 0;
+
+    bool     swRun = stopwatchRunning();
+    uint32_t swSec = swRun ? stopwatchElapsedMs(epoch, millis()) / 1000u : 0;
+    if (swRun != cached.swRun || swSec != cached.swSec) {
+      gfx->fillRect(0, 236, W, 18, cachedBg);
+      if (swRun) {
+        char buf[20];
+        fmtClock(buf, sizeof(buf), "SW ", swSec);
+        gfx->setTextSize(2);
+        gfx->setTextColor(GREEN, cachedBg);
+        gfx->setCursor(centerX(buf, 2), 238);
+        gfx->print(buf);
+      }
+      cached.swRun = swRun; cached.swSec = swSec;
+    }
+
+    bool     tmrOn  = timerArmed();
+    uint32_t tmrSec = tmrOn ? timerRemainingSec(epoch) : 0;
+    if (tmrOn != cached.tmrOn || tmrSec != cached.tmrSec) {
+      gfx->fillRect(0, 258, W, 20, cachedBg);
+      if (tmrOn) {
+        char buf[20];
+        fmtClock(buf, sizeof(buf), "T-", tmrSec);
+        gfx->setTextSize(2);
+        gfx->setTextColor(ORANGE, cachedBg);
+        gfx->setCursor(centerX(buf, 2), 260);
+        gfx->print(buf);
+      }
+      cached.tmrOn = tmrOn; cached.tmrSec = tmrSec;
+    }
   }
   void onEvent(const Event &e) override {
     // Swipe-left is the only way into the app list now — a plain tap stays
@@ -157,11 +209,12 @@ public:
       pressActive = false;
       return;
     }
-    // Tap-vs-swipe for the power icon: defer the sleep action to TouchUp and
+    // Tap-vs-swipe for the corner buttons: defer the action to TouchUp and
     // bail if the finger moved (i.e. the user was actually starting a swipe).
     if (e.type == EventType::Touch) {
       pressX = e.x; pressY = e.y;
       pressInPower = inRect(e.x, e.y, PWR_HIT_X, PWR_HIT_Y, PWR_HIT_W, PWR_HIT_H);
+      pressInWifi  = inRect(e.x, e.y, WIFI_HIT_X, WIFI_HIT_Y, WIFI_HIT_W, WIFI_HIT_H);
       pressMoved = false;
       pressActive = true;
       return;
@@ -172,9 +225,13 @@ public:
       return;
     }
     if (e.type == EventType::TouchUp) {
-      if (pressActive && pressInPower && !pressMoved) sleepNow();
+      if (pressActive && !pressMoved) {
+        if      (pressInPower) sleepNow();
+        else if (pressInWifi)  toggleWifi();
+      }
       pressActive = false;
       pressInPower = false;
+      pressInWifi  = false;
       return;
     }
   }
@@ -187,11 +244,26 @@ private:
   static const int16_t PWR_HIT_W = 110, PWR_HIT_H = 92;
   static const int16_t PWR_CX = 212, PWR_CY = 24, PWR_R = 13;
 
-  // Tap-vs-swipe disambiguation state for the power icon.
+  // WiFi icon — mirror of the power icon in the top-left corner.
+  static const int16_t WIFI_HIT_X = 0, WIFI_HIT_Y = 0;
+  static const int16_t WIFI_HIT_W = 110, WIFI_HIT_H = 92;
+  static const int16_t WIFI_CX = 28, WIFI_CY = 42;
+  static const int16_t WIFI_R1 = 5, WIFI_R2 = 11, WIFI_R3 = 17;
+
+  // Tap-vs-swipe disambiguation state for the corner buttons.
   bool     pressActive   = false;
   bool     pressInPower  = false;
+  bool     pressInWifi   = false;
   bool     pressMoved    = false;
   uint16_t pressX = 0, pressY = 0;
+
+  // Cached WiFi-icon state so we only redraw on visual change.
+  struct {
+    bool     en;
+    WifiMode mode;
+    bool     conn;
+    int8_t   bars;     // 0..3
+  } wifiCache{false, WifiMode::AP, false, -1};
 
   uint16_t cachedBg = BLACK;
   uint16_t cachedFg = WHITE;
@@ -200,7 +272,18 @@ private:
     bool     rtcOk;
     uint8_t  day, month, weekday;
     uint16_t year;
-  } cached{99,99,99,false,0,0,9,0};
+    bool     swRun, tmrOn;
+    uint32_t swSec, tmrSec;
+  } cached{99,99,99,false,0,0,9,0,false,false,0xFFFFFFFF,0xFFFFFFFF};
+
+  // "prefix" + H:MM:SS / MM:SS depending on magnitude.
+  static void fmtClock(char *buf, size_t n, const char *prefix, uint32_t sec) {
+    uint32_t hh = sec / 3600, mm = (sec % 3600) / 60, ss = sec % 60;
+    if (hh > 0) snprintf(buf, n, "%s%lu:%02lu:%02lu", prefix,
+                         (unsigned long)hh, (unsigned long)mm, (unsigned long)ss);
+    else        snprintf(buf, n, "%s%02lu:%02lu", prefix,
+                         (unsigned long)mm, (unsigned long)ss);
+  }
 
   void drawPowerIcon() {
     // Two-pixel-thick ring + erased top notch + double-thick stem.
@@ -210,6 +293,68 @@ private:
     gfx->drawFastVLine(PWR_CX,     PWR_CY - PWR_R + 1, PWR_R - 2, cachedFg);
     gfx->drawFastVLine(PWR_CX + 1, PWR_CY - PWR_R + 1, PWR_R - 2, cachedFg);
   }
+
+  // WiFi fan icon — three concentric top-half arcs above a center dot. Off
+  // when disabled, yellow (full) when hosting an AP, green with bars from
+  // RSSI when connected as a client, orange (dot only) when scanning.
+  void drawWifiIcon(bool force) {
+#if !defined(EWATCH_ENABLE_WIFI) || !EWATCH_ENABLE_WIFI
+    (void)force;     // WiFi compiled out — leave the corner blank.
+    return;
+#else
+    bool en, conn; WifiMode mode; int8_t rssi;
+    { ModelLock lk;
+      en = model.wifiEnabled; mode = model.wifiMode;
+      conn = model.wifiConnected; rssi = model.wifiRssi; }
+    int8_t bars = 0;
+    uint16_t col = DARKGREY;
+    if (en && mode == WifiMode::AP)               { col = YELLOW; bars = 3; }
+    else if (en && conn) {
+      col = GREEN;
+      if      (rssi >= -55) bars = 3;
+      else if (rssi >= -65) bars = 2;
+      else if (rssi >= -75) bars = 1;
+      else                  bars = 0;
+    }
+    else if (en)                                  { col = ORANGE; bars = 0; }
+
+    if (!force &&
+        wifiCache.en == en && wifiCache.mode == mode &&
+        wifiCache.conn == conn && wifiCache.bars == bars) return;
+    wifiCache = { en, mode, conn, bars };
+
+    // GFX 1.4.7 doesn't expose drawCircleHelper, so we draw full circles and
+    // erase the bottom half. The dot is then drawn on top.
+    gfx->fillRect(2, 4, 56, 46, cachedBg);
+    uint16_t off = DARKGREY;
+    uint16_t cDot = en ? col : off;
+    uint16_t cA1  = (en && bars >= 1) ? col : off;
+    uint16_t cA2  = (en && bars >= 2) ? col : off;
+    uint16_t cA3  = (en && bars >= 3) ? col : off;
+    gfx->drawCircle(WIFI_CX, WIFI_CY, WIFI_R1,     cA1);
+    gfx->drawCircle(WIFI_CX, WIFI_CY, WIFI_R1 + 1, cA1);
+    gfx->drawCircle(WIFI_CX, WIFI_CY, WIFI_R2,     cA2);
+    gfx->drawCircle(WIFI_CX, WIFI_CY, WIFI_R2 + 1, cA2);
+    gfx->drawCircle(WIFI_CX, WIFI_CY, WIFI_R3,     cA3);
+    gfx->drawCircle(WIFI_CX, WIFI_CY, WIFI_R3 + 1, cA3);
+    gfx->fillRect(2, WIFI_CY + 1, 56, 22, cachedBg);
+    gfx->fillCircle(WIFI_CX, WIFI_CY - 2, 2, cDot);
+#endif  // EWATCH_ENABLE_WIFI
+  }
+
+  void toggleWifi() {
+#if defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
+    bool now;
+    { ModelLock lk;
+      model.wifiEnabled = !model.wifiEnabled;
+      now = model.wifiEnabled;
+      model.revision++; }
+    Storage::save();
+    hapticBuzz(50, 60);
+    Serial.printf("UI: wifi toggled -> %s\n", now ? "ON" : "OFF");
+#endif
+  }
+
   void sleepNow() {
     hapticBuzz(120, 80);
     if (gfx) {
@@ -226,152 +371,323 @@ private:
 };
 
 // =====================================================================
-// Tile list — wrapping vertical scroller used for both the top-level Apps
-// page and the System sub-page. VISIBLE tiles shown at once; SwipeUp /
-// SwipeDown rotates the list with wraparound (skipped when N <= VISIBLE).
+// Carousel — one big tile (~3/4 of the screen) shown at a time, with eased
+// vertical scroll between selections, an animated entrance, a press pulse
+// on tap, and live page-indicator dots. Uses the shared frame canvas so
+// transitions stay flicker-free. The render() loop blocks while animation
+// is in flight (same pattern the video player + anim demo use) and returns
+// when settled so the controller's auto-sleep timer still works.
 // =====================================================================
 struct AppEntry {
   const char *name;
   uint16_t    color;
   Screen      target;
+  const char *subtitle;            // short description (may be "")
 };
 
-class TileListView : public View {
+class CarouselView : public View {
 public:
-  TileListView(const AppEntry *entries, int n,
-               const char *title, Screen back)
-    : entries(entries), N(n), title(title), backScreen(back) {}
+  CarouselView(const AppEntry *entries, int n,
+               const char *title, Screen back, bool wrap = false)
+    : entries(entries), N(n), title(title), backScreen(back), wrapAround(wrap) {}
 
   void onEnter() override {
-    clearAll();
-    top = 0;
-    needsFullRedraw = true;
+    canvas = frameCanvas();
+    if (!canvas) return;
+    cur          = 0;
+    // Tile slides in from below on entry.
+    scrollPos    = -1.0f;
+    scrollFrom   = -1.0f;
+    scrollTo     = 0.0f;
+    scrollStart  = millis();
+    scrollDuration = 500;
+    pulseStart   = 0;
+    exitAtMs     = 0;
+    exitTarget   = backScreen;
+    pressActive  = false;
+    pressMoved   = false;
   }
   void render() override {
-    if (!gfx) return;
-    if (needsFullRedraw) {
-      drawChrome();
-      drawTiles();
-      needsFullRedraw = false;
-    }
+    if (!canvas) return;
+
+    // Drive frames until either (a) the user leaves the view or (b) the
+    // animation settles. When settled we return; the controller will call
+    // render() again on the next event.
+    do {
+      uint32_t t0 = millis();
+      drawFrame();
+      canvas->flush();
+
+      // Deferred exit (e.g. press pulse → switchTo after 200 ms).
+      if (exitAtMs > 0 && (int32_t)(millis() - exitAtMs) >= 0) {
+        Screen target = exitTarget;
+        exitAtMs = 0;
+        switchTo(target);
+        return;
+      }
+      if (!isAnimating()) return;
+
+      // Drain events with a ~30 fps frame budget.
+      int32_t budget = 33 - (int32_t)(millis() - t0);
+      if (budget < 1) budget = 1;
+      while (budget > 0) {
+        Event e;
+        if (xQueueReceive(eventQueue, &e, pdMS_TO_TICKS(budget)) != pdPASS) break;
+        handleEvent(e);
+        if (exitAtMs > 0 && (int32_t)(millis() - exitAtMs) >= 0) break;
+        budget = 33 - (int32_t)(millis() - t0);
+      }
+    } while (true);
   }
   void onEvent(const Event &e) override {
-    if (e.type == EventType::ButtonShort) {
-      switchTo(backScreen); return;
-    }
-
-    if (e.type == EventType::Gesture && N > VISIBLE) {
-      if (e.gesture == Gesture::SwipeUp)   { scroll(+1); pressConsumed = true; return; }
-      if (e.gesture == Gesture::SwipeDown) { scroll(-1); pressConsumed = true; return; }
-    }
-
-    if (e.type == EventType::Touch && tappedBack(e.x, e.y)) {
-      switchTo(backScreen); return;
-    }
-
-    // Tap-vs-swipe disambiguation: defer open until TouchUp, and only if the
-    // finger barely moved and no swipe gesture was reported in between.
-    if (e.type == EventType::Touch) {
-      pressActive   = true;
-      pressConsumed = false;
-      pressX = e.x; pressY = e.y;
-      pressTime = millis();
-      pressSlot = slotAt(e.x, e.y);
-      return;
-    }
-    if (e.type == EventType::TouchHold && pressActive) {
-      int dx = (int)e.x - pressX, dy = (int)e.y - pressY;
-      if (dx * dx + dy * dy > MOVE_THRESH_SQ) pressConsumed = true;
-      return;
-    }
-    if (e.type == EventType::TouchUp) {
-      bool quickTap = (millis() - pressTime) < 600;
-      if (pressActive && !pressConsumed && pressSlot >= 0 && quickTap) {
-        int idx = (top + pressSlot) % N;
-        if (idx < N) {
-          hapticBuzz(80, 70);
-          switchTo(entries[idx].target);
-        }
-      }
-      pressActive = false;
-      pressSlot = -1;
-      pressConsumed = false;
-      return;
-    }
+    // The settled state delivers events through here; the animated state
+    // drains them inline. Both go through handleEvent.
+    handleEvent(e);
+    // If a new animation kicked off, bump revision so the controller
+    // re-enters render() right away.
+    if (isAnimating()) { ModelLock lk; model.revision++; }
   }
-private:
-  static const int VISIBLE = 4;       // tiles shown at once
-  static const int16_t TILE_Y0     = 50;
-  static const int16_t TILE_H      = 46;
-  static const int16_t TILE_STRIDE = 50;
 
+private:
   const AppEntry *entries;
   const int       N;
   const char     *title;
   const Screen    backScreen;
+  const bool      wrapAround;
 
-  bool    needsFullRedraw = true;
-  int     top = 0;                    // index of the topmost visible app
+  Arduino_Canvas *canvas = nullptr;
+  int      cur = 0;
+  float    scrollPos = 0.f;
+  float    scrollFrom = 0.f, scrollTo = 0.f;
+  uint32_t scrollStart = 0;
+  uint32_t scrollDuration = 350;
 
-  // Tap-vs-swipe state.
-  bool     pressActive   = false;
-  bool     pressConsumed = false;
+  uint32_t pulseStart = 0;
+  static const uint32_t kPulseMs = 220;
+
+  uint32_t exitAtMs = 0;
+  Screen   exitTarget;
+
+  bool     pressActive = false;
+  bool     pressMoved  = false;
   uint16_t pressX = 0, pressY = 0;
   uint32_t pressTime = 0;
-  int      pressSlot = -1;
-  static const int MOVE_THRESH_SQ = 16 * 16;   // > 16 px = treat as drag
+  static const int kMoveThreshSq = 16 * 16;
 
-  int visibleCount() const { return N < VISIBLE ? N : VISIBLE; }
+  // Tile sizing: ~3/4 of the screen height for the active card.
+  static const int16_t TILE_W   = 200;
+  static const int16_t TILE_H   = 210;       // 280 * 0.75 ≈ 210
+  static const int16_t TILE_CY  = 152;       // center of stage
+  static const int16_t STRIDE   = TILE_H + 24;
 
-  int slotAt(uint16_t x, uint16_t y) {
-    int vc = visibleCount();
-    for (int slot = 0; slot < vc; slot++) {
-      int16_t ty = TILE_Y0 + slot * TILE_STRIDE;
-      if (inRect(x, y, 12, ty, W - 24, TILE_H)) return slot;
+  bool isAnimating() const {
+    if (scrollPos != scrollTo) return true;
+    if (pulseStart > 0 && (millis() - pulseStart) < kPulseMs) return true;
+    if (exitAtMs > 0) return true;
+    return false;
+  }
+  static float easeOutCubic(float t) {
+    if (t < 0) t = 0; else if (t > 1) t = 1;
+    float u = 1.f - t;
+    return 1.f - u * u * u;
+  }
+  void advanceScrollTween() {
+    if (scrollPos == scrollTo) return;
+    uint32_t now = millis();
+    uint32_t elapsed = now - scrollStart;
+    if (elapsed >= scrollDuration) {
+      scrollPos = scrollTo;
+      if (wrapAround) {
+        // Re-anchor into [0, N) so cur and scrollPos agree, and so the next
+        // wrap snap doesn't drift further outside the canonical range.
+        if (scrollPos < 0)         scrollPos += (float)N;
+        if (scrollPos >= (float)N) scrollPos -= (float)N;
+        scrollTo   = scrollPos;
+        scrollFrom = scrollPos;
+      }
+    } else {
+      float p = (float)elapsed / (float)scrollDuration;
+      scrollPos = scrollFrom + (scrollTo - scrollFrom) * easeOutCubic(p);
     }
-    return -1;
+  }
+  float currentPulseScale() {
+    if (pulseStart == 0) return 1.0f;
+    uint32_t elapsed = millis() - pulseStart;
+    if (elapsed >= kPulseMs) { return 1.0f; }
+    float p = (float)elapsed / (float)kPulseMs;
+    // Sine bump: 1.0 -> 1.18 -> 1.0
+    return 1.0f + 0.18f * sinf(p * 3.14159265f);
+  }
+  void startScroll(int newIndex) {
+    if (wrapAround) {
+      // Snap scrollPos so the wrapped tile sits exactly one slot from center
+      // in the natural direction, then tween that one slot. drawTiles + the
+      // indicator both use modular arithmetic on idx so out-of-range scrollPos
+      // is fine — it represents "we're visually past the end / before the
+      // start" and the tween settles back into [0, N) when it completes.
+      if (newIndex < 0) {
+        scrollPos += (float)N;        // 0 -> N, so cur=N-1 sits at scrollPos-1
+        newIndex += N;
+      } else if (newIndex >= N) {
+        scrollPos -= (float)N;        // N-1 -> -1, so cur=0 sits at scrollPos+1
+        newIndex -= N;
+      }
+    } else {
+      if (newIndex < 0 || newIndex >= N) return;
+    }
+    cur = newIndex;
+    scrollFrom = scrollPos;
+    scrollTo = (float)newIndex;
+    scrollStart = millis();
+    scrollDuration = 320;
+    hapticBuzz(40, 45);
   }
 
-  void scroll(int8_t dir) {
-    top = (top + N + dir) % N;
-    hapticBuzz(40, 40);
-    needsFullRedraw = true;
+  void drawFrame() {
+    advanceScrollTween();
+    canvas->fillScreen(BLACK);
+    drawChrome();
+    drawTiles();
+    drawIndicator();
   }
-
   void drawChrome() {
-    clearAll();
-    drawBackButton();
-    gfx->setTextSize(2);
-    gfx->setTextColor(WHITE, BLACK);
+    // Back chevron.
+    canvas->fillRoundRect(2, 2, BACK_W, BACK_H, 6, DARKGREY);
+    canvas->setTextColor(WHITE, DARKGREY);
+    canvas->setTextSize(3);
+    canvas->setCursor(18, 12);
+    canvas->print('<');
+    // Title.
+    canvas->setTextSize(2);
+    canvas->setTextColor(WHITE, BLACK);
     int16_t tw = (int16_t)strlen(title) * 12;
-    gfx->setCursor((W - tw) / 2, 12);
-    gfx->print(title);
-    gfx->drawFastHLine(20, 46, 200, DARKGREY);
-    if (N > VISIBLE) drawScrollIndicator();
-  }
-  void drawScrollIndicator() {
-    int16_t cx = W - 8;
-    for (int i = 0; i < N; i++) {
-      int16_t y = TILE_Y0 + 6 + i * 8;
-      gfx->fillCircle(cx, y, 2, i == top ? WHITE : DARKGREY);
-    }
+    canvas->setCursor((W - tw) / 2, 14);
+    canvas->print(title);
+    canvas->drawFastHLine(20, 44, 200, DARKGREY);
   }
   void drawTiles() {
-    int vc = visibleCount();
-    for (int slot = 0; slot < vc; slot++) {
-      int idx = (top + slot) % N;
-      drawTile(slot, idx);
+    float pulse = currentPulseScale();
+    // Visible window: index +/-1 around the currently displayed position.
+    int low  = (int)floorf(scrollPos) - 1;
+    int high = (int)ceilf (scrollPos) + 1;
+    for (int idx = low; idx <= high; idx++) {
+      int dataIdx;
+      if (wrapAround) {
+        dataIdx = ((idx % N) + N) % N;
+      } else {
+        if (idx < 0 || idx >= N) continue;
+        dataIdx = idx;
+      }
+      float offset = (float)idx - scrollPos;          // tile units
+      int16_t cy = (int16_t)(TILE_CY + offset * STRIDE);
+      if (cy - TILE_H / 2 > H || cy + TILE_H / 2 < 50) continue;
+
+      bool centred = (dataIdx == cur) && (scrollPos == scrollTo);
+      float s = centred ? pulse : 1.0f;
+
+      int16_t tw = (int16_t)(TILE_W * s);
+      int16_t th = (int16_t)(TILE_H * s);
+      int16_t tx = (W - tw) / 2;
+      int16_t ty = cy - th / 2;
+
+      uint16_t fg = entries[dataIdx].color;
+      canvas->fillRoundRect(tx, ty, tw, th, 16, fg);
+      canvas->drawRoundRect(tx, ty, tw, th, 16, WHITE);
+
+      // Title (size 3) centred vertically a touch above center.
+      canvas->setTextColor(WHITE, fg);
+      canvas->setTextSize(3);
+      int16_t labelW = (int16_t)strlen(entries[dataIdx].name) * 18;
+      canvas->setCursor(tx + (tw - labelW) / 2, cy - 16);
+      canvas->print(entries[dataIdx].name);
+
+      // Subtitle (size 2) below.
+      if (entries[dataIdx].subtitle && *entries[dataIdx].subtitle) {
+        canvas->setTextSize(2);
+        int16_t subW = (int16_t)strlen(entries[dataIdx].subtitle) * 12;
+        canvas->setCursor(tx + (tw - subW) / 2, cy + 16);
+        canvas->print(entries[dataIdx].subtitle);
+      }
     }
   }
-  void drawTile(int slot, int idx) {
-    int16_t y = TILE_Y0 + slot * TILE_STRIDE;
-    uint16_t fg = entries[idx].color;
-    gfx->fillRoundRect(12, y, W - 24, TILE_H, 6, fg);
-    gfx->drawRoundRect(12, y, W - 24, TILE_H, 6, WHITE);
-    gfx->setTextColor(WHITE, fg);
-    gfx->setTextSize(2);
-    gfx->setCursor(24, y + 14);
-    gfx->print(entries[idx].name);
+  void drawIndicator() {
+    if (N <= 1) return;
+    int16_t y = H - 14;
+    int16_t spacing = 14;
+    int16_t totalW = (N - 1) * spacing;
+    int16_t startX = (W - totalW) / 2;
+    // Normalize scrollPos into [0, N) for dot calculations, and (when
+    // wrapping) consider the shorter wrap-around distance so the active dot
+    // stays on the actual target during the cross-boundary tween.
+    float pos = scrollPos;
+    if (wrapAround) {
+      pos = fmodf(pos, (float)N);
+      if (pos < 0) pos += (float)N;
+    }
+    for (int i = 0; i < N; i++) {
+      float dist = fabsf((float)i - pos);
+      if (wrapAround) {
+        float dist2 = (float)N - dist;
+        if (dist2 < dist) dist = dist2;
+      }
+      if (dist > 1.f) dist = 1.f;
+      int16_t radius = (int16_t)(3.f + (1.f - dist) * 3.f);
+      uint16_t col = (dist < 0.5f) ? WHITE : DARKGREY;
+      canvas->fillCircle(startX + i * spacing, y, radius, col);
+    }
+  }
+
+  void handleEvent(const Event &e) {
+    if (e.type == EventType::ButtonShort) {
+      exitTarget = backScreen;
+      exitAtMs   = millis();
+      return;
+    }
+    if (e.type == EventType::TimerExpired) {
+      exitTarget = Screen::Timer;
+      exitAtMs   = millis();
+      return;
+    }
+    if (e.type == EventType::Gesture) {
+      if (e.gesture == Gesture::SwipeUp)   { startScroll(cur + 1); return; }
+      if (e.gesture == Gesture::SwipeDown) { startScroll(cur - 1); return; }
+      return;
+    }
+    if (e.type == EventType::Touch) {
+      if (tappedBack(e.x, e.y)) {
+        exitTarget = backScreen;
+        exitAtMs   = millis();
+        return;
+      }
+      pressActive = true;
+      pressMoved  = false;
+      pressX = e.x; pressY = e.y;
+      pressTime = millis();
+      return;
+    }
+    if (e.type == EventType::TouchHold && pressActive) {
+      int dx = (int)e.x - pressX, dy = (int)e.y - pressY;
+      if (dx * dx + dy * dy > kMoveThreshSq) pressMoved = true;
+      return;
+    }
+    if (e.type == EventType::TouchUp) {
+      bool quick = (millis() - pressTime) < 600;
+      if (pressActive && !pressMoved && quick && hitCurrentTile(pressX, pressY)) {
+        pulseStart = millis();
+        exitTarget = entries[cur].target;
+        exitAtMs   = millis() + 180;
+        hapticBuzz(80, 70);
+      }
+      pressActive = false;
+      pressMoved  = false;
+      return;
+    }
+  }
+  bool hitCurrentTile(int x, int y) {
+    if (scrollPos != scrollTo) return false;       // ignore taps mid-scroll
+    int16_t tx = (W - TILE_W) / 2;
+    int16_t ty = TILE_CY - TILE_H / 2;
+    return inRect((uint16_t)x, (uint16_t)y, tx, ty, TILE_W, TILE_H);
   }
 };
 
@@ -501,69 +817,8 @@ private:
   }
 };
 
-// =====================================================================
-// Settings — top-level menu of subsections (Time / Sleep). Tap an entry to
-// open its page; back returns to AppList.
-// =====================================================================
-class SettingsView : public View {
-public:
-  void onEnter() override { clearAll(); needsFullRedraw = true; }
-  void render() override {
-    if (!gfx || !needsFullRedraw) return;
-    needsFullRedraw = false;
-    drawBackButton();
-    gfx->setTextSize(2);
-    gfx->setTextColor(WHITE, BLACK);
-    gfx->setCursor(90, 12);
-    gfx->print("Settings");
-    gfx->drawFastHLine(20, 46, 200, DARKGREY);
-    drawTile(0, "Time",    NAVY,      "set the clock");
-    drawTile(1, "Date",    DARKCYAN,  "set the calendar");
-    drawTile(2, "Sleep",   DARKGREEN, "auto-sleep + wake");
-    drawTile(3, "Display", PURPLE,    "brightness + colors");
-    drawTile(4, "Memory",  MAROON,    "heap / PSRAM usage");
-  }
-  void onEvent(const Event &e) override {
-    if (e.type == EventType::ButtonShort) {
-      switchTo(Screen::SystemApps); return;
-    }
-    if (e.type == EventType::Touch && tappedBack(e.x, e.y)) {
-      switchTo(Screen::SystemApps); return;
-    }
-    if (e.type == EventType::Touch) {
-      for (int i = 0; i < 5; i++) {
-        int16_t y = TILE_Y0 + i * TILE_STRIDE;
-        if (inRect(e.x, e.y, 12, y, W - 24, TILE_H)) {
-          hapticBuzz(80, 60);
-          if (i == 0) switchTo(Screen::SettingsTime);
-          if (i == 1) switchTo(Screen::SettingsDate);
-          if (i == 2) switchTo(Screen::SettingsSleep);
-          if (i == 3) switchTo(Screen::SettingsDisplay);
-          if (i == 4) switchTo(Screen::SettingsMemory);
-          return;
-        }
-      }
-    }
-  }
-private:
-  static const int16_t TILE_Y0     = 54;
-  static const int16_t TILE_H      = 40;
-  static const int16_t TILE_STRIDE = 46;
-  bool needsFullRedraw = true;
-
-  void drawTile(int i, const char *title, uint16_t color, const char *sub) {
-    int16_t y = TILE_Y0 + i * TILE_STRIDE;
-    gfx->fillRoundRect(12, y, W - 24, TILE_H, 6, color);
-    gfx->drawRoundRect(12, y, W - 24, TILE_H, 6, WHITE);
-    gfx->setTextColor(WHITE, color);
-    gfx->setTextSize(2);
-    gfx->setCursor(16, y + 4);
-    gfx->print(title);
-    gfx->setTextSize(1);
-    gfx->setCursor(16, y + 24);
-    gfx->print(sub);
-  }
-};
+// Settings top-level menu is now driven by CarouselView via a kSettingsEntries
+// table at the bottom of this file.
 
 // Mixin-ish helper bag for views that have +/- columns with hold-to-ramp.
 // Local to view.cpp; subclassed by both SettingsTimeView and SettingsSleepView.
@@ -1492,6 +1747,239 @@ private:
 };
 
 // =====================================================================
+// SettingsWifi — top-level WiFi page: power on/off, mode (Host AP vs
+// Client), live status, link to the saved-networks list.
+// =====================================================================
+class SettingsWifiView : public View {
+public:
+  void onEnter() override {
+    clearAll(); firstDraw = true;
+    last.en = false; last.mode = WifiMode::AP; last.conn = false;
+    last.rssi = 0; last.cli = 0; last.rtcOk = false; last.ssid[0] = '\0';
+  }
+  void render() override {
+    if (!gfx) return;
+    Model snap;
+    { ModelLock lk; snap = model; }
+    if (firstDraw) {
+      drawBackButton();
+      gfx->setTextSize(2);
+      gfx->setTextColor(WHITE, BLACK);
+      gfx->setCursor(108, 14);
+      gfx->print("WiFi");
+      gfx->drawFastHLine(20, 46, 200, DARKGREY);
+      drawKnownBtn();
+      firstDraw = false;
+    }
+    if (last.en != snap.wifiEnabled)               drawEnableBtn(snap.wifiEnabled);
+    if (last.mode != snap.wifiMode || last.en != snap.wifiEnabled)
+      drawModeBtns(snap.wifiMode);
+    Snap cur{ snap.wifiEnabled, snap.wifiMode, snap.wifiConnected,
+              snap.wifiRssi, snap.wifiApClients, snap.rtcOk, "" };
+    strncpy(cur.ssid, snap.wifiSsid, 32);
+    bool statusChanged =
+       last.en != cur.en || last.mode != cur.mode ||
+       last.conn != cur.conn || last.rssi != cur.rssi ||
+       last.cli  != cur.cli || strncmp(last.ssid, cur.ssid, 32) != 0;
+    if (statusChanged) drawStatus(cur);
+    last = cur;
+  }
+  void onEvent(const Event &e) override {
+    if (e.type == EventType::ButtonShort) { switchTo(Screen::Settings); return; }
+    if (e.type != EventType::Touch) return;
+    if (tappedBack(e.x, e.y)) { switchTo(Screen::Settings); return; }
+
+    if (inRect(e.x, e.y, ENA_X, ENA_Y, ENA_W, ENA_H)) {
+      { ModelLock lk; model.wifiEnabled = !model.wifiEnabled; model.revision++; }
+      Storage::save(); hapticBuzz(50, 60); return;
+    }
+    if (inRect(e.x, e.y, MODE_AP_X, MODE_Y, MODE_W, MODE_H)) {
+      { ModelLock lk; model.wifiMode = WifiMode::AP; model.revision++; }
+      Storage::save(); hapticBuzz(50, 60); return;
+    }
+    if (inRect(e.x, e.y, MODE_CL_X, MODE_Y, MODE_W, MODE_H)) {
+      { ModelLock lk; model.wifiMode = WifiMode::Client; model.revision++; }
+      Storage::save(); hapticBuzz(50, 60); return;
+    }
+    if (inRect(e.x, e.y, KN_X, KN_Y, KN_W, KN_H)) {
+      switchTo(Screen::SettingsKnownNets); return;
+    }
+  }
+private:
+  struct Snap {
+    bool     en; WifiMode mode; bool conn;
+    int8_t   rssi; uint8_t cli; bool rtcOk;
+    char     ssid[33];
+  } last{false, WifiMode::AP, false, 0, 0, false, ""};
+  bool firstDraw = true;
+
+  static const int16_t ENA_X = 20, ENA_Y = 60,  ENA_W = 200, ENA_H = 40;
+  static const int16_t MODE_Y = 116, MODE_W = 96, MODE_H = 40;
+  static const int16_t MODE_AP_X = 20;
+  static const int16_t MODE_CL_X = 240 - 20 - MODE_W;     // 124
+  static const int16_t STAT_Y = 168, STAT_H = 60;
+  static const int16_t KN_X = 20, KN_Y = 236, KN_W = 200, KN_H = 36;
+
+  void drawEnableBtn(bool on) {
+    uint16_t bg = on ? DARKGREEN : DARKGREY;
+    gfx->fillRoundRect(ENA_X, ENA_Y, ENA_W, ENA_H, 8, bg);
+    gfx->drawRoundRect(ENA_X, ENA_Y, ENA_W, ENA_H, 8, WHITE);
+    gfx->setTextColor(WHITE, bg);
+    gfx->setTextSize(2);
+    const char *l = on ? "WiFi: ON" : "WiFi: OFF";
+    int16_t lw = (int16_t)strlen(l) * 12;
+    gfx->setCursor(ENA_X + (ENA_W - lw) / 2, ENA_Y + 12);
+    gfx->print(l);
+  }
+  void drawModeBtn(int16_t x, const char *label, bool active) {
+    uint16_t bg = active ? PURPLE : DARKGREY;
+    gfx->fillRoundRect(x, MODE_Y, MODE_W, MODE_H, 8, bg);
+    gfx->drawRoundRect(x, MODE_Y, MODE_W, MODE_H, 8, WHITE);
+    gfx->setTextColor(WHITE, bg);
+    gfx->setTextSize(2);
+    int16_t lw = (int16_t)strlen(label) * 12;
+    gfx->setCursor(x + (MODE_W - lw) / 2, MODE_Y + 12);
+    gfx->print(label);
+  }
+  void drawModeBtns(WifiMode m) {
+    drawModeBtn(MODE_AP_X, "Host",   m == WifiMode::AP);
+    drawModeBtn(MODE_CL_X, "Client", m == WifiMode::Client);
+  }
+  void drawStatus(const Snap &s) {
+    gfx->fillRect(0, STAT_Y, W, STAT_H, BLACK);
+    gfx->setTextSize(1);
+    if (!s.en) {
+      gfx->setTextColor(DARKGREY, BLACK);
+      gfx->setCursor(20, STAT_Y + 12); gfx->print("Radio off");
+      return;
+    }
+    char buf[80];
+    if (s.mode == WifiMode::AP) {
+      gfx->setTextColor(YELLOW, BLACK);
+      gfx->setCursor(12, STAT_Y);
+      snprintf(buf, sizeof(buf), "AP: %s", s.ssid[0] ? s.ssid : "EWATCH_SETUP");
+      gfx->print(buf);
+      gfx->setTextColor(WHITE, BLACK);
+      gfx->setCursor(12, STAT_Y + 14);
+      gfx->print("http://192.168.4.1/");
+      gfx->setCursor(12, STAT_Y + 28);
+      snprintf(buf, sizeof(buf), "Clients: %u", (unsigned)s.cli);
+      gfx->print(buf);
+    } else {
+      if (s.conn) {
+        gfx->setTextColor(GREEN, BLACK);
+        gfx->setCursor(12, STAT_Y);
+        snprintf(buf, sizeof(buf), "Connected: %s", s.ssid);
+        gfx->print(buf);
+        gfx->setTextColor(WHITE, BLACK);
+        gfx->setCursor(12, STAT_Y + 14);
+        snprintf(buf, sizeof(buf), "RSSI %d dBm", (int)s.rssi);
+        gfx->print(buf);
+      } else {
+        gfx->setTextColor(ORANGE, BLACK);
+        gfx->setCursor(12, STAT_Y); gfx->print("Scanning for saved SSIDs...");
+        if (Storage::knownCount() == 0) {
+          gfx->setTextColor(0x8410, BLACK);
+          gfx->setCursor(12, STAT_Y + 16);
+          gfx->print("(no networks saved yet)");
+        }
+      }
+    }
+  }
+  void drawKnownBtn() {
+    gfx->fillRoundRect(KN_X, KN_Y, KN_W, KN_H, 6, NAVY);
+    gfx->drawRoundRect(KN_X, KN_Y, KN_W, KN_H, 6, WHITE);
+    gfx->setTextColor(WHITE, NAVY);
+    gfx->setTextSize(2);
+    const char *l = "Saved networks >";
+    int16_t lw = (int16_t)strlen(l) * 12;
+    gfx->setCursor(KN_X + (KN_W - lw) / 2, KN_Y + 10);
+    gfx->print(l);
+  }
+};
+
+// =====================================================================
+// SettingsKnownNets — list of saved SSIDs with per-row delete. Adding new
+// networks happens via the AP web form (typing passwords on the touchscreen
+// would be miserable).
+// =====================================================================
+class SettingsKnownNetsView : public View {
+public:
+  void onEnter() override { clearAll(); firstDraw = true; lastN = 0xFF; }
+  void render() override {
+    if (!gfx) return;
+    if (firstDraw) {
+      drawBackButton();
+      gfx->setTextSize(2);
+      gfx->setTextColor(WHITE, BLACK);
+      gfx->setCursor(74, 14);
+      gfx->print("Networks");
+      gfx->drawFastHLine(20, 46, 200, DARKGREY);
+      firstDraw = false;
+    }
+    uint8_t n = Storage::knownCount();
+    if (n != lastN) { drawList(); lastN = n; }
+  }
+  void onEvent(const Event &e) override {
+    if (e.type == EventType::ButtonShort) { switchTo(Screen::SettingsWifi); return; }
+    if (e.type != EventType::Touch) return;
+    if (tappedBack(e.x, e.y)) { switchTo(Screen::SettingsWifi); return; }
+
+    uint8_t n = Storage::knownCount();
+    for (uint8_t i = 0; i < n; i++) {
+      int16_t y = ROW_Y0 + i * ROW_H;
+      if (inRect(e.x, e.y, DEL_X, y, DEL_W, ROW_H - 4)) {
+        Storage::knownRemove(i);
+        Storage::knownSave();
+        hapticBuzz(80, 80);
+        lastN = 0xFF;        // force list redraw
+        return;
+      }
+    }
+  }
+private:
+  bool   firstDraw = true;
+  uint8_t lastN = 0xFF;
+  static const int16_t ROW_Y0 = 56;
+  static const int16_t ROW_H  = 26;
+  static const int16_t DEL_X  = 188;
+  static const int16_t DEL_W  = 44;
+
+  void drawList() {
+    gfx->fillRect(0, ROW_Y0 - 2, W, H - ROW_Y0 - 2, BLACK);
+    uint8_t n = Storage::knownCount();
+    if (n == 0) {
+      gfx->setTextSize(2);
+      gfx->setTextColor(DARKGREY, BLACK);
+      gfx->setCursor(28, 110); gfx->print("(none saved)");
+      gfx->setTextSize(1);
+      gfx->setTextColor(0x8410, BLACK);
+      gfx->setCursor(12, 200); gfx->print("Add via Web Setup AP:");
+      gfx->setCursor(12, 214); gfx->print("Settings -> WiFi -> Host,");
+      gfx->setCursor(12, 228); gfx->print("join EWATCH_SETUP, open page.");
+      return;
+    }
+    for (uint8_t i = 0; i < n && i < Storage::KNOWN_MAX; i++) {
+      char s[Storage::KNOWN_SSID], p[Storage::KNOWN_PASS];
+      if (!Storage::knownAt(i, s, p)) continue;
+      int16_t y = ROW_Y0 + i * ROW_H;
+      gfx->setTextSize(1);
+      gfx->setTextColor(WHITE, BLACK);
+      gfx->setCursor(12, y + 7);
+      char trunc[29];
+      strncpy(trunc, s, 28); trunc[28] = '\0';
+      gfx->print(trunc);
+      gfx->fillRoundRect(DEL_X, y, DEL_W, ROW_H - 4, 4, MAROON);
+      gfx->drawRoundRect(DEL_X, y, DEL_W, ROW_H - 4, 4, WHITE);
+      gfx->setTextColor(WHITE, MAROON);
+      gfx->setTextSize(2);
+      gfx->setCursor(DEL_X + (DEL_W - 12) / 2, y + 5);
+      gfx->print('X');
+    }
+  }
+};
+
+// =====================================================================
 // IMU Gestures — visualizes orientation + recent shake events.
 // Live tilt dot driven by accel X/Y; classifies face-up/face-down/portrait/
 // landscape from accel sign. Counts shakes from the controller's heuristic.
@@ -1738,33 +2226,49 @@ private:
 // Top level: just the user-facing 3D viewer plus an entry into the System
 // sub-page (settings, diagnostics, power off).
 static const AppEntry kTopApps[] = {
-  { "3D Viewer", DARKCYAN,  Screen::Viewer3D   },
-  { "Media",     OLIVE,     Screen::Media      },
-  { "QR Share",  PURPLE,    Screen::QRCode     },
-  { "Animator",  MAROON,    Screen::AnimDemo   },
-  { "System",    NAVY,      Screen::SystemApps },
+  { "3D Viewer", DARKCYAN, Screen::Viewer3D,   "rotate a 3D model"    },
+  { "Media",     OLIVE,    Screen::Media,      "images and videos"    },
+  { "QR Share",  PURPLE,   Screen::QRCode,     "share contact info"   },
+  { "Stopwatch", DARKCYAN, Screen::Stopwatch,  "count-up timer"       },
+  { "Timer",     MAROON,   Screen::Timer,      "countdown + alarm"    },
+  { "Animator",  OLIVE,    Screen::AnimDemo,   "framework demo"       },
+  { "System",    NAVY,     Screen::SystemApps, "settings & sensors"   },
 };
 static const AppEntry kSystemApps[] = {
-  { "Settings",       NAVY,      Screen::Settings      },
-  { "Sensor Test",    DARKGREEN, Screen::SensorTest    },
-  { "Touch Gestures", PURPLE,    Screen::TouchGestures },
-  { "IMU Gestures",   OLIVE,     Screen::ImuGestures   },
-  { "Power Off",      MAROON,    Screen::PowerOff      },
+  { "Settings",       NAVY,      Screen::Settings,      "preferences"          },
+  { "Sensor Test",    DARKGREEN, Screen::SensorTest,    "live readouts"        },
+  { "Touch Gestures", PURPLE,    Screen::TouchGestures, "test the touch chip"  },
+  { "IMU Gestures",   OLIVE,     Screen::ImuGestures,   "test accelerometer"   },
+  { "Power Off",      MAROON,    Screen::PowerOff,      "sleep or shut down"   },
+};
+static const AppEntry kSettingsEntries[] = {
+  { "Time",    NAVY,      Screen::SettingsTime,    "set the clock"        },
+  { "Date",    DARKCYAN,  Screen::SettingsDate,    "set the calendar"     },
+  { "Sleep",   DARKGREEN, Screen::SettingsSleep,   "auto-sleep + wake"    },
+  { "Display", PURPLE,    Screen::SettingsDisplay, "brightness + colors"  },
+#if defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
+  { "WiFi",    DARKCYAN,  Screen::SettingsWifi,    "host AP / join WiFi"  },
+#endif
+  { "Memory",  MAROON,    Screen::SettingsMemory,  "heap / PSRAM usage"   },
 };
 
 static WatchFaceView      vWatch;
-static TileListView       vAppList(kTopApps,
+static CarouselView       vAppList(kTopApps,
                                    sizeof(kTopApps) / sizeof(kTopApps[0]),
-                                   "Apps", Screen::Watch);
-static TileListView       vSystemApps(kSystemApps,
+                                   "Apps", Screen::Watch, /*wrap=*/true);
+static CarouselView       vSystemApps(kSystemApps,
                                       sizeof(kSystemApps) / sizeof(kSystemApps[0]),
                                       "System", Screen::AppList);
-static SettingsView         vSettings;          // sub-menu
-static SettingsTimeView     vSettingsTime;      // page
-static SettingsDateView     vSettingsDate;      // page
-static SettingsSleepView    vSettingsSleep;     // page
-static SettingsDisplayView  vSettingsDisplay;   // page
-static SettingsMemoryView   vSettingsMemory;    // page
+static CarouselView       vSettings(kSettingsEntries,
+                                    sizeof(kSettingsEntries) / sizeof(kSettingsEntries[0]),
+                                    "Settings", Screen::SystemApps);
+static SettingsTimeView     vSettingsTime;       // page
+static SettingsDateView     vSettingsDate;       // page
+static SettingsSleepView    vSettingsSleep;      // page
+static SettingsDisplayView  vSettingsDisplay;    // page
+static SettingsMemoryView   vSettingsMemory;     // page
+static SettingsWifiView     vSettingsWifi;       // page
+static SettingsKnownNetsView vSettingsKnownNets; // page
 static SensorTestView     vSensorTest;
 static TouchGesturesView  vTouchGestures;
 static ImuGesturesView    vImuGestures;
@@ -1772,6 +2276,8 @@ static Viewer3DView       vViewer3D;       // user app — defined in apps/viewe
 static MediaView          vMedia;          // user app — defined in apps/media.cpp
 static QRCodeView         vQRCode;         // user app — defined in apps/qr.cpp
 static AnimDemoView       vAnimDemo;       // user app — defined in apps/anim_demo.cpp
+static StopwatchView      vStopwatch;      // user app — defined in apps/stopwatch.cpp
+static TimerView          vTimer;          // user app — defined in apps/timer_app.cpp
 static PowerOffView       vPowerOff;
 
 View *currentView = nullptr;
@@ -1787,6 +2293,8 @@ View *viewFor(Screen s) {
     case Screen::SettingsSleep:   return &vSettingsSleep;
     case Screen::SettingsDisplay: return &vSettingsDisplay;
     case Screen::SettingsMemory:  return &vSettingsMemory;
+    case Screen::SettingsWifi:    return &vSettingsWifi;
+    case Screen::SettingsKnownNets: return &vSettingsKnownNets;
     case Screen::SensorTest:    return &vSensorTest;
     case Screen::TouchGestures: return &vTouchGestures;
     case Screen::ImuGestures:   return &vImuGestures;
@@ -1794,6 +2302,8 @@ View *viewFor(Screen s) {
     case Screen::Media:         return &vMedia;
     case Screen::QRCode:        return &vQRCode;
     case Screen::AnimDemo:      return &vAnimDemo;
+    case Screen::Stopwatch:     return &vStopwatch;
+    case Screen::Timer:         return &vTimer;
     case Screen::PowerOff:      return &vPowerOff;
   }
   return &vWatch;

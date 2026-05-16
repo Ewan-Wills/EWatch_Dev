@@ -15,6 +15,7 @@ enum class EventType : uint8_t {
   ButtonVeryLong,// held > 3000 ms — global power-off
   ImuMotion,     // detected motion (raised from accel delta heuristic)
   Tick,
+  TimerExpired,  // the app countdown timer reached zero
 };
 
 // Maps to fbiego/CST816S gestureID values.

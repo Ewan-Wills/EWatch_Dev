@@ -186,12 +186,7 @@ static void drawChrome() {
 // ---------- view methods ----------
 
 void AnimDemoView::onEnter() {
-  if (!canvas) {
-    canvas = new Arduino_Canvas(SCREEN_W, SCREEN_H, gfx, 0, 0);
-    if (!canvas->begin()) {
-      delete canvas; canvas = nullptr;
-    }
-  }
+  canvas = frameCanvas();
   if (canvas && !ui) ui = new UI(canvas);
   if (!ui) return;
 
@@ -213,6 +208,7 @@ void AnimDemoView::render() {
   if (!canvas || !ui) return;
 
   bool exitRequested = false;
+  Screen exitTarget = Screen::AppList;
   while (!exitRequested) {
     uint32_t t0 = millis();
 
@@ -228,6 +224,9 @@ void AnimDemoView::render() {
       Event e;
       if (xQueueReceive(eventQueue, &e, pdMS_TO_TICKS(budget)) != pdPASS) break;
       if (e.type == EventType::ButtonShort) { exitRequested = true; break; }
+      if (e.type == EventType::TimerExpired) {
+        exitTarget = Screen::Timer; exitRequested = true; break;
+      }
       if (e.type == EventType::Touch) {
         if (tappedBack(e.x, e.y)) { exitRequested = true; break; }
         int b = hitButton(e.x, e.y);
@@ -245,5 +244,5 @@ void AnimDemoView::render() {
       budget = 33 - (int32_t)(millis() - t0);
     }
   }
-  switchTo(Screen::AppList);
+  switchTo(exitTarget);
 }

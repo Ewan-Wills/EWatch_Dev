@@ -12,9 +12,13 @@ static const uint8_t  BL_LEDC_CH  = 0;     // LEDC channel 0
 static bool bl_attached = false;
 
 bool displayBegin() {
-  // Hold backlight off so the user doesn't see uninitialised panel garbage.
+  // Keep backlight OFF throughout panel init. The ST7789 power-up sequence
+  // takes ~200 ms and shows random panel RAM during that window — that's the
+  // distorted black/white pattern users saw on every cold boot and wake. The
+  // caller must call backlightOn() (or backlightSet) only after the first
+  // frame has been drawn, so the user only ever sees committed content.
   pinMode(PIN_DISP_BL, OUTPUT);
-  digitalWrite(PIN_DISP_BL, HIGH);
+  digitalWrite(PIN_DISP_BL, LOW);
 
   bus = new Arduino_ESP32SPI(PIN_DISP_DC, PIN_DISP_CS,
                              PIN_DISP_SCK, PIN_DISP_MOSI,
@@ -46,3 +50,20 @@ void backlightSet(uint8_t duty) {
 
 void backlightOn()  { backlightSet(255); }
 void backlightOff() { backlightSet(0); }
+
+static Arduino_Canvas *gFrameCanvas = nullptr;
+Arduino_Canvas *frameCanvas() {
+  if (gFrameCanvas) return gFrameCanvas;
+  if (!gfx) return nullptr;
+  gFrameCanvas = new Arduino_Canvas(240, 280, gfx, 0, 0);
+  // GFX_SKIP_OUTPUT_BEGIN: the underlying ST7789 + SPI bus were already
+  // started in displayBegin(). Letting Canvas re-run output->begin() registers
+  // a second APB-change callback for the SPI bus and logs a "duplicate" warning
+  // from esp32-hal-cpu.c the moment any view first allocates the canvas.
+  if (!gFrameCanvas->begin(GFX_SKIP_OUTPUT_BEGIN)) {
+    Serial.println("frameCanvas: alloc failed");
+    delete gFrameCanvas;
+    gFrameCanvas = nullptr;
+  }
+  return gFrameCanvas;
+}

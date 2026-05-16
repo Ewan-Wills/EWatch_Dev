@@ -15,13 +15,19 @@ enum class Screen : uint8_t {
   SettingsSleep,    // sub-page: idle timeout + wake sources
   SettingsDisplay,  // sub-page: brightness + colors
   SettingsMemory,   // sub-page: heap / PSRAM / flash usage
+  SettingsWifi,     // sub-page: WiFi enable + mode + status
+  SettingsKnownNets,// sub-page: list of saved networks (delete only)
   SensorTest, TouchGestures, ImuGestures,
   Viewer3D,         // user app (outside src/apps/system)
   Media,            // user app: image / video viewer
   QRCode,           // user app: phone / email / website share QR
   AnimDemo,         // user app: anim framework showcase
+  Stopwatch,        // user app: count-up stopwatch
+  Timer,            // user app: countdown timer (wakes from sleep)
   PowerOff
 };
+
+enum class WifiMode : uint8_t { AP = 0, Client = 1 };
 
 struct Model {
   // Time (RTC)
@@ -71,6 +77,17 @@ struct Model {
   uint8_t  brightness = 200;        // backlight PWM duty 0..255 (16 = ~6%)
   uint16_t bgColor    = 0x0000;     // RGB565 — BLACK
   uint16_t fgColor    = 0xFFFF;     // RGB565 — WHITE
+
+  // WiFi configuration (persisted).
+  bool     wifiEnabled = false;
+  WifiMode wifiMode    = WifiMode::AP;
+
+  // WiFi live status — owned by wifi_svc, read by views / icon. Connected
+  // means STA mode is associated; apClients counts SoftAP stations.
+  bool     wifiConnected = false;
+  int8_t   wifiRssi      = 0;
+  char     wifiSsid[33]  = "";       // STA-connected SSID or AP SSID
+  uint8_t  wifiApClients = 0;
 };
 
 extern Model            model;

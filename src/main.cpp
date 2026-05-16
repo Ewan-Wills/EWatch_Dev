@@ -19,6 +19,8 @@
 #include "view.h"
 #include "controller.h"
 #include "storage.h"
+#include "apptimer.h"
+#include "wifi_svc.h"
 
 // ----- Touch wake validation ------------------------------------------------
 // The CST816S INT line can be tripped by EM noise (USB charging, body
@@ -47,6 +49,80 @@ static bool touchReallyPresent() {
     }
   }
   return false;
+}
+
+// Map ESP reset reasons to short strings for both serial + on-screen logs.
+static const char *resetReasonStr(esp_reset_reason_t r) {
+  switch (r) {
+    case ESP_RST_POWERON:   return "POWERON";
+    case ESP_RST_EXT:       return "EXT_PIN";
+    case ESP_RST_SW:        return "SW_RESET";
+    case ESP_RST_PANIC:     return "PANIC";
+    case ESP_RST_INT_WDT:   return "INT_WDT";
+    case ESP_RST_TASK_WDT:  return "TASK_WDT";
+    case ESP_RST_WDT:       return "OTHER_WDT";
+    case ESP_RST_DEEPSLEEP: return "DEEPSLEEP";
+    case ESP_RST_BROWNOUT:  return "BROWNOUT";
+    case ESP_RST_SDIO:      return "SDIO";
+    case ESP_RST_UNKNOWN:   return "UNKNOWN";
+    default:                return "?";
+  }
+}
+static bool isCrashReason(esp_reset_reason_t r) {
+  return r == ESP_RST_PANIC || r == ESP_RST_INT_WDT ||
+         r == ESP_RST_TASK_WDT || r == ESP_RST_WDT ||
+         r == ESP_RST_BROWNOUT;
+}
+
+// Show a crash-recovery banner on screen if the previous boot ended in a
+// panic / watchdog / brownout. The actual backtrace lives on the serial
+// console; we just surface the reason here so the failure isn't invisible
+// when the watch is running headless. Waits up to 8 s for SW2, then continues.
+static void showCrashScreenIfRecovering() {
+  esp_reset_reason_t r = esp_reset_reason();
+  if (!isCrashReason(r)) return;
+  const char *reason = resetReasonStr(r);
+  Serial.printf("\n!!! CRASH RECOVERY: previous reset reason = %s !!!\n", reason);
+  if (!gfx) return;
+
+  pinMode(PIN_BTN, INPUT);
+  backlightSet(160);
+  gfx->fillScreen(0);
+  gfx->fillRect(0, 0, 240, 36, 0xF800);            // red banner
+  gfx->setTextColor(0xFFFF, 0xF800);
+  gfx->setTextSize(2);
+  gfx->setCursor(36, 10);
+  gfx->print("CRASH RECOVERY");
+
+  gfx->setTextColor(0xFFFF, 0x0000);
+  gfx->setTextSize(1);
+  gfx->setCursor(10, 52);
+  gfx->print("Last reset reason:");
+
+  gfx->setTextSize(3);
+  gfx->setTextColor(0xFFE0, 0x0000);               // yellow
+  int len = (int)strlen(reason);
+  int x = (240 - len * 18) / 2;
+  if (x < 6) x = 6;
+  gfx->setCursor(x, 80);
+  gfx->print(reason);
+
+  gfx->setTextSize(1);
+  gfx->setTextColor(0xFFFF, 0x0000);
+  gfx->setCursor(10, 140); gfx->print("See USB serial monitor for");
+  gfx->setCursor(10, 154); gfx->print("backtrace + 'rst:' messages.");
+
+  gfx->setTextColor(0x8410, 0x0000);
+  gfx->setCursor(10, 210); gfx->print("Continuing in 8s, or press SW2");
+  gfx->setCursor(10, 224); gfx->print("to resume immediately.");
+
+  uint32_t t0 = millis();
+  while (millis() - t0 < 8000) {
+    if (digitalRead(PIN_BTN)) break;
+    delay(50);
+  }
+  gfx->fillScreen(0);
+  backlightOff();          // return to clean state; caller re-enables after first frame
 }
 
 static void reArmFromSpuriousWakeAndSleep() {
@@ -93,9 +169,11 @@ void setup() {
   if (fromSleep) {
     gpio_hold_dis((gpio_num_t)PIN_LDO_LATCH);
     gpio_deep_sleep_hold_dis();
-    // Timer wake means we hit the sleep -> off limit with no user activity.
-    // Drop the rail and stop — the chip loses power once the LDO unlatches.
-    if (wake == ESP_SLEEP_WAKEUP_TIMER) {
+    // A timer wake is one of two things:
+    //   - the countdown Timer app came due  -> boot normally, alarm fires
+    //     once the I/O task confirms the RTC deadline has passed.
+    //   - the auto-power-off interval elapsed -> drop the rail and stop.
+    if (wake == ESP_SLEEP_WAKEUP_TIMER && !timerArmed()) {
       digitalWrite(PIN_LDO_LATCH, LOW);
       pinMode(PIN_LDO_LATCH, OUTPUT);
       for (;;) delay(1000);
@@ -104,8 +182,13 @@ void setup() {
   latchPower();
 
   Serial.begin(115200);
-  uint32_t t0 = millis();
-  while (!Serial && millis() - t0 < 1500) delay(10);
+  // On battery the USB-CDC never enumerates, so !Serial stays true for the
+  // full timeout. That dominated wake-from-sleep latency. Skip the wait on
+  // wake; on cold boot keep a short window so attached-USB logs aren't lost.
+  if (!fromSleep) {
+    uint32_t t0 = millis();
+    while (!Serial && millis() - t0 < 300) delay(10);
+  }
   Serial.println("\n=== EWatch boot ===");
 
   i2cBegin();
@@ -131,8 +214,11 @@ void setup() {
     Serial.println("display init failed; halting");
     while (true) delay(1000);
   }
-  backlightOn();
-  gfx->fillScreen(BLACK);
+  // displayBegin leaves the backlight OFF and the panel cleared to BLACK. We
+  // keep it that way through the rest of init so the user never sees the
+  // ST7789's power-up garbage. Crash screen (below) turns it on briefly if
+  // it has something to say, then drops it again.
+  showCrashScreenIfRecovering();
 
   touchBegin();
   controllerInit();
@@ -140,11 +226,18 @@ void setup() {
   modelInit();
   Storage::begin();
   Storage::load();              // restore persisted settings before tasks run
-  backlightSet(model.brightness);   // apply user-configured backlight level
   eventQueueInit();
-  viewsInit();
+  viewsInit();                  // paints watch face background under the dark panel
 
+  wifiSvcInit();
   controllerStartTasks();
+  wifiSvcStartTask();
+
+  // Give the render task a brief window to paint the first complete frame
+  // (time, date, icons), then bring the backlight up at the user's level.
+  // The user sees a clean watch face appear instead of a partial paint.
+  delay(80);
+  backlightSet(model.brightness);
 
   // Quieter cue if we woke from sleep — single short buzz instead of the
   // boot-confirmation buzz.
