@@ -39,9 +39,8 @@ static bool inRect(uint16_t x, uint16_t y, int16_t rx, int16_t ry,
   return (int16_t)x >= rx && (int16_t)x < rx + rw &&
          (int16_t)y >= ry && (int16_t)y < ry + rh;
 }
-static bool tappedBack(uint16_t x, uint16_t y) {
-  return inRect(x, y, 0, 0, BACK_W + 12, BACK_H + 10);
-}
+// `tappedBack` is shared via view.h; uses the same BACK_W/BACK_H sized hit
+// zone so the QR view inherits identical tap geometry.
 
 static void renderQR(int idx) {
   const QRPayload &p = kPayloads[idx];

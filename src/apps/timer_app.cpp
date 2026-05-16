@@ -28,23 +28,11 @@ static bool inRect(uint16_t x, uint16_t y, int16_t rx, int16_t ry,
   return (int16_t)x >= rx && (int16_t)x < rx + rw &&
          (int16_t)y >= ry && (int16_t)y < ry + rh;
 }
-static bool tappedBack(uint16_t x, uint16_t y) {
-  return inRect(x, y, 0, 0, BACK_W + 12, BACK_H + 10);
-}
-static void drawBackButton() {
-  gfx->fillRoundRect(2, 2, BACK_W, BACK_H, 6, DARKGREY);
-  gfx->setTextColor(WHITE, DARKGREY);
-  gfx->setTextSize(3);
-  gfx->setCursor(18, 12);
-  gfx->print('<');
-}
+// drawBackButton / tappedBack / drawTitleBar / theme() / contrastFor() are all
+// shared helpers declared in view.h — they read model.bgColor / fgColor /
+// accentColor / lineColor so this view re-themes automatically.
 static void drawTitle(const char *t) {
-  gfx->setTextSize(2);
-  gfx->setTextColor(WHITE, BLACK);
-  int16_t tw = (int16_t)strlen(t) * 12;
-  gfx->setCursor((W - tw) / 2, 14);
-  gfx->print(t);
-  gfx->drawFastHLine(20, 44, 200, DARKGREY);
+  drawTitleBar(t);
 }
 static uint32_t nowEpoch() {
   ModelLock lk;
@@ -55,7 +43,7 @@ static uint32_t nowEpoch() {
 
 // ---------- mode transitions ----------
 void TimerView::onEnter() {
-  if (gfx) gfx->fillScreen(BLACK);
+  if (gfx) { ThemeColors _t = theme(); gfx->fillScreen(_t.bg); };
   if      (timerFired()) mode = Mode::Fired;
   else if (timerArmed()) mode = Mode::Running;
   else                   mode = Mode::Setting;
@@ -70,10 +58,10 @@ void TimerView::onEnter() {
   lastShownRemain = 0xFFFFFFFF;
   lastBuzzMs = 0;
 }
-void TimerView::enterSetting() { mode = Mode::Setting; gfx->fillScreen(BLACK); firstDraw = true; }
-void TimerView::enterRunning() { mode = Mode::Running; gfx->fillScreen(BLACK); firstDraw = true;
+void TimerView::enterSetting() { mode = Mode::Setting; { ThemeColors _t = theme(); gfx->fillScreen(_t.bg); }; firstDraw = true; }
+void TimerView::enterRunning() { mode = Mode::Running; { ThemeColors _t = theme(); gfx->fillScreen(_t.bg); }; firstDraw = true;
                                  lastShownRemain = 0xFFFFFFFF; }
-void TimerView::enterFired()   { mode = Mode::Fired;   gfx->fillScreen(BLACK); firstDraw = true;
+void TimerView::enterFired()   { mode = Mode::Fired;   { ThemeColors _t = theme(); gfx->fillScreen(_t.bg); }; firstDraw = true;
                                  lastBuzzMs = 0;
                                  alertCycleStartMs = millis();
                                  alertPulseStage   = 0;
@@ -193,37 +181,40 @@ void TimerView::drawSetting() {
   drawBackButton();
   drawTitle("Timer");
 
+  ThemeColors t = theme();
   static const char *kLbl[3] = { "HRS", "MIN", "SEC" };
   gfx->setTextSize(1);
   for (int c = 0; c < 3; c++) {
     int16_t x = COL_X(c) + (COL_W - (int16_t)strlen(kLbl[c]) * 6) / 2;
-    gfx->setTextColor(DARKGREY, BLACK);
+    gfx->setTextColor(t.line, t.bg);
     gfx->setCursor(x, 52);
     gfx->print(kLbl[c]);
   }
   for (int c = 0; c < 3; c++) {
     int16_t x = COL_X(c);
-    gfx->drawRoundRect(x, PLUS_Y,  COL_W, BTN_H, 6, DARKGREY);
-    gfx->drawRoundRect(x, MINUS_Y, COL_W, BTN_H, 6, DARKGREY);
+    gfx->drawRoundRect(x, PLUS_Y,  COL_W, BTN_H, 6, t.line);
+    gfx->drawRoundRect(x, MINUS_Y, COL_W, BTN_H, 6, t.line);
     gfx->setTextSize(3);
-    gfx->setTextColor(WHITE, BLACK);
+    gfx->setTextColor(t.fg, t.bg);
     gfx->setCursor(x + COL_W / 2 - 9, PLUS_Y  + 10);
     gfx->print('+');
     gfx->setCursor(x + COL_W / 2 - 9, MINUS_Y + 10);
     gfx->print('-');
   }
-  gfx->fillRoundRect(ACT_X, ACT_Y, ACT_W, ACT_H, 8, DARKGREEN);
+  uint16_t startTxt = contrastFor(t.accent);
+  gfx->fillRoundRect(ACT_X, ACT_Y, ACT_W, ACT_H, 8, t.accent);
   gfx->setTextSize(3);
-  gfx->setTextColor(WHITE, DARKGREEN);
+  gfx->setTextColor(startTxt, t.accent);
   gfx->setCursor(ACT_X + (ACT_W - 5 * 18) / 2, ACT_Y + 10);
   gfx->print("START");
 
   drawSettingDigits();
 }
 void TimerView::drawSettingDigits() {
-  gfx->fillRect(0, DIGITS_Y, W, 44, BLACK);
+  ThemeColors t = theme();
+  gfx->fillRect(0, DIGITS_Y, W, 44, t.bg);
   gfx->setTextSize(5);
-  gfx->setTextColor(YELLOW, BLACK);
+  gfx->setTextColor(YELLOW, t.bg);   // YELLOW kept as a "this is the value" cue
   uint8_t vals[3] = { setH, setM, setS };
   char buf[4];
   for (int c = 0; c < 3; c++) {
@@ -251,14 +242,18 @@ void TimerView::drawRunning(uint32_t remainSec) {
   else        { snprintf(buf, sizeof(buf), "%02lu:%02lu",
                          (unsigned long)mm, (unsigned long)ss);
                 size = 6; }
-  gfx->fillRect(0, 90, W, 90, BLACK);
+  ThemeColors th = theme();
+  gfx->fillRect(0, 90, W, 90, th.bg);
   gfx->setTextSize(size);
-  // Go red/urgent in the last 10 seconds.
-  gfx->setTextColor(remainSec <= 10 ? RED : CYAN, BLACK);
+  // Go red/urgent in the last 10 seconds; otherwise use the user's fg colour
+  // so the countdown matches the watch face palette.
+  gfx->setTextColor(remainSec <= 10 ? RED : th.fg, th.bg);
   int16_t tw = (int16_t)strlen(buf) * 6 * size;
   gfx->setCursor((W - tw) / 2, 110);
   gfx->print(buf);
 
+  // CANCEL stays MAROON — destructive action, want it visually distinct from
+  // the (accent-coloured) primary SAVE/START pattern.
   gfx->fillRoundRect(ACT_X, ACT_Y, ACT_W, ACT_H, 8, MAROON);
   gfx->setTextSize(3);
   gfx->setTextColor(WHITE, MAROON);

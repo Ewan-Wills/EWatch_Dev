@@ -75,9 +75,11 @@ struct Model {
   uint8_t  imuWakeThreshold = 0x20;
 
   // Display preferences.
-  uint8_t  brightness = 200;        // backlight PWM duty 0..255 (16 = ~6%)
-  uint16_t bgColor    = 0x0000;     // RGB565 — BLACK
-  uint16_t fgColor    = 0xFFFF;     // RGB565 — WHITE
+  uint8_t  brightness  = 200;       // backlight PWM duty 0..255 (16 = ~6%)
+  uint16_t bgColor     = 0x0000;    // RGB565 — BLACK (screen background)
+  uint16_t fgColor     = 0xFFFF;    // RGB565 — WHITE (primary text / chrome)
+  uint16_t accentColor = 0x000F;    // RGB565 — NAVY  (buttons, app cards, highlights)
+  uint16_t lineColor   = 0x7BEF;    // RGB565 — DARKGREY (dividers, outlines)
 
   // Haptic feedback strength as a percentage (0 = off, 100 = full motor).
   // Every hapticBuzz() call scales its PWM intensity by this factor, so this

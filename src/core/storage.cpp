@@ -43,6 +43,8 @@ void Storage::load() {
   model.brightness       = prefs.getUChar ("bright",    model.brightness);
   model.bgColor          = prefs.getUShort("bgColor",   model.bgColor);
   model.fgColor          = prefs.getUShort("fgColor",   model.fgColor);
+  model.accentColor      = prefs.getUShort("accColor",  model.accentColor);
+  model.lineColor        = prefs.getUShort("lineColor", model.lineColor);
 
   model.wifiEnabled      = prefs.getBool  ("wifiOn",    model.wifiEnabled);
   uint8_t modeRaw        = prefs.getUChar ("wifiMode",  (uint8_t)model.wifiMode);
@@ -66,7 +68,7 @@ void Storage::load() {
 
 void Storage::save() {
   bool t, b, i, wEn;
-  uint16_t to, off, bg, fg;
+  uint16_t to, off, bg, fg, ac, ln;
   uint8_t  th, br;
   int16_t  tz;
   uint8_t  wfs, hap;
@@ -81,6 +83,8 @@ void Storage::save() {
     br  = model.brightness;
     bg  = model.bgColor;
     fg  = model.fgColor;
+    ac  = model.accentColor;
+    ln  = model.lineColor;
     wEn = model.wifiEnabled;
     wMode = model.wifiMode;
     tz  = model.tzOffsetMin;
@@ -95,6 +99,8 @@ void Storage::save() {
   prefs.putUChar ("bright",    br);
   prefs.putUShort("bgColor",   bg);
   prefs.putUShort("fgColor",   fg);
+  prefs.putUShort("accColor",  ac);
+  prefs.putUShort("lineColor", ln);
   prefs.putBool  ("wifiOn",    wEn);
   prefs.putUChar ("wifiMode",  (uint8_t)wMode);
   prefs.putShort ("tzOffMin",  tz);

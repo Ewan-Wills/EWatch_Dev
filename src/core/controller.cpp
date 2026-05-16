@@ -1,4 +1,5 @@
 #include <Wire.h>
+#include <esp_task_wdt.h>
 #include "pins.h"
 #include "power.h"
 #include "i2c_bus.h"
@@ -170,6 +171,10 @@ void controllerInit() {
 // 4th cycle (~12 Hz), battery every 50th cycle (~1 Hz). Drains pending RTC
 // writes posted by other tasks at the start of each cycle.
 static void taskIO(void *) {
+  // Subscribe to the system task watchdog. If this loop ever stalls for more
+  // than the WDT timeout the chip resets, and the panic-loop guard in main()
+  // catches the repeat and drops the LDO latch.
+  esp_task_wdt_add(nullptr);
   IO_LOG("taskIO start hwm=%u",
          (unsigned)uxTaskGetStackHighWaterMark(nullptr));
   bool     lastBtn = false;
@@ -186,6 +191,7 @@ static void taskIO(void *) {
 
   uint32_t ioTick = 0;
   for (;;) {
+    esp_task_wdt_reset();
     ioTick++;
     if ((ioTick & 0x3F) == 0) {
       IO_LOG("tick=%lu hwm=%u touchPending=%d",
@@ -429,10 +435,15 @@ static bool isActivity(EventType t) {
 // Also enforces the auto-sleep timeout: after sleepTimeoutSec of no activity
 // we enter deep sleep with the configured wake sources.
 static void taskRender(void *) {
+  // Subscribe to the system task watchdog. A frozen view (infinite redraw,
+  // stuck animation, deadlock) will fail to feed within the WDT window and
+  // trigger a chip reset — covered by the panic-loop guard in main().
+  esp_task_wdt_add(nullptr);
   uint32_t lastRender = 0;
   uint32_t lastSeenRev = 0;
   uint32_t lastActivity = millis();
   for (;;) {
+    esp_task_wdt_reset();
     Event e;
     bool any = false;
     int drained = 0;

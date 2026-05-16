@@ -5,6 +5,9 @@
 #include <Wire.h>
 #include <Preferences.h>
 #include <esp_sleep.h>
+#include <esp_task_wdt.h>
+#include <esp_timer.h>
+#include <esp_attr.h>
 #include <driver/gpio.h>
 #include <driver/rtc_io.h>
 #include "pins.h"
@@ -72,6 +75,92 @@ static bool isCrashReason(esp_reset_reason_t r) {
   return r == ESP_RST_PANIC || r == ESP_RST_INT_WDT ||
          r == ESP_RST_TASK_WDT || r == ESP_RST_WDT ||
          r == ESP_RST_BROWNOUT;
+}
+
+// ----- High-level exception safety net --------------------------------------
+// The watch holds its own power via PIN_LDO_LATCH, so if the firmware locks
+// up the user can't power-cycle without pulling the battery. Two layers of
+// defense:
+//
+//   1. Per-task watchdog (Task WDT) — every long-running task feeds it on
+//      each loop iteration; if any task stalls > kTaskWdtSec the chip resets.
+//      The TWDT is configured below in setup() right before tasks launch.
+//
+//   2. Reset-loop guard — a counter in RTC_DATA_ATTR memory (survives soft
+//      reset, lost on full power-off) increments on every crash/watchdog
+//      boot. If it crosses kPanicGiveUpLimit we drop the LDO latch and the
+//      watch powers off — the user has to press SW2 again to retry fresh,
+//      which guarantees the persistent hang state is broken.
+//
+//   3. Stable-run timer — once the firmware has been alive for kStableSec
+//      seconds, reset the counter back to 0. A real bug pattern still racks
+//      up the count; a single one-off crash doesn't bias future boots.
+RTC_DATA_ATTR static uint32_t gConsecutivePanics = 0;
+static const uint32_t kPanicGiveUpLimit = 3;
+static const uint32_t kTaskWdtSec       = 20;
+static const uint32_t kStableSec        = 30;
+
+static void checkPanicLoopAndMaybeShutdown(esp_reset_reason_t r) {
+  if (!isCrashReason(r)) {
+    if (gConsecutivePanics) {
+      Serial.printf("Clean boot — clearing panic counter (was %lu).\n",
+                    (unsigned long)gConsecutivePanics);
+    }
+    gConsecutivePanics = 0;
+    return;
+  }
+  gConsecutivePanics++;
+  Serial.printf("Panic-loop counter: %lu / %lu (reason=%s)\n",
+                (unsigned long)gConsecutivePanics,
+                (unsigned long)kPanicGiveUpLimit,
+                resetReasonStr(r));
+  if (gConsecutivePanics > kPanicGiveUpLimit) {
+    Serial.println("!!! Too many consecutive panics — dropping LDO latch !!!");
+    Serial.flush();
+    // Drop the rail. The chip stops getting power within ~µs; we spin here
+    // just so we don't fall through to anything that might re-latch.
+    unlatchPower();
+    for (;;) delay(100);
+  }
+}
+
+// One-shot esp_timer that resets the panic counter once we've stayed up for
+// `kStableSec` seconds. Runs in the timer task; the access is a single u32
+// write so no lock is needed.
+static void panicCounterStableReset(void *) {
+  if (gConsecutivePanics) {
+    Serial.printf("Stable for %lus — clearing panic counter (was %lu).\n",
+                  (unsigned long)kStableSec,
+                  (unsigned long)gConsecutivePanics);
+  }
+  gConsecutivePanics = 0;
+}
+static void armPanicCounterReset() {
+  static esp_timer_handle_t h = nullptr;
+  if (h) return;
+  esp_timer_create_args_t args = {};
+  args.callback        = &panicCounterStableReset;
+  args.dispatch_method = ESP_TIMER_TASK;
+  args.name            = "panicrst";
+  esp_timer_create(&args, &h);
+  esp_timer_start_once(h, (uint64_t)kStableSec * 1000000ULL);
+}
+
+// Install the Task WDT before any user task subscribes. ESP-IDF v4 signature:
+// esp_task_wdt_init(timeout_seconds, panic_on_timeout). Arduino-ESP32 already
+// inits it for the loopTask at boot; calling it again with our timeout is a
+// no-op for the loopTask subscription but sets the timeout we want.
+static void installTaskWatchdog() {
+  esp_err_t err = esp_task_wdt_init(kTaskWdtSec, /*panic=*/true);
+  if (err != ESP_OK) {
+    Serial.printf("esp_task_wdt_init err=%d\n", (int)err);
+  } else {
+    Serial.printf("Task WDT armed: %lus, panic-on-timeout\n",
+                  (unsigned long)kTaskWdtSec);
+  }
+  // Subscribe loopTask (current). The render/io/wifi tasks subscribe themselves
+  // at the top of their loop bodies so each one feeds its own watchdog.
+  esp_task_wdt_add(nullptr);
 }
 
 // Show a crash-recovery banner on screen if the previous boot ended in a
@@ -181,6 +270,13 @@ void setup() {
   }
   latchPower();
 
+  // BEFORE anything else can hang: if the last 3 boots all ended in panic
+  // or watchdog, drop the rail and stop. Otherwise the watch will sit there
+  // burning battery in a hung loop the user can't break without pulling
+  // the battery.
+  esp_reset_reason_t resetReason = esp_reset_reason();
+  checkPanicLoopAndMaybeShutdown(resetReason);
+
   Serial.begin(115200);
   // On battery the USB-CDC never enumerates, so !Serial stays true for the
   // full timeout. That dominated wake-from-sleep latency. Skip the wait on
@@ -230,6 +326,12 @@ void setup() {
   eventQueueInit();
   viewsInit();                  // paints watch face background under the dark panel
 
+  // Arm the task watchdog BEFORE tasks launch so they can subscribe at the
+  // top of their loops. Each task feeds its own watchdog; if any stalls
+  // longer than kTaskWdtSec the chip resets (caught by the panic-loop guard
+  // on the next boot).
+  installTaskWatchdog();
+
   wifiSvcInit();
   controllerStartTasks();
   wifiSvcStartTask();
@@ -243,10 +345,17 @@ void setup() {
   // Quieter cue if we woke from sleep — single short buzz instead of the
   // boot-confirmation buzz.
   hapticBuzz(150, fromSleep ? 40 : 80);
+
+  // 30 s from now, clear the panic-loop counter. If we survive that window
+  // the firmware is healthy enough that the next crash counts as fresh.
+  armPanicCounterReset();
+
   Serial.printf("Setup complete (wake=%d); tasks running.\n", (int)wake);
 }
 
 void loop() {
-  // Everything is in tasks. Idle the loopTask.
+  // Everything else is in tasks. Idle the loopTask, but feed the WDT so we
+  // don't trip the watchdog from this thread.
+  esp_task_wdt_reset();
   vTaskDelay(pdMS_TO_TICKS(1000));
 }

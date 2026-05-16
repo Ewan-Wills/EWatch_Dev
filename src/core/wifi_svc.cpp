@@ -20,6 +20,7 @@
 #include <ESPmDNS.h>
 #include <esp_wifi.h>
 #include <esp_sntp.h>
+#include <esp_task_wdt.h>
 #include <time.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -128,7 +129,7 @@ static String esc(const String &in) {
 // ---------- HTML form ----------
 static String htmlPage() {
   bool     wt, wb, wi, wifiOn;
-  uint16_t to, off, bg, fg, yr;
+  uint16_t to, off, bg, fg, ac, ln, yr;
   uint8_t  th, br, hh, mm, ss, wd, dy, mo, apClients;
   WifiMode wMode;
   bool     rtcOk, wConn;
@@ -143,6 +144,7 @@ static String htmlPage() {
     to  = model.sleepTimeoutSec; off = model.sleepToOffSec;
     th  = model.imuWakeThreshold; br = model.brightness;
     bg  = model.bgColor;         fg  = model.fgColor;
+    ac  = model.accentColor;     ln  = model.lineColor;
     hh  = model.hour; mm = model.minute; ss = model.second;
     wd  = model.weekday; dy = model.day; mo = model.month; yr = model.year;
     rtcOk = model.rtcOk;
@@ -158,6 +160,8 @@ static String htmlPage() {
   IPAddress ipObj(ipRaw);
   String bgHex = rgb565ToHex(bg);
   String fgHex = rgb565ToHex(fg);
+  String acHex = rgb565ToHex(ac);
+  String lnHex = rgb565ToHex(ln);
 
   String h; h.reserve(8192);
   h += F("<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'>"
@@ -269,6 +273,12 @@ static String htmlPage() {
   h += F("></div><div><label>Foreground</label><input type=color name=fg value=");
   h += fgHex;
   h += F("></div></div>"
+         "<div class=row>"
+         "<div><label>Accent</label><input type=color name=accent value=");
+  h += acHex;
+  h += F("></div><div><label>Lines</label><input type=color name=lineCol value=");
+  h += lnHex;
+  h += F("></div></div>"
          "<label>Watch face font</label>"
          "<select name=wfStyle>");
   int wfCount = watchFaceStyleCount();
@@ -364,10 +374,12 @@ static void handleSave() {
   bool wb = server.hasArg("wkButton");
   bool wi = server.hasArg("wkImu");
 
-  uint16_t bg = 0x0000, fg = 0xFFFF;
+  uint16_t bg = 0x0000, fg = 0xFFFF, acc = 0x000F, ln = 0x7BEF;
   uint8_t r, g, b;
-  if (parseHexColor(server.arg("bg"), r, g, b)) bg = rgb565From888(r, g, b);
-  if (parseHexColor(server.arg("fg"), r, g, b)) fg = rgb565From888(r, g, b);
+  if (parseHexColor(server.arg("bg"),      r, g, b)) bg  = rgb565From888(r, g, b);
+  if (parseHexColor(server.arg("fg"),      r, g, b)) fg  = rgb565From888(r, g, b);
+  if (parseHexColor(server.arg("accent"),  r, g, b)) acc = rgb565From888(r, g, b);
+  if (parseHexColor(server.arg("lineCol"), r, g, b)) ln  = rgb565From888(r, g, b);
 
   int16_t tzOff = (int16_t) constrain(server.arg("tzOff").toInt(), -720, 840);
   int wfMax = watchFaceStyleCount();
@@ -379,6 +391,8 @@ static void handleSave() {
     model.brightness       = br;
     model.bgColor          = bg;
     model.fgColor          = fg;
+    model.accentColor      = acc;
+    model.lineColor        = ln;
     model.sleepTimeoutSec  = to;
     model.sleepToOffSec    = off;
     model.imuWakeThreshold = th;
@@ -796,7 +810,12 @@ static void converge() {
 
 // ---------- task loop ----------
 static void taskWifi(void *) {
+  // Subscribe to the system task watchdog. A wedged WiFi state machine
+  // (esp_wifi stuck, captive portal hang, etc.) will fail to feed and the
+  // chip resets — caught by the panic-loop guard in main().
+  esp_task_wdt_add(nullptr);
   for (;;) {
+    esp_task_wdt_reset();
     converge();
     if (dnsUp) dns.processNextRequest();
     if (serverUp) server.handleClient();

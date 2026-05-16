@@ -22,16 +22,9 @@ static bool inRect(uint16_t x, uint16_t y, int16_t rx, int16_t ry,
   return (int16_t)x >= rx && (int16_t)x < rx + rw &&
          (int16_t)y >= ry && (int16_t)y < ry + rh;
 }
-static bool tappedBack(uint16_t x, uint16_t y) {
-  return inRect(x, y, 0, 0, BACK_W + 12, BACK_H + 10);
-}
-static void drawBackButton() {
-  gfx->fillRoundRect(2, 2, BACK_W, BACK_H, 6, DARKGREY);
-  gfx->setTextColor(WHITE, DARKGREY);
-  gfx->setTextSize(3);
-  gfx->setCursor(18, 12);
-  gfx->print('<');
-}
+// tappedBack / drawBackButton / drawTitleBar / theme() / contrastFor() are
+// declared in view.h — they read model colours so the page re-themes
+// automatically when the user changes the palette.
 
 // Current RTC epoch (0 if the clock isn't readable).
 static uint32_t nowEpoch() {
@@ -42,7 +35,7 @@ static uint32_t nowEpoch() {
 }
 
 void StopwatchView::onEnter() {
-  if (gfx) gfx->fillScreen(BLACK);
+  if (gfx) { ThemeColors t = theme(); gfx->fillScreen(t.bg); }
   firstDraw = true;
   lastShownElapsed = 0xFFFFFFFF;
   lastShownRunning = !stopwatchRunning();   // force first button draw
@@ -51,12 +44,7 @@ void StopwatchView::onEnter() {
 void StopwatchView::render() {
   if (!gfx) return;
   if (firstDraw) {
-    drawBackButton();
-    gfx->setTextSize(2);
-    gfx->setTextColor(WHITE, BLACK);
-    gfx->setCursor(60, 14);
-    gfx->print("Stopwatch");
-    gfx->drawFastHLine(20, 44, 200, DARKGREY);
+    drawTitleBar("Stopwatch");
     firstDraw = false;
   }
   uint32_t elapsed = stopwatchElapsedMs(nowEpoch(), millis());
@@ -112,28 +100,35 @@ void StopwatchView::drawTime(uint32_t elapsedMs, bool running) {
                          (unsigned long)mm, (unsigned long)ss,
                          (unsigned long)ms);
                 size = 4; }
-  gfx->fillRect(0, 90, W, 80, BLACK);
+  ThemeColors t = theme();
+  gfx->fillRect(0, 90, W, 80, t.bg);
   gfx->setTextSize(size);
-  gfx->setTextColor(running ? GREEN : WHITE, BLACK);
+  // GREEN stays as a "running" affordance; otherwise use the user's fg.
+  gfx->setTextColor(running ? GREEN : t.fg, t.bg);
   int16_t tw = (int16_t)strlen(buf) * 6 * size;
   gfx->setCursor((W - tw) / 2, 116);
   gfx->print(buf);
 }
 
 void StopwatchView::drawButtons(bool running) {
-  uint16_t c1 = running ? MAROON : DARKGREEN;
-  const char *l1 = running ? "Stop" : "Start";
+  ThemeColors t = theme();
+  // Stop = MAROON (destructive), Start = accent (primary action).
+  uint16_t c1     = running ? MAROON : t.accent;
+  uint16_t c1Txt  = running ? WHITE  : contrastFor(t.accent);
+  const char *l1  = running ? "Stop" : "Start";
   gfx->fillRoundRect(BTN1_X, BTN_Y, BTN_W, BTN_H, 8, c1);
-  gfx->drawRoundRect(BTN1_X, BTN_Y, BTN_W, BTN_H, 8, WHITE);
-  gfx->setTextColor(WHITE, c1);
+  gfx->drawRoundRect(BTN1_X, BTN_Y, BTN_W, BTN_H, 8, t.line);
+  gfx->setTextColor(c1Txt, c1);
   gfx->setTextSize(2);
   int16_t w1 = (int16_t)strlen(l1) * 12;
   gfx->setCursor(BTN1_X + (BTN_W - w1) / 2, BTN_Y + 22);
   gfx->print(l1);
 
-  gfx->fillRoundRect(BTN2_X, BTN_Y, BTN_W, BTN_H, 8, NAVY);
-  gfx->drawRoundRect(BTN2_X, BTN_Y, BTN_W, BTN_H, 8, WHITE);
-  gfx->setTextColor(WHITE, NAVY);
+  // Reset = secondary button — accent on a darker theme variant by reusing
+  // the line colour as the fill (keeps it visually distinct from Start/Stop).
+  gfx->fillRoundRect(BTN2_X, BTN_Y, BTN_W, BTN_H, 8, t.line);
+  gfx->drawRoundRect(BTN2_X, BTN_Y, BTN_W, BTN_H, 8, t.fg);
+  gfx->setTextColor(contrastFor(t.line), t.line);
   int16_t w2 = (int16_t)strlen("Reset") * 12;
   gfx->setCursor(BTN2_X + (BTN_W - w2) / 2, BTN_Y + 22);
   gfx->print("Reset");

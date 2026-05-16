@@ -2,6 +2,14 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <math.h>
+#include "FreeSans24pt7b.h"
+#include "FreeSansBold24pt7b.h"
+#include "FreeSerifBold24pt7b.h"
+#include "FreeMono24pt7b.h"
+#include "FreeSans12pt7b.h"
+#include "FreeSansBold12pt7b.h"
+#include "FreeSerifBold12pt7b.h"
+#include "FreeMono12pt7b.h"
 #include "pins.h"
 #include "power.h"
 #include "display.h"
@@ -22,7 +30,38 @@
 static const int16_t W = 240;
 static const int16_t H = 280;
 
-static void clearAll() { if (gfx) gfx->fillScreen(BLACK); }
+// ---------- theme helpers ----------
+// Every screen reads its colours from the model so a single Settings → Display
+// change repaints the whole UI on the next render. These thin wrappers take
+// the locks once and cache locally so views aren't writing `model.bgColor` ×N.
+// `ThemeColors` is declared in view.h so timer/stopwatch can use the same
+// helpers without copying them.
+ThemeColors theme() {
+  ThemeColors t;
+  ModelLock lk;
+  t.bg     = model.bgColor;
+  t.fg     = model.fgColor;
+  t.accent = model.accentColor;
+  t.line   = model.lineColor;
+  return t;
+}
+// Picks WHITE or BLACK depending on which is more readable against `bg` —
+// used so button labels stay legible when the accent or line is light.
+uint16_t contrastFor(uint16_t bg) {
+  // RGB565 luminance approximation: r+g+b weighted ~5:6:5.
+  uint8_t r = (bg >> 11) & 0x1F;
+  uint8_t g = (bg >>  5) & 0x3F;
+  uint8_t b = (bg      ) & 0x1F;
+  // Scale to 0..255 channels then rough perceptual luma.
+  uint16_t lum = (uint16_t)((r << 3) * 3 + (g << 2) * 6 + (b << 3) * 1) / 10;
+  return (lum < 128) ? WHITE : BLACK;
+}
+
+static void clearAll() {
+  if (!gfx) return;
+  ThemeColors t = theme();
+  gfx->fillScreen(t.bg);
+}
 
 // Named color palette used by the Display settings page. Indexed; the model
 // stores the RGB565 value, but the page steps through this list.
@@ -62,19 +101,60 @@ static bool inRect(uint16_t x, uint16_t y, int16_t rx, int16_t ry,
          (int16_t)y >= ry && (int16_t)y < ry + rh;
 }
 
-// Top-left back chevron. Wider/taller for easier tapping.
+// Forward declaration — currentUiFont() lives below the WatchFaceStyle table
+// further down in this file, but drawTitleBar (above) needs it.
+static const GFXfont *currentUiFont();
+
+// Top-left back chevron. Wider/taller for easier tapping. Painted with the
+// accent colour so it visually links to the SAVE/action bars below it.
 static const int16_t BACK_W = 60, BACK_H = 42;
-static void drawBackButton() {
+void drawBackButton() {
   if (!gfx) return;
-  gfx->fillRoundRect(2, 2, BACK_W, BACK_H, 6, DARKGREY);
-  gfx->setTextColor(WHITE, DARKGREY);
+  ThemeColors t = theme();
+  uint16_t txt = contrastFor(t.accent);
+  gfx->fillRoundRect(2, 2, BACK_W, BACK_H, 6, t.accent);
+  gfx->setTextColor(txt, t.accent);
   gfx->setTextSize(3);
   gfx->setCursor(18, 12);
   gfx->print('<');
 }
 // Generous hit zone so a thumb tap registers reliably.
-static bool tappedBack(uint16_t x, uint16_t y) {
+bool tappedBack(uint16_t x, uint16_t y) {
   return inRect(x, y, 0, 0, BACK_W + 12, BACK_H + 10);
+}
+
+// title: text to centre below the back button
+// titleY / lineY: cursor Y for the title and the divider's Y. Defaults match
+// the standard settings layout; diagnostic pages override to push the title
+// up so they have more vertical room for their content. Defaults live in
+// view.h; this definition repeats them only via the declaration there.
+void drawTitleBar(const char *title,
+                  int16_t titleY, int16_t lineY,
+                  int16_t lineX, int16_t lineW) {
+  if (!gfx) return;
+  ThemeColors t = theme();
+  gfx->fillScreen(t.bg);
+  drawBackButton();
+  gfx->setTextColor(t.fg, t.bg);
+  const GFXfont *uiFont = currentUiFont();
+  if (uiFont) {
+    // Adafruit FreeFont path. Baseline is roughly 14 px below the bitmap's
+    // top-left at this size, so shift the cursor accordingly.
+    gfx->setFont(uiFont);
+    gfx->setTextSize(1);
+    int16_t x1, y1; uint16_t tw, th;
+    gfx->getTextBounds(title, 0, 0, &x1, &y1, &tw, &th);
+    int16_t baseline = titleY + 16;
+    gfx->setCursor((W - (int16_t)tw) / 2 - x1, baseline);
+    gfx->print(title);
+    gfx->setFont(nullptr);              // back to bitmap for everything else
+  } else {
+    gfx->setTextSize(2);
+    int16_t tw = (int16_t)strlen(title) * 12;
+    gfx->setCursor((W - tw) / 2, titleY);
+    gfx->print(title);
+  }
+  gfx->drawFastHLine(lineX, lineY, lineW, t.line);
 }
 
 // =====================================================================
@@ -93,28 +173,47 @@ enum class WatchFaceEffect : uint8_t {
 
 struct WatchFaceStyle {
   const char *name;
-  uint8_t  timeSize;     // text size for HH:MM (ignored if digital=true)
-  uint8_t  secSize;      // text size for :SS
-  uint8_t  dateSize;     // text size for date row
-  int16_t  timeY;        // cursor Y for HH:MM (top of digit band)
-  int16_t  secY;         // cursor Y for :SS
-  int16_t  dateY;        // cursor Y for date row
-  WatchFaceEffect effect;
-  bool     digital;      // draw HH:MM as 7-segment digits instead of bitmap
+  // For bitmap-font styles `timeFont == nullptr`, `timeSize` controls scaling
+  // and `timeY` is the top-left Y of the row. For Adafruit FreeFont styles
+  // `timeFont != nullptr` and `timeY` is the BASELINE — that's where Adafruit
+  // GFXfonts anchor each glyph.
+  const GFXfont *timeFont;
+  // `uiFont` is the 12 pt counterpart used for the rest of the UI text —
+  // page titles, carousel tile labels, etc. nullptr means "stay on bitmap".
+  const GFXfont *uiFont;
+  uint8_t  timeSize;
+  uint8_t  secSize;      // :SS row text size (always bitmap)
+  uint8_t  dateSize;     // date row text size (always bitmap)
+  int16_t  timeY;
+  int16_t  secY;
+  int16_t  dateY;
+  WatchFaceEffect effect;  // bitmap-only effect (ignored for GFXfont / digital)
+  bool     digital;        // 7-segment HH:MM (overrides everything else for time)
 };
 
 static const WatchFaceStyle kWatchFaceStyles[] = {
-  // name        timeSz secSz dateSz  timeY secY dateY  effect                    digital
-  { "Default",     6,    3,    2,     108,  174,  212,  WatchFaceEffect::Plain,   false },
-  { "Bold",        6,    3,    2,     108,  174,  212,  WatchFaceEffect::Bold,    false },
-  { "Big",         7,    3,    2,     100,  186,  220,  WatchFaceEffect::Plain,   false },
-  { "Slim",        5,    2,    2,     120,  180,  212,  WatchFaceEffect::Plain,   false },
-  { "Outline",     6,    3,    2,     108,  174,  212,  WatchFaceEffect::Outline, false },
-  { "Shadow",      6,    3,    2,     108,  174,  212,  WatchFaceEffect::Shadow,  false },
-  { "Digital",     0,    3,    2,     102,  186,  220,  WatchFaceEffect::Plain,   true  },
+  // name     timeFont               uiFont                  tsz ssz dsz   timeY secY dateY  effect                    digital
+  { "Default",nullptr,               nullptr,                  6,  3,  2,  108,  174,  212,  WatchFaceEffect::Plain,   false },
+  { "Sans",   &FreeSans24pt7b,       &FreeSans12pt7b,          1,  3,  2,  146,  186,  220,  WatchFaceEffect::Plain,   false },
+  { "Bold",   &FreeSansBold24pt7b,   &FreeSansBold12pt7b,      1,  3,  2,  146,  186,  220,  WatchFaceEffect::Plain,   false },
+  { "Serif",  &FreeSerifBold24pt7b,  &FreeSerifBold12pt7b,     1,  3,  2,  146,  186,  220,  WatchFaceEffect::Plain,   false },
+  { "Mono",   &FreeMono24pt7b,       &FreeMono12pt7b,          1,  3,  2,  146,  186,  220,  WatchFaceEffect::Plain,   false },
+  { "Digital",nullptr,               nullptr,                  0,  3,  2,  102,  186,  220,  WatchFaceEffect::Plain,   true  },
+  { "Outline",nullptr,               nullptr,                  6,  3,  2,  108,  174,  212,  WatchFaceEffect::Outline, false },
+  { "Shadow", nullptr,               nullptr,                  6,  3,  2,  108,  174,  212,  WatchFaceEffect::Shadow,  false },
 };
+
 static const int kWatchFaceStyleCount =
     (int)(sizeof(kWatchFaceStyles) / sizeof(kWatchFaceStyles[0]));
+
+// The UI font for the currently-saved style. Returns nullptr to mean "use
+// the built-in bitmap font". Cheap enough to call from the title bar each
+// render because it just takes a single short ModelLock.
+static const GFXfont *currentUiFont() {
+  uint8_t s; { ModelLock lk; s = model.watchFaceStyle; }
+  if (s >= (uint8_t)kWatchFaceStyleCount) return nullptr;
+  return kWatchFaceStyles[s].uiFont;
+}
 
 static const WatchFaceStyle &watchFaceStyleFor(uint8_t idx) {
   if (idx >= kWatchFaceStyleCount) idx = 0;
@@ -330,8 +429,8 @@ public:
     if (snap.hour != cached.h || snap.minute != cached.m ||
         !snap.rtcOk != !cached.rtcOk) {
       if (fs.digital) {
-        // 7-segment style. Renderer erases its own band; on RTC failure we
-        // fall back to a centered "--:--" bitmap so the user sees something.
+        // 7-segment style. Renderer erases its own band; on RTC failure fall
+        // back to a centred "--:--" bitmap so the user sees something.
         if (snap.rtcOk) {
           draw7SegTime(gfx, fs.timeY, snap.hour, snap.minute, cachedFg, cachedBg);
         } else {
@@ -343,17 +442,32 @@ public:
           gfx->print(buf);
         }
       } else {
-        // The repaint band has to cover the tallest style (Big = 56 px tall);
-        // the chrome below (seconds row) lives at y >= 172 so 100..168 is safe.
-        // Outline / Shadow effects need a 3 px bleed margin so the halo of
-        // the previous frame fully overwrites; the band size handles that.
+        // The repaint band has to cover the tallest possible glyph. The
+        // FreeFont 24pt fonts reach ~36 px above the baseline; with timeY=146
+        // we need to clear y >= 110. Plus a small bleed for any leftover
+        // pixels from prior styles. Then either GFXfont or bitmap path.
         gfx->fillRect(0, 100, W, 68, cachedBg);
         char buf[8];
         if (snap.rtcOk) snprintf(buf, sizeof(buf), "%02u:%02u", snap.hour, snap.minute);
         else            strcpy(buf, "--:--");
         uint16_t fg = snap.rtcOk ? cachedFg : RED;
-        int16_t cx = centerX(buf, fs.timeSize);
-        drawStyledText(gfx, cx, fs.timeY, fs.timeSize, fg, cachedBg, fs.effect, buf);
+        if (fs.timeFont) {
+          // Adafruit FreeFont path. setFont changes glyph rendering for every
+          // subsequent print; we must clear it before drawing sec/date so the
+          // bitmap-font helper keeps working.
+          gfx->setFont(fs.timeFont);
+          gfx->setTextSize(fs.timeSize);
+          gfx->setTextColor(fg);              // transparent over cleared band
+          int16_t x1, y1; uint16_t tw, th;
+          gfx->getTextBounds(buf, 0, fs.timeY, &x1, &y1, &tw, &th);
+          int16_t cx = (W - (int16_t)tw) / 2 - (x1 - 0);
+          gfx->setCursor(cx, fs.timeY);
+          gfx->print(buf);
+          gfx->setFont(nullptr);              // back to bitmap for sec/date
+        } else {
+          int16_t cx = centerX(buf, fs.timeSize);
+          drawStyledText(gfx, cx, fs.timeY, fs.timeSize, fg, cachedBg, fs.effect, buf);
+        }
       }
       cached.h = snap.hour; cached.m = snap.minute; cached.rtcOk = snap.rtcOk;
     }
@@ -617,9 +731,9 @@ private:
   void sleepNow() {
     hapticBuzz(120, 80);
     if (gfx) {
-      gfx->fillScreen(BLACK);
+      clearAll();
       gfx->setTextSize(2);
-      gfx->setTextColor(WHITE, BLACK);
+      { ThemeColors _t = theme(); gfx->setTextColor(_t.fg, _t.bg); }
       gfx->setCursor(60, 130);
       gfx->print("sleeping");
     }
@@ -641,7 +755,6 @@ struct AppEntry {
   const char *name;
   uint16_t    color;
   Screen      target;
-  const char *subtitle;            // short description (may be "")
 };
 
 // Set to 1 to re-enable the per-stage carousel breadcrumbs we used to track
@@ -707,12 +820,11 @@ public:
     logStack("onEnter");
     logInvariants("onEnter");
     carHeapCheck("onEnter");
-    // Dump every entry pointer so we'd see a corrupted name/subtitle ptr
-    // before drawTiles dereferences it and crashes.
+    // Dump every entry pointer so we'd see a corrupted name ptr before
+    // drawTiles dereferences it and crashes.
     for (int i = 0; i < N && i < 16; i++) {
-      CAR_LOG("entries[%d] name=%p subtitle=%p target=%d color=0x%04x",
+      CAR_LOG("entries[%d] name=%p target=%d color=0x%04x",
               i, (const void*)entries[i].name,
-              (const void*)entries[i].subtitle,
               (int)entries[i].target, (unsigned)entries[i].color);
     }
   }
@@ -924,31 +1036,45 @@ private:
             (double)scrollPos, cur, N, (const void*)entries);
     advanceScrollTween();
     CAR_LOG("drawFrame after tween sp=%.3f", (double)scrollPos);
-    canvas->fillScreen(BLACK);
+    ThemeColors t = theme();
+    canvas->fillScreen(t.bg);
     CAR_LOG("drawFrame after fillScreen");
-    drawChrome();
+    drawChrome(t);
     CAR_LOG("drawFrame after chrome");
-    drawTiles();
+    drawTiles(t);
     CAR_LOG("drawFrame after tiles");
-    drawIndicator();
+    drawIndicator(t);
     CAR_LOG("drawFrame after indicator");
   }
-  void drawChrome() {
-    // Back chevron.
-    canvas->fillRoundRect(2, 2, BACK_W, BACK_H, 6, DARKGREY);
-    canvas->setTextColor(WHITE, DARKGREY);
+  void drawChrome(const ThemeColors &t) {
+    // Back chevron — accent-coloured with auto-contrast glyph (kept on the
+    // bitmap font so the chevron stays visually consistent across styles).
+    uint16_t backTxt = contrastFor(t.accent);
+    canvas->fillRoundRect(2, 2, BACK_W, BACK_H, 6, t.accent);
+    canvas->setTextColor(backTxt, t.accent);
     canvas->setTextSize(3);
     canvas->setCursor(18, 12);
     canvas->print('<');
-    // Title.
-    canvas->setTextSize(2);
-    canvas->setTextColor(WHITE, BLACK);
-    int16_t tw = (int16_t)strlen(title) * 12;
-    canvas->setCursor((W - tw) / 2, 14);
-    canvas->print(title);
-    canvas->drawFastHLine(20, 44, 200, DARKGREY);
+    // Title in the user's UI font where available.
+    canvas->setTextColor(t.fg, t.bg);
+    const GFXfont *uiFont = currentUiFont();
+    if (uiFont) {
+      canvas->setFont(uiFont);
+      canvas->setTextSize(1);
+      int16_t x1, y1; uint16_t tw, th;
+      canvas->getTextBounds(title, 0, 0, &x1, &y1, &tw, &th);
+      canvas->setCursor((W - (int16_t)tw) / 2 - x1, 28);
+      canvas->print(title);
+      canvas->setFont(nullptr);
+    } else {
+      canvas->setTextSize(2);
+      int16_t tw = (int16_t)strlen(title) * 12;
+      canvas->setCursor((W - tw) / 2, 14);
+      canvas->print(title);
+    }
+    canvas->drawFastHLine(20, 44, 200, t.line);
   }
-  void drawTiles() {
+  void drawTiles(const ThemeColors &t) {
     float pulse = currentPulseScale();
     // Guard against a corrupt scrollPos turning the visible-window loop into
     // a giant or undefined range (floor/ceil of NaN/Inf, cast to int → UB).
@@ -989,53 +1115,54 @@ private:
       int16_t tx = (W - tw) / 2;
       int16_t ty = cy - th / 2;
 
-      uint16_t fg = entries[dataIdx].color;
-      // Tile body: Arduino_Canvas's fillRect does NOT clip negative coords
-      // — a partially off-canvas fillRoundRect computes `framebuffer + y*W + x`
-      // with negative y and trampoles into the heap block in front of the
-      // canvas buffer, which manifested as random-looking StoreProhibited
-      // panics inside the WiFi stack (NAVY pixels (0x000f) clobbering an
-      // RX buffer / TLSF header). When the tile is partially off-canvas we
-      // skip the rounded fill and draw a clamped fillRect of the visible
-      // portion instead; the rounded corners that would be off-canvas aren't
-      // visible anyway.
+      // App cards all paint in the accent colour; outline + label use the
+      // theme line/contrast colours so they stay legible regardless of accent.
+      uint16_t tileBg  = t.accent;
+      uint16_t tileTxt = contrastFor(t.accent);
       bool fullyOnCanvas = (tx >= 0 && ty >= 0 && tx + tw <= W && ty + th <= H);
       if (fullyOnCanvas) {
-        canvas->fillRoundRect(tx, ty, tw, th, 16, fg);
-        canvas->drawRoundRect(tx, ty, tw, th, 16, WHITE);
+        canvas->fillRoundRect(tx, ty, tw, th, 16, tileBg);
+        canvas->drawRoundRect(tx, ty, tw, th, 16, t.line);
       } else {
+        // Partial off-canvas — clamp fillRect to avoid the GFX library's
+        // unclipped write spilling into adjacent heap (caused StoreProhibited
+        // crashes inside the WiFi stack last time around).
         int16_t cx0 = tx < 0 ? 0 : tx;
         int16_t cy0 = ty < 0 ? 0 : ty;
         int16_t cx1 = (tx + tw) > W ? W : (tx + tw);
         int16_t cy1 = (ty + th) > H ? H : (ty + th);
         if (cx1 > cx0 && cy1 > cy0) {
-          canvas->fillRect(cx0, cy0, cx1 - cx0, cy1 - cy0, fg);
+          canvas->fillRect(cx0, cy0, cx1 - cx0, cy1 - cy0, tileBg);
         }
       }
 
-      // Text: only draw when the baseline is on-canvas. setTextColor with a
-      // background uses an opaque-fill path inside drawChar that, for v1.4.7,
-      // is just as unclipped as fillRect — so an off-canvas cursor is the
-      // same hazard as an off-canvas tile body.
-      int16_t titleY = cy - 16;
+      // App name — uses the user's selected font when available, otherwise
+      // bitmap size 3. Centred horizontally in the tile, vertically near the
+      // tile's centre line. Skip the draw if the cursor lands off-canvas.
+      int16_t titleY = cy - 12;
       if (titleY >= 0 && titleY + 24 <= H) {
-        canvas->setTextColor(WHITE, fg);
-        canvas->setTextSize(3);
-        int16_t labelW = (int16_t)strlen(entries[dataIdx].name) * 18;
-        canvas->setCursor(tx + (tw - labelW) / 2, titleY);
-        canvas->print(entries[dataIdx].name);
-      }
-      int16_t subY = cy + 16;
-      if (entries[dataIdx].subtitle && *entries[dataIdx].subtitle &&
-          subY >= 0 && subY + 16 <= H) {
-        canvas->setTextSize(2);
-        int16_t subW = (int16_t)strlen(entries[dataIdx].subtitle) * 12;
-        canvas->setCursor(tx + (tw - subW) / 2, subY);
-        canvas->print(entries[dataIdx].subtitle);
+        canvas->setTextColor(tileTxt, tileBg);
+        const GFXfont *uiFont = currentUiFont();
+        if (uiFont) {
+          canvas->setFont(uiFont);
+          canvas->setTextSize(1);
+          int16_t x1, y1; uint16_t lw, lh;
+          canvas->getTextBounds(entries[dataIdx].name, 0, 0, &x1, &y1, &lw, &lh);
+          int16_t cxText = tx + (tw - (int16_t)lw) / 2 - x1;
+          int16_t cyText = cy + 6;            // baseline ~= centre + ascender/2
+          canvas->setCursor(cxText, cyText);
+          canvas->print(entries[dataIdx].name);
+          canvas->setFont(nullptr);
+        } else {
+          canvas->setTextSize(3);
+          int16_t labelW = (int16_t)strlen(entries[dataIdx].name) * 18;
+          canvas->setCursor(tx + (tw - labelW) / 2, titleY);
+          canvas->print(entries[dataIdx].name);
+        }
       }
     }
   }
-  void drawIndicator() {
+  void drawIndicator(const ThemeColors &t) {
     if (N <= 1) return;
     int16_t y = H - 14;
     int16_t spacing = 14;
@@ -1057,7 +1184,7 @@ private:
       }
       if (dist > 1.f) dist = 1.f;
       int16_t radius = (int16_t)(3.f + (1.f - dist) * 3.f);
-      uint16_t col = (dist < 0.5f) ? WHITE : DARKGREY;
+      uint16_t col = (dist < 0.5f) ? t.fg : t.line;
       canvas->fillCircle(startX + i * spacing, y, radius, col);
     }
   }
@@ -1205,12 +1332,7 @@ public:
     bool intMma2 = digitalRead(PIN_MMA_INT2);
 
     if (firstDraw) {
-      drawBackButton();
-      gfx->setTextSize(2);
-      gfx->setTextColor(WHITE, BLACK);
-      gfx->setCursor(60, 8);
-      gfx->print("Sensors");
-      gfx->drawFastHLine(8, 32, W - 16, DARKGREY);
+      drawTitleBar("Sensors", 8, 32, 8, W - 16);
       firstDraw = false;
     }
 
@@ -1392,26 +1514,21 @@ public:
   void render() override {
     if (!gfx) return;
     if (dirty & TITLE) {
-      drawBackButton();
-      gfx->setTextSize(2);
-      gfx->setTextColor(WHITE, BLACK);
-      gfx->setCursor(110, 14);
-      gfx->print("Time");
-      gfx->drawFastHLine(20, 46, 200, DARKGREY);
+      drawTitleBar("Time");
       for (int c = 0; c < 3; c++) {
         int16_t x = COL_X(c);
         gfx->drawRoundRect(x, BTN_PLUS_Y,  COL_W, BTN_H, 6, DARKGREY);
         gfx->drawRoundRect(x, BTN_MINUS_Y, COL_W, BTN_H, 6, DARKGREY);
         gfx->setTextSize(3);
-        gfx->setTextColor(WHITE, BLACK);
+        { ThemeColors _t = theme(); gfx->setTextColor(_t.fg, _t.bg); }
         gfx->setCursor(x + COL_W / 2 - 9, BTN_PLUS_Y + 12);
         gfx->print('+');
         gfx->setCursor(x + COL_W / 2 - 9, BTN_MINUS_Y + 12);
         gfx->print('-');
       }
-      gfx->fillRoundRect(SAVE_X, ACT_Y, ACT_W, ACT_H, 6, DARKGREEN);
+      { ThemeColors _t = theme(); gfx->fillRoundRect(SAVE_X, ACT_Y, ACT_W, ACT_H, 6, _t.accent); }
       gfx->setTextSize(2);
-      gfx->setTextColor(WHITE, DARKGREEN);
+      { ThemeColors _t = theme(); gfx->setTextColor(contrastFor(_t.accent), _t.accent); }
       gfx->setCursor(SAVE_X + (ACT_W - 48) / 2, ACT_Y + 10);
       gfx->print("SAVE");
       dirty &= ~TITLE;
@@ -1518,12 +1635,7 @@ public:
   void render() override {
     if (!gfx) return;
     if (dirty & TITLE) {
-      drawBackButton();
-      gfx->setTextSize(2);
-      gfx->setTextColor(WHITE, BLACK);
-      gfx->setCursor(110, 14);
-      gfx->print("Date");
-      gfx->drawFastHLine(20, 46, 200, DARKGREY);
+      drawTitleBar("Date");
 
       // Tiny D / M / YY column labels just under the divider.
       gfx->setTextSize(1);
@@ -1540,15 +1652,15 @@ public:
         gfx->drawRoundRect(x, BTN_PLUS_Y,  COL_W, BTN_H, 6, DARKGREY);
         gfx->drawRoundRect(x, BTN_MINUS_Y, COL_W, BTN_H, 6, DARKGREY);
         gfx->setTextSize(3);
-        gfx->setTextColor(WHITE, BLACK);
+        { ThemeColors _t = theme(); gfx->setTextColor(_t.fg, _t.bg); }
         gfx->setCursor(x + COL_W / 2 - 9, BTN_PLUS_Y + 12);
         gfx->print('+');
         gfx->setCursor(x + COL_W / 2 - 9, BTN_MINUS_Y + 12);
         gfx->print('-');
       }
-      gfx->fillRoundRect(SAVE_X, ACT_Y, ACT_W, ACT_H, 6, DARKGREEN);
+      { ThemeColors _t = theme(); gfx->fillRoundRect(SAVE_X, ACT_Y, ACT_W, ACT_H, 6, _t.accent); }
       gfx->setTextSize(2);
-      gfx->setTextColor(WHITE, DARKGREEN);
+      { ThemeColors _t = theme(); gfx->setTextColor(contrastFor(_t.accent), _t.accent); }
       gfx->setCursor(SAVE_X + (ACT_W - 48) / 2, ACT_Y + 10);
       gfx->print("SAVE");
       dirty &= ~TITLE;
@@ -1668,13 +1780,7 @@ public:
   void render() override {
     if (!gfx) return;
     if (dirty & TITLE) {
-      drawBackButton();
-      gfx->setTextSize(2);
-      gfx->setTextColor(WHITE, BLACK);
-      gfx->setCursor(100, 14);
-      gfx->print("Sleep");
-      gfx->drawFastHLine(20, 46, 200, DARKGREY);
-
+      drawTitleBar("Sleep");
       drawRowChrome(ROW0_Y, "Idle -> sleep (s)");
       drawRowChrome(ROW1_Y, "Sleep -> off (s)");
       drawRowChrome(ROW2_Y, "IMU jolt (g)");
@@ -1684,9 +1790,9 @@ public:
       gfx->setCursor(20, TOG_Y - 10);
       gfx->print("Wake on");
 
-      gfx->fillRoundRect(SAVE_X, ACT_Y, ACT_W, ACT_H, 6, DARKGREEN);
+      { ThemeColors _t = theme(); gfx->fillRoundRect(SAVE_X, ACT_Y, ACT_W, ACT_H, 6, _t.accent); }
       gfx->setTextSize(2);
-      gfx->setTextColor(WHITE, DARKGREEN);
+      { ThemeColors _t = theme(); gfx->setTextColor(contrastFor(_t.accent), _t.accent); }
       gfx->setCursor(SAVE_X + (ACT_W - 48) / 2, ACT_Y + 10);
       gfx->print("SAVE");
       dirty &= ~TITLE;
@@ -1778,7 +1884,7 @@ private:
     gfx->drawRoundRect(MINUS_X, y, BTN_W, BTN_H, 6, DARKGREY);
     gfx->drawRoundRect(PLUS_X,  y, BTN_W, BTN_H, 6, DARKGREY);
     gfx->setTextSize(3);
-    gfx->setTextColor(WHITE, BLACK);
+    { ThemeColors _t = theme(); gfx->setTextColor(_t.fg, _t.bg); }
     gfx->setCursor(MINUS_X + BTN_W / 2 - 9, y + 6);
     gfx->print('-');
     gfx->setCursor(PLUS_X  + BTN_W / 2 - 9, y + 6);
@@ -1868,27 +1974,28 @@ public:
     clearAll();
     { ModelLock lk;
       brightness = model.brightness;
-      bgIdx = colorIndexOf(model.bgColor);
-      fgIdx = colorIndexOf(model.fgColor); }
+      bgIdx      = colorIndexOf(model.bgColor);
+      fgIdx      = colorIndexOf(model.fgColor);
+      accentIdx  = colorIndexOf(model.accentColor);
+      lineIdx    = colorIndexOf(model.lineColor); }
     dirty = ALL;
     stopHold();
   }
   void render() override {
     if (!gfx) return;
     if (dirty & TITLE) {
-      drawBackButton();
-      gfx->setTextSize(2);
-      gfx->setTextColor(WHITE, BLACK);
-      gfx->setCursor(94, 14);
-      gfx->print("Display");
-      gfx->drawFastHLine(20, 46, 200, DARKGREY);
+      drawTitleBar("Display");
+      ThemeColors t = theme();
+      uint16_t bg = t.bg, fg = t.fg, line = t.line, acc = t.accent;
       drawRowChrome(ROW0_Y, "Brightness");
       drawRowChrome(ROW1_Y, "Background");
-      drawRowChrome(ROW2_Y, "Text color");
-      gfx->fillRoundRect(SAVE_X, ACT_Y, ACT_W, ACT_H, 6, DARKGREEN);
+      drawRowChrome(ROW2_Y, "Text");
+      drawRowChrome(ROW3_Y, "Accent");
+      drawRowChrome(ROW4_Y, "Lines");
+      gfx->fillRoundRect(SAVE_X, ACT_Y, ACT_W, ACT_H, 6, acc);
       gfx->setTextSize(2);
-      gfx->setTextColor(WHITE, DARKGREEN);
-      gfx->setCursor(SAVE_X + (ACT_W - 48) / 2, ACT_Y + 10);
+      gfx->setTextColor(fg, acc);
+      gfx->setCursor(SAVE_X + (ACT_W - 48) / 2, ACT_Y + 8);
       gfx->print("SAVE");
       dirty &= ~TITLE;
     }
@@ -1896,8 +2003,6 @@ public:
   }
   void onEvent(const Event &e) override {
     if (e.type == EventType::ButtonShort) {
-      // If user backs out without saving, restore the saved brightness so the
-      // live preview doesn't stick.
       restoreBrightness();
       switchTo(Screen::Settings); return;
     }
@@ -1909,8 +2014,8 @@ public:
     if (e.type != EventType::Touch && e.type != EventType::TouchHold) return;
 
     int col = -1; int8_t sign = 0;
-    int16_t rowY[] = { ROW0_Y, ROW1_Y, ROW2_Y };
-    for (int r = 0; r < 3; r++) {
+    int16_t rowY[] = { ROW0_Y, ROW1_Y, ROW2_Y, ROW3_Y, ROW4_Y };
+    for (int r = 0; r < 5; r++) {
       if (inRect(e.x, e.y, MINUS_X, rowY[r], BTN_W, BTN_H)) { col = r; sign = -1; break; }
       if (inRect(e.x, e.y, PLUS_X,  rowY[r], BTN_W, BTN_H)) { col = r; sign = +1; break; }
     }
@@ -1923,9 +2028,11 @@ public:
       }
       if (inRect(e.x, e.y, SAVE_X, ACT_Y, ACT_W, ACT_H)) {
         { ModelLock lk;
-          model.brightness = brightness;
-          model.bgColor    = kColors[bgIdx].color;
-          model.fgColor    = kColors[fgIdx].color;
+          model.brightness   = brightness;
+          model.bgColor      = kColors[bgIdx].color;
+          model.fgColor      = kColors[fgIdx].color;
+          model.accentColor  = kColors[accentIdx].color;
+          model.lineColor    = kColors[lineIdx].color;
           model.revision++; }
         Storage::save();
         hapticBuzz(120, 70);
@@ -1938,37 +2045,44 @@ public:
     }
   }
 private:
-  static const int16_t ROW0_Y  = 56;
-  static const int16_t ROW1_Y  = 112;
-  static const int16_t ROW2_Y  = 168;
-  static const int16_t BTN_H   = 36;
+  // Compact 5-row layout — fits Brightness + 4 colour pickers + SAVE on 280 px.
+  static const int16_t ROW0_Y  = 58;
+  static const int16_t ROW1_Y  = 96;
+  static const int16_t ROW2_Y  = 134;
+  static const int16_t ROW3_Y  = 172;
+  static const int16_t ROW4_Y  = 210;
+  static const int16_t BTN_H   = 28;
   static const int16_t BTN_W   = 44;
   static const int16_t MINUS_X = 14;
   static const int16_t PLUS_X  = 182;
-  static const int16_t ACT_Y   = 224;
-  static const int16_t ACT_H   = 36;
+  static const int16_t ACT_Y   = 246;
+  static const int16_t ACT_H   = 30;
   static const int16_t ACT_W   = 200;
   static const int16_t SAVE_X  = 20;
 
   enum DirtyFlags { TITLE = 1, VALUE = 2, ALL = 3 };
 
   uint8_t brightness = 200;
-  uint8_t bgIdx = 0;
-  uint8_t fgIdx = 1;
-  uint8_t dirty = ALL;
+  uint8_t bgIdx     = 0;
+  uint8_t fgIdx     = 1;
+  uint8_t accentIdx = 0;
+  uint8_t lineIdx   = 0;
+  uint8_t dirty     = ALL;
 
   void drawRowChrome(int16_t y, const char *label) {
+    uint16_t bg, fg, line;
+    { ModelLock lk; bg = model.bgColor; fg = model.fgColor; line = model.lineColor; }
     gfx->setTextSize(1);
-    gfx->setTextColor(DARKGREY, BLACK);
-    gfx->setCursor(20, y - 10);
+    gfx->setTextColor(line, bg);
+    gfx->setCursor(20, y - 9);
     gfx->print(label);
-    gfx->drawRoundRect(MINUS_X, y, BTN_W, BTN_H, 6, DARKGREY);
-    gfx->drawRoundRect(PLUS_X,  y, BTN_W, BTN_H, 6, DARKGREY);
-    gfx->setTextSize(3);
-    gfx->setTextColor(WHITE, BLACK);
-    gfx->setCursor(MINUS_X + BTN_W / 2 - 9, y + 6);
+    gfx->drawRoundRect(MINUS_X, y, BTN_W, BTN_H, 6, line);
+    gfx->drawRoundRect(PLUS_X,  y, BTN_W, BTN_H, 6, line);
+    gfx->setTextSize(2);
+    gfx->setTextColor(fg, bg);
+    gfx->setCursor(MINUS_X + BTN_W / 2 - 6, y + 6);
     gfx->print('-');
-    gfx->setCursor(PLUS_X  + BTN_W / 2 - 9, y + 6);
+    gfx->setCursor(PLUS_X  + BTN_W / 2 - 6, y + 6);
     gfx->print('+');
   }
 
@@ -1986,8 +2100,10 @@ private:
   }
   void bumpRow(int row, int8_t d) {
     if (row == 0) bumpBrightness(d);
-    if (row == 1) bumpColor(bgIdx, d);
-    if (row == 2) bumpColor(fgIdx, d);
+    if (row == 1) bumpColor(bgIdx,     d);
+    if (row == 2) bumpColor(fgIdx,     d);
+    if (row == 3) bumpColor(accentIdx, d);
+    if (row == 4) bumpColor(lineIdx,   d);
   }
   void restoreBrightness() {
     uint8_t saved;
@@ -1997,31 +2113,36 @@ private:
   void drawValues() {
     int16_t valX = MINUS_X + BTN_W;
     int16_t valW = PLUS_X - valX;
+    uint16_t bg, fg;
+    { ModelLock lk; bg = model.bgColor; fg = model.fgColor; }
 
-    // Brightness as %.
-    gfx->fillRect(valX, ROW0_Y, valW, BTN_H, BLACK);
-    gfx->setTextSize(3);
-    gfx->setTextColor(YELLOW, BLACK);
+    gfx->fillRect(valX, ROW0_Y, valW, BTN_H, bg);
+    gfx->setTextSize(2);
+    gfx->setTextColor(YELLOW, bg);
     char buf[8];
     int pct = (brightness * 100 + 127) / 255;
     snprintf(buf, sizeof(buf), "%d%%", pct);
-    int16_t bw = (int16_t)strlen(buf) * 18;
-    gfx->setCursor(valX + (valW - bw) / 2, ROW0_Y + 8);
+    int16_t bw = (int16_t)strlen(buf) * 12;
+    gfx->setCursor(valX + (valW - bw) / 2, ROW0_Y + 6);
     gfx->print(buf);
 
     drawColorVal(ROW1_Y, valX, valW, kColors[bgIdx]);
     drawColorVal(ROW2_Y, valX, valW, kColors[fgIdx]);
+    drawColorVal(ROW3_Y, valX, valW, kColors[accentIdx]);
+    drawColorVal(ROW4_Y, valX, valW, kColors[lineIdx]);
   }
   void drawColorVal(int16_t y, int16_t valX, int16_t valW, const ColorChoice &c) {
-    gfx->fillRect(valX, y, valW, BTN_H, BLACK);
-    int16_t sw = 26;
-    int16_t sx = valX + 6;
+    uint16_t bg, fg, line;
+    { ModelLock lk; bg = model.bgColor; fg = model.fgColor; line = model.lineColor; }
+    gfx->fillRect(valX, y, valW, BTN_H, bg);
+    int16_t sw = 20;
+    int16_t sx = valX + 4;
     int16_t sy = y + (BTN_H - sw) / 2;
     gfx->fillRect(sx, sy, sw, sw, c.color);
-    gfx->drawRect(sx, sy, sw, sw, WHITE);
-    gfx->setTextSize(2);
-    gfx->setTextColor(WHITE, BLACK);
-    gfx->setCursor(sx + sw + 6, y + 10);
+    gfx->drawRect(sx, sy, sw, sw, line);
+    gfx->setTextSize(1);
+    gfx->setTextColor(fg, bg);
+    gfx->setCursor(sx + sw + 4, y + 10);
     gfx->print(c.name);
   }
 };
@@ -2045,13 +2166,8 @@ public:
   void render() override {
     if (!gfx) return;
     if (firstDraw) {
-      drawBackButton();
-      gfx->setTextSize(2);
-      gfx->setTextColor(WHITE, BLACK);
-      gfx->setCursor(108, 14);
-      gfx->print("Font");
-      gfx->drawFastHLine(20, 46, 200, DARKGREY);
-      drawAllRows();
+      drawTitleBar("Font");
+      drawAllCells();
       firstDraw = false;
     }
   }
@@ -2061,13 +2177,14 @@ public:
     if (tappedBack(e.x, e.y)) { switchTo(Screen::Settings); return; }
     int n = watchFaceStyleCount();
     for (int i = 0; i < n; i++) {
-      int16_t y = rowY(i);
-      if (inRect(e.x, e.y, ROW_X, y, ROW_W, ROW_H)) {
+      int16_t cx, cy;
+      cellPos(i, cx, cy);
+      if (inRect(e.x, e.y, cx, cy, CELL_W, CELL_H)) {
         sel = (uint8_t)i;
         { ModelLock lk; model.watchFaceStyle = sel; model.revision++; }
         Storage::save();
         hapticBuzz(60, 60);
-        drawAllRows();
+        drawAllCells();
         return;
       }
     }
@@ -2076,28 +2193,35 @@ private:
   uint8_t sel = 0;
   bool    firstDraw = true;
 
-  static const int16_t ROW_X  = 16;
-  static const int16_t ROW_W  = 208;
-  static const int16_t ROW_H  = 34;
-  static const int16_t ROW0_Y = 60;
-  static const int16_t ROW_GAP = 6;
+  // 2-column grid so all 8 names fit on the 280-tall screen below the title.
+  static const int16_t CELL_W   = 100;
+  static const int16_t CELL_H   = 36;
+  static const int16_t GRID_X   = 16;
+  static const int16_t GRID_Y   = 60;
+  static const int16_t GAP_X    = 8;
+  static const int16_t GAP_Y    = 6;
 
-  static int16_t rowY(int i) { return ROW0_Y + i * (ROW_H + ROW_GAP); }
-
-  void drawAllRows() {
-    int n = watchFaceStyleCount();
-    for (int i = 0; i < n; i++) drawRow(i, (uint8_t)i == sel);
+  static void cellPos(int i, int16_t &x, int16_t &y) {
+    int col = i & 1;            // 0 = left, 1 = right
+    int row = i >> 1;
+    x = GRID_X + col * (CELL_W + GAP_X);
+    y = GRID_Y + row * (CELL_H + GAP_Y);
   }
-  void drawRow(int i, bool active) {
-    int16_t y = rowY(i);
+
+  void drawAllCells() {
+    int n = watchFaceStyleCount();
+    for (int i = 0; i < n; i++) drawCell(i, (uint8_t)i == sel);
+  }
+  void drawCell(int i, bool active) {
+    int16_t x, y; cellPos(i, x, y);
     uint16_t bg = active ? DARKGREEN : DARKGREY;
-    gfx->fillRoundRect(ROW_X, y, ROW_W, ROW_H, 6, bg);
-    gfx->drawRoundRect(ROW_X, y, ROW_W, ROW_H, 6, WHITE);
+    gfx->fillRoundRect(x, y, CELL_W, CELL_H, 6, bg);
+    gfx->drawRoundRect(x, y, CELL_W, CELL_H, 6, WHITE);
     const char *nm = watchFaceStyleName(i);
     gfx->setTextSize(2);
     gfx->setTextColor(WHITE, bg);
     int16_t lw = (int16_t)strlen(nm) * 12;
-    gfx->setCursor(ROW_X + (ROW_W - lw) / 2, y + 10);
+    gfx->setCursor(x + (CELL_W - lw) / 2, y + 10);
     gfx->print(nm);
   }
 };
@@ -2119,16 +2243,13 @@ public:
   void render() override {
     if (!gfx) return;
     if (dirty & TITLE) {
-      drawBackButton();
-      gfx->setTextSize(2);
-      gfx->setTextColor(WHITE, BLACK);
-      gfx->setCursor(86, 14);
-      gfx->print("Haptics");
-      gfx->drawFastHLine(20, 46, 200, DARKGREY);
+      drawTitleBar("Haptics");
       drawRowChrome();
-      gfx->fillRoundRect(SAVE_X, ACT_Y, ACT_W, ACT_H, 6, DARKGREEN);
+      ThemeColors th = theme();
+      uint16_t saveTxt = contrastFor(th.accent);
+      gfx->fillRoundRect(SAVE_X, ACT_Y, ACT_W, ACT_H, 6, th.accent);
       gfx->setTextSize(2);
-      gfx->setTextColor(WHITE, DARKGREEN);
+      gfx->setTextColor(saveTxt, th.accent);
       gfx->setCursor(SAVE_X + (ACT_W - 48) / 2, ACT_Y + 10);
       gfx->print("SAVE");
       dirty &= ~TITLE;
@@ -2209,7 +2330,7 @@ private:
     gfx->drawRoundRect(MINUS_X, ROW_Y, BTN_W, BTN_H, 6, DARKGREY);
     gfx->drawRoundRect(PLUS_X,  ROW_Y, BTN_W, BTN_H, 6, DARKGREY);
     gfx->setTextSize(4);
-    gfx->setTextColor(WHITE, BLACK);
+    { ThemeColors _t = theme(); gfx->setTextColor(_t.fg, _t.bg); }
     gfx->setCursor(MINUS_X + BTN_W / 2 - 12, ROW_Y + 10);
     gfx->print('-');
     gfx->setCursor(PLUS_X  + BTN_W / 2 - 12, ROW_Y + 10);
@@ -2241,12 +2362,7 @@ public:
   void render() override {
     if (!gfx) return;
     if (firstDraw) {
-      drawBackButton();
-      gfx->setTextSize(2);
-      gfx->setTextColor(WHITE, BLACK);
-      gfx->setCursor(86, 14);
-      gfx->print("Memory");
-      gfx->drawFastHLine(20, 46, 200, DARKGREY);
+      drawTitleBar("Memory");
       firstDraw = false;
     }
     // Update every 500 ms so we don't burn cycles redrawing on every event.
@@ -2280,7 +2396,7 @@ private:
     gfx->fillRect(0, y, W, 60, BLACK);
 
     gfx->setTextSize(2);
-    gfx->setTextColor(WHITE, BLACK);
+    { ThemeColors _t = theme(); gfx->setTextColor(_t.fg, _t.bg); }
     gfx->setCursor(14, y);
     gfx->print(label);
 
@@ -2325,13 +2441,9 @@ public:
   void render() override {
     if (!gfx) return;
     if (firstDraw) {
-      drawBackButton();
-      gfx->setTextSize(2);
-      gfx->setTextColor(WHITE, BLACK);
-      gfx->setCursor(50, 8);
-      gfx->print("Gestures");
-      gfx->drawFastHLine(8, 32, W - 16, DARKGREY);
-      gfx->drawRoundRect(PAD_X, PAD_Y, PAD_W, PAD_H, 8, DARKGREY);
+      drawTitleBar("Gestures", 8, 32, 8, W - 16);
+      { ThemeColors t = theme();
+        gfx->drawRoundRect(PAD_X, PAD_Y, PAD_W, PAD_H, 8, t.line); }
       firstDraw = false;
     }
 
@@ -2459,12 +2571,7 @@ public:
     Model snap;
     { ModelLock lk; snap = model; }
     if (firstDraw) {
-      drawBackButton();
-      gfx->setTextSize(2);
-      gfx->setTextColor(WHITE, BLACK);
-      gfx->setCursor(108, 14);
-      gfx->print("WiFi");
-      gfx->drawFastHLine(20, 46, 200, DARKGREY);
+      drawTitleBar("WiFi");
       drawKnownBtn();
       firstDraw = false;
     }
@@ -2559,7 +2666,7 @@ private:
       gfx->setCursor(12, STAT_Y);
       snprintf(buf, sizeof(buf), "AP: %s", s.ssid[0] ? s.ssid : "EWATCH_SETUP");
       gfx->print(buf);
-      gfx->setTextColor(WHITE, BLACK);
+      { ThemeColors _t = theme(); gfx->setTextColor(_t.fg, _t.bg); }
       gfx->setCursor(12, STAT_Y + 14);
       gfx->print("http://192.168.4.1/");
       gfx->setCursor(12, STAT_Y + 28);
@@ -2571,7 +2678,7 @@ private:
         gfx->setCursor(12, STAT_Y);
         snprintf(buf, sizeof(buf), "Connected: %s", s.ssid);
         gfx->print(buf);
-        gfx->setTextColor(WHITE, BLACK);
+        { ThemeColors _t = theme(); gfx->setTextColor(_t.fg, _t.bg); }
         gfx->setCursor(12, STAT_Y + 14);
         if (s.ip) {
           snprintf(buf, sizeof(buf), "http://%u.%u.%u.%u/",
@@ -2594,9 +2701,9 @@ private:
     }
   }
   void drawKnownBtn() {
-    gfx->fillRoundRect(KN_X, KN_Y, KN_W, KN_H, 6, NAVY);
+    { ThemeColors _t = theme(); gfx->fillRoundRect(KN_X, KN_Y, KN_W, KN_H, 6, _t.accent); }
     gfx->drawRoundRect(KN_X, KN_Y, KN_W, KN_H, 6, WHITE);
-    gfx->setTextColor(WHITE, NAVY);
+    { ThemeColors _t = theme(); gfx->setTextColor(contrastFor(_t.accent), _t.accent); }
     gfx->setTextSize(2);
     const char *l = "Saved networks >";
     int16_t lw = (int16_t)strlen(l) * 12;
@@ -2616,12 +2723,7 @@ public:
   void render() override {
     if (!gfx) return;
     if (firstDraw) {
-      drawBackButton();
-      gfx->setTextSize(2);
-      gfx->setTextColor(WHITE, BLACK);
-      gfx->setCursor(74, 14);
-      gfx->print("Networks");
-      gfx->drawFastHLine(20, 46, 200, DARKGREY);
+      drawTitleBar("Networks");
       firstDraw = false;
     }
     uint8_t n = Storage::knownCount();
@@ -2671,7 +2773,7 @@ private:
       if (!Storage::knownAt(i, s, p)) continue;
       int16_t y = ROW_Y0 + i * ROW_H;
       gfx->setTextSize(1);
-      gfx->setTextColor(WHITE, BLACK);
+      { ThemeColors _t = theme(); gfx->setTextColor(_t.fg, _t.bg); }
       gfx->setCursor(12, y + 7);
       char trunc[29];
       strncpy(trunc, s, 28); trunc[28] = '\0';
@@ -2707,14 +2809,10 @@ public:
     { ModelLock lk; snap = model; }
 
     if (firstDraw) {
-      drawBackButton();
-      gfx->setTextSize(2);
-      gfx->setTextColor(WHITE, BLACK);
-      gfx->setCursor(70, 8);
-      gfx->print("IMU");
-      gfx->drawFastHLine(8, 32, W - 16, DARKGREY);
-      gfx->drawCircle(BALL_CX, BALL_CY, BALL_R, DARKGREY);
-      gfx->drawCircle(BALL_CX, BALL_CY, 2, DARKGREY);
+      drawTitleBar("IMU", 8, 32, 8, W - 16);
+      { ThemeColors t = theme();
+        gfx->drawCircle(BALL_CX, BALL_CY, BALL_R, t.line);
+        gfx->drawCircle(BALL_CX, BALL_CY, 2,      t.line); }
       firstDraw = false;
     }
 
@@ -2814,13 +2912,14 @@ public:
     clearAll();
     if (!gfx) return;
     drawBackButton();
+    ThemeColors t = theme();
     gfx->setTextSize(3);
-    gfx->setTextColor(WHITE, BLACK);
+    gfx->setTextColor(t.fg, t.bg);
     gfx->setCursor(60, 60);
     gfx->print("Power");
 
-    drawButton(SLEEP_Y,   NAVY,    "Sleep");
-    drawButton(OFF_Y,     MAROON,  "Off");
+    drawButton(SLEEP_Y, t.accent, "Sleep");
+    drawButton(OFF_Y,   MAROON,   "Off");
 
     armed = ARM_NONE;
     armedAt = 0;
@@ -2830,12 +2929,13 @@ public:
     if (!gfx) return;
     // Repaint armed-button progress fill so user sees they're holding it.
     if (armed != ARM_NONE && !fired) {
+      ThemeColors t = theme();
       uint32_t held = millis() - armedAt;
       if (held > 800) held = 800;
       int16_t y = (armed == ARM_SLEEP) ? SLEEP_Y : OFF_Y;
-      uint16_t base = (armed == ARM_SLEEP) ? NAVY : MAROON;
+      uint16_t base = (armed == ARM_SLEEP) ? t.accent : MAROON;
       int16_t fill = (BTN_W - 4) * (int)held / 800;
-      gfx->fillRect(BTN_X + 2, y + BTN_H - 6, fill, 4, WHITE);
+      gfx->fillRect(BTN_X + 2, y + BTN_H - 6, fill, 4, t.fg);
       gfx->fillRect(BTN_X + 2 + fill, y + BTN_H - 6, BTN_W - 4 - fill, 4, base);
       if (held >= 800) doAction();
     }
@@ -2902,9 +3002,9 @@ private:
 
   void goOff() {
     if (gfx) {
-      gfx->fillScreen(BLACK);
+      clearAll();
       gfx->setTextSize(2);
-      gfx->setTextColor(WHITE, BLACK);
+      { ThemeColors _t = theme(); gfx->setTextColor(_t.fg, _t.bg); }
       gfx->setCursor(80, 130);
       gfx->print("bye");
     }
@@ -2916,9 +3016,9 @@ private:
   }
   void goSleep() {
     if (gfx) {
-      gfx->fillScreen(BLACK);
+      clearAll();
       gfx->setTextSize(2);
-      gfx->setTextColor(WHITE, BLACK);
+      { ThemeColors _t = theme(); gfx->setTextColor(_t.fg, _t.bg); }
       gfx->setCursor(60, 130);
       gfx->print("sleeping");
     }
@@ -2932,32 +3032,35 @@ private:
 // ---------- view registry / dispatch ----------
 // Top level: just the user-facing 3D viewer plus an entry into the System
 // sub-page (settings, diagnostics, power off).
+// App-card colors are no longer hardcoded per entry — the carousel paints
+// every tile in the user-chosen accent colour. The struct fields stay for
+// the back-compat path; the color field is ignored by drawTiles().
 static const AppEntry kTopApps[] = {
-  { "3D Viewer", DARKCYAN, Screen::Viewer3D,   "rotate a 3D model"    },
-  { "Media",     OLIVE,    Screen::Media,      "images and videos"    },
-  { "QR Share",  PURPLE,   Screen::QRCode,     "share contact info"   },
-  { "Stopwatch", DARKCYAN, Screen::Stopwatch,  "count-up timer"       },
-  { "Timer",     MAROON,   Screen::Timer,      "countdown + alarm"    },
-  { "System",    NAVY,     Screen::SystemApps, "settings & sensors"   },
+  { "3D Viewer", 0, Screen::Viewer3D    },
+  { "Media",     0, Screen::Media       },
+  { "QR Share",  0, Screen::QRCode      },
+  { "Stopwatch", 0, Screen::Stopwatch   },
+  { "Timer",     0, Screen::Timer       },
+  { "System",    0, Screen::SystemApps  },
 };
 static const AppEntry kSystemApps[] = {
-  { "Settings",       NAVY,      Screen::Settings,      "preferences"          },
-  { "Sensor Test",    DARKGREEN, Screen::SensorTest,    "live readouts"        },
-  { "Touch Gestures", PURPLE,    Screen::TouchGestures, "test the touch chip"  },
-  { "IMU Gestures",   OLIVE,     Screen::ImuGestures,   "test accelerometer"   },
-  { "Power Off",      MAROON,    Screen::PowerOff,      "sleep or shut down"   },
+  { "Settings",       0, Screen::Settings      },
+  { "Sensor Test",    0, Screen::SensorTest    },
+  { "Touch Gestures", 0, Screen::TouchGestures },
+  { "IMU Gestures",   0, Screen::ImuGestures   },
+  { "Power Off",      0, Screen::PowerOff      },
 };
 static const AppEntry kSettingsEntries[] = {
-  { "Time",    NAVY,      Screen::SettingsTime,    "set the clock"        },
-  { "Date",    DARKCYAN,  Screen::SettingsDate,    "set the calendar"     },
-  { "Sleep",   DARKGREEN, Screen::SettingsSleep,   "auto-sleep + wake"    },
-  { "Display", PURPLE,    Screen::SettingsDisplay, "brightness + colors"  },
-  { "Font",    OLIVE,     Screen::SettingsFont,    "watch face style"     },
-  { "Haptics", DARKCYAN,  Screen::SettingsHaptics, "buzz strength"        },
+  { "Time",    0, Screen::SettingsTime    },
+  { "Date",    0, Screen::SettingsDate    },
+  { "Sleep",   0, Screen::SettingsSleep   },
+  { "Display", 0, Screen::SettingsDisplay },
+  { "Font",    0, Screen::SettingsFont    },
+  { "Haptics", 0, Screen::SettingsHaptics },
 #if defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
-  { "WiFi",    DARKCYAN,  Screen::SettingsWifi,    "host AP / join WiFi"  },
+  { "WiFi",    0, Screen::SettingsWifi    },
 #endif
-  { "Memory",  MAROON,    Screen::SettingsMemory,  "heap / PSRAM usage"   },
+  { "Memory",  0, Screen::SettingsMemory  },
 };
 
 static WatchFaceView      vWatch;
@@ -3036,6 +3139,6 @@ void switchTo(Screen s) {
 
 void viewsInit() {
   currentView = &vWatch;
-  if (gfx) gfx->fillScreen(BLACK);
+  if (gfx) clearAll();
   currentView->onEnter();
 }

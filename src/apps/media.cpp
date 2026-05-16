@@ -30,9 +30,7 @@ static bool inRect(uint16_t x, uint16_t y, int16_t rx, int16_t ry,
   return (int16_t)x >= rx && (int16_t)x < rx + rw &&
          (int16_t)y >= ry && (int16_t)y < ry + rh;
 }
-static bool tappedBack(uint16_t x, uint16_t y) {
-  return inRect(x, y, 0, 0, BACK_W + 12, BACK_H + 10);
-}
+// `tappedBack` shared via view.h — same BACK_W/BACK_H sized hit zone.
 
 // Small top-left overlay: back chevron + asset name + position counter.
 static void drawOverlay(const char *name, int idx, int count) {
