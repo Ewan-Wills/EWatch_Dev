@@ -25,6 +25,10 @@
 #if defined(EWATCH_ENABLE_MEDIA) && EWATCH_ENABLE_MEDIA
   #include "media.h"
 #endif
+#if defined(EWATCH_ENABLE_STREAM) && EWATCH_ENABLE_STREAM && \
+    defined(EWATCH_ENABLE_WIFI)   && EWATCH_ENABLE_WIFI
+  #include "livestream.h"
+#endif
 #if defined(EWATCH_ENABLE_QR) && EWATCH_ENABLE_QR
   #include "qr.h"
 #endif
@@ -2852,6 +2856,10 @@ static const AppEntry kTopApps[] = {
 #if defined(EWATCH_ENABLE_MEDIA) && EWATCH_ENABLE_MEDIA
   { "Media",     0, Screen::Media       },
 #endif
+#if defined(EWATCH_ENABLE_STREAM) && EWATCH_ENABLE_STREAM && \
+    defined(EWATCH_ENABLE_WIFI)   && EWATCH_ENABLE_WIFI
+  { "Stream",    0, Screen::Stream      },
+#endif
 #if defined(EWATCH_ENABLE_QR) && EWATCH_ENABLE_QR
   { "QR Share",  0, Screen::QRCode      },
 #endif
@@ -2907,6 +2915,10 @@ static Viewer3DView       vViewer3D;
 #if defined(EWATCH_ENABLE_MEDIA) && EWATCH_ENABLE_MEDIA
 static MediaView          vMedia;
 #endif
+#if defined(EWATCH_ENABLE_STREAM) && EWATCH_ENABLE_STREAM && \
+    defined(EWATCH_ENABLE_WIFI)   && EWATCH_ENABLE_WIFI
+static StreamView         vStream;
+#endif
 #if defined(EWATCH_ENABLE_QR) && EWATCH_ENABLE_QR
 static QRCodeView         vQRCode;
 #endif
@@ -2939,6 +2951,10 @@ View *viewFor(Screen s) {
 #endif
 #if defined(EWATCH_ENABLE_MEDIA) && EWATCH_ENABLE_MEDIA
     case Screen::Media:         return &vMedia;
+#endif
+#if defined(EWATCH_ENABLE_STREAM) && EWATCH_ENABLE_STREAM && \
+    defined(EWATCH_ENABLE_WIFI)   && EWATCH_ENABLE_WIFI
+    case Screen::Stream:        return &vStream;
 #endif
 #if defined(EWATCH_ENABLE_QR) && EWATCH_ENABLE_QR
     case Screen::QRCode:        return &vQRCode;

@@ -22,6 +22,7 @@ enum class Screen : uint8_t {
   SensorTest, TouchGestures, ImuGestures,
   Viewer3D,         // user app (outside src/apps/system)
   Media,            // user app: image / video viewer
+  Stream,           // user app: live RGB565 frame receiver (Mac → watch)
   QRCode,           // user app: phone / email / website share QR
   Stopwatch,        // user app: count-up stopwatch
   Timer,            // user app: countdown timer (wakes from sleep)
