@@ -1,7 +1,12 @@
 // 3D model viewer app. Software-rendered painter's-algorithm renderer for the
 // small cube model in apps/models/. Touch drag rotates; IMU tilt also feeds
 // rotation while the finger is off the screen.
+//
+// Compile-time gated by EWATCH_ENABLE_VIEWER3D — when 0 the class declaration
+// and the implementation are both elided so the linker drops the math and
+// the bundled model data.
 #pragma once
+#if defined(EWATCH_ENABLE_VIEWER3D) && EWATCH_ENABLE_VIEWER3D
 #include "view.h"
 
 class Viewer3DView : public View {
@@ -21,3 +26,5 @@ private:
 
   void drawScene();
 };
+
+#endif  // EWATCH_ENABLE_VIEWER3D

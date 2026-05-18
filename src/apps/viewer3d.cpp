@@ -1,3 +1,7 @@
+// 3D viewer implementation. Whole file gated on EWATCH_ENABLE_VIEWER3D so the
+// painter's-algorithm renderer + the cube model data drop from the build when
+// the feature is off.
+#if defined(EWATCH_ENABLE_VIEWER3D) && EWATCH_ENABLE_VIEWER3D
 #include <math.h>
 #include <esp_heap_caps.h>
 #include <Arduino_GFX_Library.h>
@@ -294,3 +298,5 @@ void Viewer3DView::drawScene() {
   // Push the finished frame in one shot.
   if (canvasOk) canvas->flush();
 }
+
+#endif  // EWATCH_ENABLE_VIEWER3D

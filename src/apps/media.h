@@ -5,7 +5,11 @@
 //
 // Generate assets with tools/encode_media.py and register them in
 // src/apps/assets/manifest.h.
+//
+// Compile-time gated by EWATCH_ENABLE_MEDIA — when 0 the class, manifest,
+// and PROGMEM asset arrays all drop from the build.
 #pragma once
+#if defined(EWATCH_ENABLE_MEDIA) && EWATCH_ENABLE_MEDIA
 #include <stdint.h>
 #include "view.h"
 
@@ -37,3 +41,5 @@ public:
 private:
   int index = 0;
 };
+
+#endif  // EWATCH_ENABLE_MEDIA

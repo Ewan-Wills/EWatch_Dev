@@ -1,24 +1,34 @@
-// Power latch: SW2 momentarily turns LDO U15 on, then the firmware must
-// drive GPIO17 high before the user lets go. Pulling it low later powers
-// the watch off.
+// Power driver — soft-latch around LDO U15.
+//
+// The watch has no hard power switch. SW2 momentarily forces the LDO enable
+// pin high (through a diode); within that window the firmware must drive
+// PIN_LDO_LATCH high to keep the rail up after the user releases the button.
+// Driving the same pin low later cuts power and the chip stops dead.
+//
+// Layout:
+//   * latchPower()   — MUST be the first call in setup(). Every microsecond
+//                       before this the rail is held up only by SW2.
+//   * unlatchPower() — drop the latch and exit; used by the deliberate
+//                       Power-Off action and the panic-loop safety net in
+//                       main.cpp.
+//   * buttonPressed()— SW2 live state (active-high). Used by long-press
+//                       power-off gestures and the wake-from-sleep path.
 #pragma once
 #include <Arduino.h>
 #include "pins.h"
 
-// MUST be the first call in setup() — every microsecond before this, the
-// rail is held up only by the user's finger on SW2.
+// Pre-load HIGH on the GPIO output register, THEN enable the driver. The
+// alternative (pinMode → digitalWrite) flashes LOW for ~1 µs which is enough
+// for the rail to droop visibly on cold boot.
 static inline void latchPower() {
-  digitalWrite(PIN_LDO_LATCH, HIGH);  // pre-load output register HIGH first,
-  pinMode(PIN_LDO_LATCH, OUTPUT);     // then enable driver — no LOW glitch.
+  digitalWrite(PIN_LDO_LATCH, HIGH);
+  pinMode(PIN_LDO_LATCH, OUTPUT);
 }
 
-// Turn the watch off. The chip stops getting power as soon as this returns
-// (assuming the user isn't pressing SW2).
 static inline void unlatchPower() {
   digitalWrite(PIN_LDO_LATCH, LOW);
 }
 
-// True while the user is physically holding SW2. Useful for power-off gestures.
 static inline bool buttonPressed() {
   return digitalRead(PIN_BTN) == HIGH;
 }

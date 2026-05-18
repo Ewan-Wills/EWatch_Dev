@@ -19,9 +19,15 @@
 #include "controller.h"
 #include "storage.h"
 #include "apptimer.h"
-#include "viewer3d.h"
-#include "media.h"
-#include "qr.h"
+#if defined(EWATCH_ENABLE_VIEWER3D) && EWATCH_ENABLE_VIEWER3D
+  #include "viewer3d.h"
+#endif
+#if defined(EWATCH_ENABLE_MEDIA) && EWATCH_ENABLE_MEDIA
+  #include "media.h"
+#endif
+#if defined(EWATCH_ENABLE_QR) && EWATCH_ENABLE_QR
+  #include "qr.h"
+#endif
 #include "stopwatch.h"
 #include "timer_app.h"
 #include "wifi_svc.h"
@@ -757,36 +763,6 @@ struct AppEntry {
   Screen      target;
 };
 
-// Set to 1 to re-enable the per-stage carousel breadcrumbs we used to track
-// down the framebuffer-overflow crash.
-#define CAROUSEL_DEBUG 0
-
-#if CAROUSEL_DEBUG
-  // Flush after every print: when the device panics we lose anything still in
-  // the UART FIFO, so the very last log line — which is the one that points at
-  // the crash — would otherwise be dropped.
-  #define CAR_LOG(fmt, ...) do { \
-      Serial.printf("[CAR %lu] " fmt "\n", (unsigned long)millis(), ##__VA_ARGS__); \
-      Serial.flush(); \
-    } while (0)
-#else
-  #define CAR_LOG(fmt, ...) ((void)0)
-#endif
-
-#include <esp_heap_caps.h>
-static void carHeapCheck(const char *tag) {
-#if CAROUSEL_DEBUG
-  bool ok = heap_caps_check_integrity_all(true);
-  Serial.printf("[CAR %lu] HEAP[%s] integrity=%d free=%u min_free=%u\n",
-                (unsigned long)millis(), tag, (int)ok,
-                (unsigned)ESP.getFreeHeap(),
-                (unsigned)ESP.getMinFreeHeap());
-  Serial.flush();
-#else
-  (void)tag;
-#endif
-}
-
 class CarouselView : public View {
 public:
   CarouselView(const AppEntry *entries, int n,
@@ -794,108 +770,55 @@ public:
     : entries(entries), N(n), title(title), backScreen(back), wrapAround(wrap) {}
 
   void onEnter() override {
-    CAR_LOG("onEnter this=%p vt=%p title=%s N=%d wrap=%d entries=%p back=%d",
-            (void*)this, *(void**)this, title ? title : "(null)", N,
-            (int)wrapAround, (const void*)entries, (int)backScreen);
     canvas = frameCanvas();
-    if (!canvas) {
-      CAR_LOG("onEnter: frameCanvas() returned null — bailing");
-      return;
-    }
+    if (!canvas) return;
     // Keep `cur` across visits so coming back from a sub-app lands you on the
-    // tile you launched from, not always tile 0. First-ever entry uses the
-    // class default (0).
+    // tile you launched from. First-ever entry uses the class default (0).
     if (cur < 0 || cur >= N) cur = 0;
     // Tile slides in from one slot below the target on entry.
-    scrollPos    = (float)cur - 1.0f;
-    scrollFrom   = (float)cur - 1.0f;
-    scrollTo     = (float)cur;
-    scrollStart  = millis();
+    scrollPos      = (float)cur - 1.0f;
+    scrollFrom     = (float)cur - 1.0f;
+    scrollTo       = (float)cur;
+    scrollStart    = millis();
     scrollDuration = 500;
-    pulseStart   = 0;
-    exitAtMs     = 0;
-    exitTarget   = backScreen;
-    pressActive  = false;
-    pressMoved   = false;
-    logStack("onEnter");
-    logInvariants("onEnter");
-    carHeapCheck("onEnter");
-    // Dump every entry pointer so we'd see a corrupted name ptr before
-    // drawTiles dereferences it and crashes.
-    for (int i = 0; i < N && i < 16; i++) {
-      CAR_LOG("entries[%d] name=%p target=%d color=0x%04x",
-              i, (const void*)entries[i].name,
-              (int)entries[i].target, (unsigned)entries[i].color);
-    }
-  }
-  void onExit() override {
-    CAR_LOG("onExit this=%p vt=%p title=%s cur=%d scrollPos=%.3f scrollTo=%.3f",
-            (void*)this, *(void**)this, title ? title : "(null)",
-            cur, (double)scrollPos, (double)scrollTo);
+    pulseStart     = 0;
+    exitAtMs       = 0;
+    exitTarget     = backScreen;
+    pressActive    = false;
+    pressMoved     = false;
   }
   void render() override {
-    if (!canvas) {
-      CAR_LOG("render: canvas==null — bailing");
-      return;
-    }
-    CAR_LOG("render ENTER this=%p vt=%p cur=%d sp=%.3f sf=%.3f st=%.3f anim=%d",
-            (void*)this, *(void**)this, cur, (double)scrollPos,
-            (double)scrollFrom, (double)scrollTo, (int)isAnimating());
-    logInvariants("render-enter");
-    logStack("render-enter");
-
-    uint32_t frameCount = 0;
-    // Drive frames until either (a) the user leaves the view or (b) the
-    // animation settles. When settled we return; the controller will call
-    // render() again on the next event.
-    do {
+    if (!canvas) return;
+    // Drive frames until either (a) the deferred exit fires (e.g. tap pulse
+    // → switchTo) or (b) the animation settles. When settled we return; the
+    // controller will call render() again on the next model change.
+    for (;;) {
       uint32_t t0 = millis();
       drawFrame();
-      CAR_LOG("render: drawFrame done, about to flush()");
       canvas->flush();
-      CAR_LOG("render: flush done");
-      frameCount++;
-      if ((frameCount & 0x0F) == 0) {
-        CAR_LOG("render frame=%lu sp=%.3f sf=%.3f st=%.3f cur=%d",
-                (unsigned long)frameCount, (double)scrollPos,
-                (double)scrollFrom, (double)scrollTo, cur);
-        logStack("render-frame");
-      }
 
-      // Deferred exit (e.g. press pulse → switchTo after 200 ms).
       if (exitAtMs > 0 && (int32_t)(millis() - exitAtMs) >= 0) {
         Screen target = exitTarget;
         exitAtMs = 0;
-        CAR_LOG("render: deferred exit firing → switchTo(%d) (this=%p vt=%p)",
-                (int)target, (void*)this, *(void**)this);
         switchTo(target);
         return;
       }
-      if (!isAnimating()) {
-        CAR_LOG("render EXIT (settled) frames=%lu cur=%d sp=%.3f",
-                (unsigned long)frameCount, cur, (double)scrollPos);
-        return;
-      }
+      if (!isAnimating()) return;
 
-      // Drain events with a ~30 fps frame budget.
+      // Drain events with a ~30 fps frame budget so input still feels live
+      // while a scroll/pulse animation is running.
       int32_t budget = 33 - (int32_t)(millis() - t0);
       if (budget < 1) budget = 1;
       while (budget > 0) {
         Event e;
         if (xQueueReceive(eventQueue, &e, pdMS_TO_TICKS(budget)) != pdPASS) break;
-        CAR_LOG("render inline event type=%d gesture=%d x=%u y=%u (mid-anim)",
-                (int)e.type, (int)e.gesture, (unsigned)e.x, (unsigned)e.y);
         handleEvent(e);
         if (exitAtMs > 0 && (int32_t)(millis() - exitAtMs) >= 0) break;
         budget = 33 - (int32_t)(millis() - t0);
       }
-    } while (true);
+    }
   }
   void onEvent(const Event &e) override {
-    CAR_LOG("onEvent ENTER this=%p vt=%p type=%d gesture=%d x=%u y=%u cur=%d sp=%.3f",
-            (void*)this, *(void**)this, (int)e.type, (int)e.gesture,
-            (unsigned)e.x, (unsigned)e.y, cur, (double)scrollPos);
-    logInvariants("onEvent");
     // The settled state delivers events through here; the animated state
     // drains them inline. Both go through handleEvent.
     handleEvent(e);
@@ -952,7 +875,6 @@ private:
     uint32_t now = millis();
     uint32_t elapsed = now - scrollStart;
     if (elapsed >= scrollDuration) {
-      float prev = scrollPos;
       scrollPos = scrollTo;
       if (wrapAround) {
         // Re-anchor into [0, N) so cur and scrollPos agree, and so the next
@@ -962,17 +884,9 @@ private:
         scrollTo   = scrollPos;
         scrollFrom = scrollPos;
       }
-      CAR_LOG("tween SETTLE prev=%.3f → sp=%.3f cur=%d (this=%p)",
-              (double)prev, (double)scrollPos, cur, (void*)this);
-      logInvariants("tween-settle");
     } else {
       float p = (float)elapsed / (float)scrollDuration;
       scrollPos = scrollFrom + (scrollTo - scrollFrom) * easeOutCubic(p);
-      if (isnan(scrollPos) || isinf(scrollPos)) {
-        CAR_LOG("!!! tween produced bad sp=%.3f from sf=%.3f st=%.3f p=%.3f elapsed=%lu dur=%lu",
-                (double)scrollPos, (double)scrollFrom, (double)scrollTo,
-                (double)p, (unsigned long)elapsed, (unsigned long)scrollDuration);
-      }
     }
   }
   float currentPulseScale() {
@@ -984,12 +898,6 @@ private:
     return 1.0f + 0.18f * sinf(p * 3.14159265f);
   }
   void startScroll(int newIndex) {
-    int requested = newIndex;
-    float spBefore = scrollPos;
-    CAR_LOG("startScroll ENTER req=%d cur=%d sp=%.3f sf=%.3f st=%.3f wrap=%d N=%d (this=%p)",
-            requested, cur, (double)scrollPos, (double)scrollFrom,
-            (double)scrollTo, (int)wrapAround, N, (void*)this);
-    logInvariants("startScroll-enter");
     if (wrapAround) {
       // Snap scrollPos so the wrapped tile sits exactly one slot from center
       // in the natural direction, then tween that one slot. drawTiles + the
@@ -999,52 +907,29 @@ private:
       if (newIndex < 0) {
         scrollPos += (float)N;        // 0 -> N, so cur=N-1 sits at scrollPos-1
         newIndex += N;
-        CAR_LOG("startScroll WRAP- (down past 0) sp %.3f→%.3f newIdx %d→%d",
-                (double)spBefore, (double)scrollPos, requested, newIndex);
       } else if (newIndex >= N) {
         scrollPos -= (float)N;        // N-1 -> -1, so cur=0 sits at scrollPos+1
         newIndex -= N;
-        CAR_LOG("startScroll WRAP+ (up past N-1) sp %.3f→%.3f newIdx %d→%d",
-                (double)spBefore, (double)scrollPos, requested, newIndex);
       }
-      if (newIndex < 0 || newIndex >= N) {
-        CAR_LOG("!!! startScroll: post-wrap newIndex=%d still OOB (N=%d)",
-                newIndex, N);
-        return;
-      }
+      if (newIndex < 0 || newIndex >= N) return;
     } else {
-      if (newIndex < 0 || newIndex >= N) {
-        CAR_LOG("startScroll: non-wrap OOB newIndex=%d ignored", newIndex);
-        return;
-      }
+      if (newIndex < 0 || newIndex >= N) return;
     }
-    cur = newIndex;
-    scrollFrom = scrollPos;
-    scrollTo = (float)newIndex;
-    scrollStart = millis();
+    cur            = newIndex;
+    scrollFrom     = scrollPos;
+    scrollTo       = (float)newIndex;
+    scrollStart    = millis();
     scrollDuration = 320;
-    CAR_LOG("startScroll EXIT cur=%d sf=%.3f st=%.3f delta=%.3f",
-            cur, (double)scrollFrom, (double)scrollTo,
-            (double)(scrollTo - scrollFrom));
-    logInvariants("startScroll-exit");
     hapticBuzz(40, 45);
   }
 
   void drawFrame() {
-    CAR_LOG("drawFrame ENTER canvas=%p (vt=%p) sp=%.3f cur=%d N=%d entries=%p",
-            (void*)canvas, canvas ? *(void**)canvas : nullptr,
-            (double)scrollPos, cur, N, (const void*)entries);
     advanceScrollTween();
-    CAR_LOG("drawFrame after tween sp=%.3f", (double)scrollPos);
     ThemeColors t = theme();
     canvas->fillScreen(t.bg);
-    CAR_LOG("drawFrame after fillScreen");
     drawChrome(t);
-    CAR_LOG("drawFrame after chrome");
     drawTiles(t);
-    CAR_LOG("drawFrame after tiles");
     drawIndicator(t);
-    CAR_LOG("drawFrame after indicator");
   }
   void drawChrome(const ThemeColors &t) {
     // Back chevron — accent-coloured with auto-contrast glyph (kept on the
@@ -1076,20 +961,16 @@ private:
   }
   void drawTiles(const ThemeColors &t) {
     float pulse = currentPulseScale();
-    // Guard against a corrupt scrollPos turning the visible-window loop into
-    // a giant or undefined range (floor/ceil of NaN/Inf, cast to int → UB).
+    // Defensive: guard against a corrupt scrollPos turning the visible-window
+    // loop into a giant or undefined range (floor/ceil of NaN/Inf, cast to
+    // int → UB). Should never trigger in normal operation.
     if (isnan(scrollPos) || isinf(scrollPos)) {
-      CAR_LOG("!!! drawTiles: scrollPos invalid=%.6f — snapping to 0", (double)scrollPos);
       scrollPos = 0.f; scrollFrom = 0.f; scrollTo = 0.f;
     }
     // Visible window: index +/-1 around the currently displayed position.
     int low  = (int)floorf(scrollPos) - 1;
     int high = (int)ceilf (scrollPos) + 1;
-    if (high - low > 8 || N <= 0) {
-      CAR_LOG("!!! drawTiles: bad window low=%d high=%d N=%d sp=%.3f — clamping",
-              low, high, N, (double)scrollPos);
-      low = -1; high = 1;
-    }
+    if (high - low > 8 || N <= 0) { low = -1; high = 1; }
     for (int idx = low; idx <= high; idx++) {
       int dataIdx;
       if (wrapAround) {
@@ -1098,11 +979,7 @@ private:
         if (idx < 0 || idx >= N) continue;
         dataIdx = idx;
       }
-      if (dataIdx < 0 || dataIdx >= N) {
-        CAR_LOG("!!! drawTiles: dataIdx=%d OOB (idx=%d N=%d sp=%.3f) — skip",
-                dataIdx, idx, N, (double)scrollPos);
-        continue;
-      }
+      if (dataIdx < 0 || dataIdx >= N) continue;
       float offset = (float)idx - scrollPos;          // tile units
       int16_t cy = (int16_t)(TILE_CY + offset * STRIDE);
       if (cy - TILE_H / 2 > H || cy + TILE_H / 2 < 50) continue;
@@ -1190,10 +1067,6 @@ private:
   }
 
   void handleEvent(const Event &e) {
-    CAR_LOG("handleEvent type=%d gesture=%d x=%u y=%u (cur=%d sp=%.3f st=%.3f this=%p vt=%p)",
-            (int)e.type, (int)e.gesture, (unsigned)e.x, (unsigned)e.y,
-            cur, (double)scrollPos, (double)scrollTo,
-            (void*)this, *(void**)this);
     if (e.type == EventType::ButtonShort) {
       exitTarget = backScreen;
       exitAtMs   = millis();
@@ -1205,14 +1078,8 @@ private:
       return;
     }
     if (e.type == EventType::Gesture) {
-      if (e.gesture == Gesture::SwipeUp)   {
-        CAR_LOG("gesture SwipeUp → startScroll(%d)", cur + 1);
-        startScroll(cur + 1); return;
-      }
-      if (e.gesture == Gesture::SwipeDown) {
-        CAR_LOG("gesture SwipeDown → startScroll(%d)", cur - 1);
-        startScroll(cur - 1); return;
-      }
+      if (e.gesture == Gesture::SwipeUp)   { startScroll(cur + 1); return; }
+      if (e.gesture == Gesture::SwipeDown) { startScroll(cur - 1); return; }
       return;
     }
     if (e.type == EventType::Touch) {
@@ -1235,13 +1102,12 @@ private:
     if (e.type == EventType::TouchUp) {
       bool quick = (millis() - pressTime) < 600;
       if (pressActive && !pressMoved && quick && hitCurrentTile(pressX, pressY)) {
-        pulseStart = millis();
+        // Defensive: only launch if cur is in range. The wrap path can't
+        // produce an OOB index, but the check keeps the assertion local.
         if (cur < 0 || cur >= N) {
-          CAR_LOG("!!! tap-launch BAD cur=%d N=%d entries=%p — skip",
-                  cur, N, (const void*)entries);
           pressActive = false; pressMoved = false; return;
         }
-        CAR_LOG("tap-launch cur=%d → target=%d", cur, (int)entries[cur].target);
+        pulseStart = millis();
         exitTarget = entries[cur].target;
         exitAtMs   = millis() + 180;
         hapticBuzz(80, 70);
@@ -1256,62 +1122,6 @@ private:
     int16_t tx = (W - TILE_W) / 2;
     int16_t ty = TILE_CY - TILE_H / 2;
     return inRect((uint16_t)x, (uint16_t)y, tx, ty, TILE_W, TILE_H);
-  }
-
-  // Per-call sanity probe: catches state corruption before it crashes.
-  // Logs only when something is off so steady-state traffic stays readable.
-  void logInvariants(const char *tag) {
-#if CAROUSEL_DEBUG
-    bool bad = false;
-    if (N <= 0 || N > 64) {
-      CAR_LOG("INV[%s] BAD N=%d (this=%p vt=%p)", tag, N, (void*)this, *(void**)this);
-      bad = true;
-    }
-    if (cur < 0 || (N > 0 && cur >= N)) {
-      CAR_LOG("INV[%s] BAD cur=%d (N=%d this=%p)", tag, cur, N, (void*)this);
-      bad = true;
-    }
-    if (isnan(scrollPos) || isinf(scrollPos)) {
-      CAR_LOG("INV[%s] BAD scrollPos=%.6f (this=%p)", tag, (double)scrollPos, (void*)this);
-      bad = true;
-    }
-    if (isnan(scrollFrom) || isinf(scrollFrom) || isnan(scrollTo) || isinf(scrollTo)) {
-      CAR_LOG("INV[%s] BAD sf=%.6f st=%.6f", tag, (double)scrollFrom, (double)scrollTo);
-      bad = true;
-    }
-    if (!entries) {
-      CAR_LOG("INV[%s] BAD entries=null", tag);
-      bad = true;
-    }
-    if (!title) {
-      CAR_LOG("INV[%s] BAD title=null", tag);
-      bad = true;
-    }
-    if (canvas == nullptr) {
-      CAR_LOG("INV[%s] note canvas=null", tag);
-    }
-    // Extremely large scrollPos magnitude indicates drift outside the
-    // wrap re-anchor range — flag for inspection.
-    if (fabsf(scrollPos) > (float)(N * 4 + 16)) {
-      CAR_LOG("INV[%s] DRIFT scrollPos=%.3f (N=%d cur=%d)",
-              tag, (double)scrollPos, N, cur);
-      bad = true;
-    }
-    (void)bad;
-#else
-    (void)tag;
-#endif
-  }
-
-  void logStack(const char *tag) {
-#if CAROUSEL_DEBUG
-    UBaseType_t hwm = uxTaskGetStackHighWaterMark(nullptr);
-    CAR_LOG("STACK[%s] hwm=%u free_heap=%u (this=%p task=%s)",
-            tag, (unsigned)hwm, (unsigned)ESP.getFreeHeap(),
-            (void*)this, pcTaskGetName(nullptr));
-#else
-    (void)tag;
-#endif
   }
 };
 
@@ -3036,9 +2846,15 @@ private:
 // every tile in the user-chosen accent colour. The struct fields stay for
 // the back-compat path; the color field is ignored by drawTiles().
 static const AppEntry kTopApps[] = {
+#if defined(EWATCH_ENABLE_VIEWER3D) && EWATCH_ENABLE_VIEWER3D
   { "3D Viewer", 0, Screen::Viewer3D    },
+#endif
+#if defined(EWATCH_ENABLE_MEDIA) && EWATCH_ENABLE_MEDIA
   { "Media",     0, Screen::Media       },
+#endif
+#if defined(EWATCH_ENABLE_QR) && EWATCH_ENABLE_QR
   { "QR Share",  0, Screen::QRCode      },
+#endif
   { "Stopwatch", 0, Screen::Stopwatch   },
   { "Timer",     0, Screen::Timer       },
   { "System",    0, Screen::SystemApps  },
@@ -3085,9 +2901,15 @@ static SettingsKnownNetsView vSettingsKnownNets; // page
 static SensorTestView     vSensorTest;
 static TouchGesturesView  vTouchGestures;
 static ImuGesturesView    vImuGestures;
-static Viewer3DView       vViewer3D;       // user app — defined in apps/viewer3d.cpp
-static MediaView          vMedia;          // user app — defined in apps/media.cpp
-static QRCodeView         vQRCode;         // user app — defined in apps/qr.cpp
+#if defined(EWATCH_ENABLE_VIEWER3D) && EWATCH_ENABLE_VIEWER3D
+static Viewer3DView       vViewer3D;
+#endif
+#if defined(EWATCH_ENABLE_MEDIA) && EWATCH_ENABLE_MEDIA
+static MediaView          vMedia;
+#endif
+#if defined(EWATCH_ENABLE_QR) && EWATCH_ENABLE_QR
+static QRCodeView         vQRCode;
+#endif
 static StopwatchView      vStopwatch;      // user app — defined in apps/stopwatch.cpp
 static TimerView          vTimer;          // user app — defined in apps/timer_app.cpp
 static PowerOffView       vPowerOff;
@@ -3112,9 +2934,15 @@ View *viewFor(Screen s) {
     case Screen::SensorTest:    return &vSensorTest;
     case Screen::TouchGestures: return &vTouchGestures;
     case Screen::ImuGestures:   return &vImuGestures;
+#if defined(EWATCH_ENABLE_VIEWER3D) && EWATCH_ENABLE_VIEWER3D
     case Screen::Viewer3D:      return &vViewer3D;
+#endif
+#if defined(EWATCH_ENABLE_MEDIA) && EWATCH_ENABLE_MEDIA
     case Screen::Media:         return &vMedia;
+#endif
+#if defined(EWATCH_ENABLE_QR) && EWATCH_ENABLE_QR
     case Screen::QRCode:        return &vQRCode;
+#endif
     case Screen::Stopwatch:     return &vStopwatch;
     case Screen::Timer:         return &vTimer;
     case Screen::PowerOff:      return &vPowerOff;
@@ -3124,12 +2952,6 @@ View *viewFor(Screen s) {
 
 void switchTo(Screen s) {
   View *next = viewFor(s);
-#if CAROUSEL_DEBUG
-  Serial.printf("[NAV %lu] switchTo(%d) cur=%p (vt=%p) next=%p (vt=%p)\n",
-                (unsigned long)millis(), (int)s,
-                (void*)currentView, currentView ? *(void**)currentView : nullptr,
-                (void*)next,        next        ? *(void**)next        : nullptr);
-#endif
   if (currentView == next) return;
   if (currentView) currentView->onExit();
   { ModelLock lk; model.screen = s; model.revision++; }

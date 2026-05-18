@@ -150,22 +150,6 @@ void controllerInit() {
 
 // ---------- FreeRTOS tasks ----------
 
-// Tight breadcrumb log for the I/O task. Set to 0 to silence once the crash
-// is localised. Flushes after every line so the last breadcrumb survives a
-// Guru Meditation panic — without it the UART FIFO can swallow the line that
-// names the faulting call.
-#define IO_DEBUG 0
-#if IO_DEBUG
-  #define IO_LOG(fmt, ...) do { \
-      Serial.printf("[IO %lu/%lu] " fmt "\n", \
-                    (unsigned long)millis(), \
-                    (unsigned long)xPortGetCoreID(), ##__VA_ARGS__); \
-      Serial.flush(); \
-    } while (0)
-#else
-  #define IO_LOG(fmt, ...) ((void)0)
-#endif
-
 // Single I/O task — owns the I2C bus to avoid Wire-singleton races. Runs at
 // 50 Hz; samples accel every cycle (for shake), button every cycle, RTC every
 // 4th cycle (~12 Hz), battery every 50th cycle (~1 Hz). Drains pending RTC
@@ -175,8 +159,6 @@ static void taskIO(void *) {
   // than the WDT timeout the chip resets, and the panic-loop guard in main()
   // catches the repeat and drops the LDO latch.
   esp_task_wdt_add(nullptr);
-  IO_LOG("taskIO start hwm=%u",
-         (unsigned)uxTaskGetStackHighWaterMark(nullptr));
   bool     lastBtn = false;
   uint32_t btnDownMs = 0;
   bool     veryLongFired = false;
@@ -189,20 +171,12 @@ static void taskIO(void *) {
   uint32_t lastHoldPostMs = 0;
   uint16_t lastTouchX = 0, lastTouchY = 0;
 
-  uint32_t ioTick = 0;
   for (;;) {
     esp_task_wdt_reset();
-    ioTick++;
-    if ((ioTick & 0x3F) == 0) {
-      IO_LOG("tick=%lu hwm=%u touchPending=%d",
-             (unsigned long)ioTick,
-             (unsigned)uxTaskGetStackHighWaterMark(nullptr),
-             (int)touchPending);
-    }
+
     // ---- Drain pending RTC writes from other tasks ----
     RTCWrite r;
     while (rtcWriteQueue && xQueueReceive(rtcWriteQueue, &r, 0) == pdPASS) {
-      IO_LOG("rtc write drain");
       writeRTC(r.h, r.m, r.s, r.weekday, r.day, r.month, r.year);
     }
 
@@ -214,14 +188,8 @@ static void taskIO(void *) {
     // is held stationary — the previous design relied on those.
     uint16_t hx = 0, hy = 0;
     bool live = readTouchHeld(hx, hy);
-    if (live && (hx == 0xFFF || hy == 0xFFF)) {
-      IO_LOG("touch read returned all-ones hx=%u hy=%u — discarding frame",
-             (unsigned)hx, (unsigned)hy);
-      live = false;
-    }
 
     if (live && !fingerDown) {
-      IO_LOG("touch DOWN x=%u y=%u", (unsigned)hx, (unsigned)hy);
       fingerDown = true;
       lastTouchX = hx; lastTouchY = hy;
       Event e = makeEvent(EventType::Touch);
@@ -237,24 +205,17 @@ static void taskIO(void *) {
         postEvent(e);
       }
     } else if (!live && fingerDown) {
-      IO_LOG("touch UP last=%u,%u", (unsigned)lastTouchX, (unsigned)lastTouchY);
       fingerDown = false;
       Event e = makeEvent(EventType::TouchUp);
       e.x = lastTouchX; e.y = lastTouchY;
       postEvent(e);
     }
 
-    // Drain ISR-reported gestures (only — Touch state already comes from poll)
+    // Drain ISR-reported gestures (only — Touch state already comes from poll).
     if (touchPending) {
-      IO_LOG("gesture drain: touchPending=1, calling available()");
       touchPending = false;
-      bool avail = touchpad.available();
-      IO_LOG("gesture drain: available()=%d", (int)avail);
-      if (avail) {
-        IO_LOG("gesture drain: reading data.gestureID");
-        uint8_t gid = touchpad.data.gestureID;
-        IO_LOG("gesture drain: gid=0x%02x", (unsigned)gid);
-        Gesture g = (Gesture)gid;
+      if (touchpad.available()) {
+        Gesture g = (Gesture)touchpad.data.gestureID;
         if (g != Gesture::None) {
           // Dedup: in continuous-report mode the chip can fire multiple
           // ISRs for one physical swipe. Suppress repeats within 400 ms.
@@ -263,27 +224,21 @@ static void taskIO(void *) {
           uint32_t now = millis();
           if (g != lastG || now - lastGMs > 400) {
             if (g == Gesture::SwipeRight) {
-              // Global "back": every view already handles ButtonShort as
-              // the back affordance, so route swipe-right through the same
-              // path instead of inventing a new event type. Suppressed only
-              // in the 3D viewer, which uses drag-to-rotate and would
-              // otherwise lose horizontal swipes.
+              // Global "back": every view already handles ButtonShort as the
+              // back affordance, so route swipe-right through the same path
+              // instead of inventing a new event type. Suppressed only in the
+              // 3D viewer, which uses drag-to-rotate and would otherwise lose
+              // horizontal swipes.
               Screen scr;
               { ModelLock lk; scr = model.screen; }
               if (scr != Screen::Viewer3D) {
-                IO_LOG("gesture drain: posting ButtonShort (swipe-right back)");
                 Event back = makeEvent(EventType::ButtonShort);
                 postEvent(back);
               }
             } else {
-              IO_LOG("gesture drain: reading data.x / data.y for gesture post");
-              uint16_t gx = touchpad.data.x;
-              uint16_t gy = touchpad.data.y;
-              IO_LOG("gesture drain: posting Gesture g=%d x=%u y=%u",
-                     (int)g, (unsigned)gx, (unsigned)gy);
               Event ge = makeEvent(EventType::Gesture);
-              ge.x = gx;
-              ge.y = gy;
+              ge.x = touchpad.data.x;
+              ge.y = touchpad.data.y;
               ge.gesture = g;
               postEvent(ge);
             }
@@ -291,7 +246,6 @@ static void taskIO(void *) {
           lastG = g; lastGMs = now;
         }
       }
-      IO_LOG("gesture drain: done");
     }
 
     // ---- Button (GPIO, no Wire) ----
@@ -323,9 +277,6 @@ static void taskIO(void *) {
     // ---- Accel + shake (Wire) ----
     int16_t ax = 0, ay = 0, az = 0;
     bool accOk = readAccel(ax, ay, az);
-    if ((ioTick & 0xFF) == 0) {
-      IO_LOG("accel ok=%d ax=%d ay=%d az=%d", (int)accOk, ax, ay, az);
-    }
     if (accOk) {
       uint32_t d = (uint32_t)abs(ax - pax) + abs(ay - pay) + abs(az - paz);
       pax = ax; pay = ay; paz = az;
@@ -349,19 +300,11 @@ static void taskIO(void *) {
     uint16_t yr = 2025;
     bool rtcOk = false;
     bool ranRtc = (cycle % 4 == 0);
-    if (ranRtc) {
-      IO_LOG("rtc read begin");
-      rtcOk = readRTC(h, mm, s, wd, dy, mo, yr);
-      IO_LOG("rtc read end ok=%d", (int)rtcOk);
-    }
+    if (ranRtc) rtcOk = readRTC(h, mm, s, wd, dy, mo, yr);
 
     float vbat = 0; uint8_t pct = 0; bool batOk = false;
     bool ranBat = (cycle % 50 == 0);
-    if (ranBat) {
-      IO_LOG("battery read begin");
-      batOk = readBattery(vbat, pct);
-      IO_LOG("battery read end ok=%d", (int)batOk);
-    }
+    if (ranBat) batOk = readBattery(vbat, pct);
 
     bool tickEvent = false;
     {
@@ -493,8 +436,13 @@ static void taskRender(void *) {
 static TaskHandle_t ioTaskHandle = nullptr;
 
 void controllerStartTasks() {
-  xTaskCreatePinnedToCore(taskIO,     "io",     6144, nullptr, 5, &ioTaskHandle, 0);
-  xTaskCreatePinnedToCore(taskRender, "render", 6144, nullptr, 4, nullptr, 1);
+  // Stack sizes tuned from observed high-water marks:
+  //   io:     peak ~2.2 KiB; 4 KiB leaves a healthy ~1.8 KiB margin.
+  //   render: peak ~2.1 KiB but view->render() recurses through Arduino_GFX +
+  //           Adafruit FreeFont code paths and the carousel's inline frame
+  //           loop — keep 6 KiB so a deep app render can't tip into overflow.
+  xTaskCreatePinnedToCore(taskIO,     "io",     4096, nullptr, 5, &ioTaskHandle, 0);
+  xTaskCreatePinnedToCore(taskRender, "render", 6144, nullptr, 4, nullptr,        1);
 }
 
 // ---------- Deep sleep ----------

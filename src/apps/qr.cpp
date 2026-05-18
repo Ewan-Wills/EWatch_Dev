@@ -1,6 +1,9 @@
 // QRCodeView — full-screen swipe carousel of preset QR payloads. Uses the
 // ricmoo/QRCode library; modules are drawn as fillRect blocks at whatever
 // integer pixel scale fits below the title bar.
+//
+// Whole file gated on EWATCH_ENABLE_QR.
+#if defined(EWATCH_ENABLE_QR) && EWATCH_ENABLE_QR
 #include <Arduino_GFX_Library.h>
 #include <qrcode.h>
 #include <freertos/FreeRTOS.h>
@@ -131,3 +134,5 @@ void QRCodeView::render() {
   }
   switchTo(exitTarget);
 }
+
+#endif  // EWATCH_ENABLE_QR

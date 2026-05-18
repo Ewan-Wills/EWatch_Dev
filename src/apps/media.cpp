@@ -7,6 +7,9 @@
 // between assets; the physical button or a back-swipe exits; a plain tap is
 // ignored. Because render() never returns until the user leaves, the
 // controller's auto-sleep timer can't fire while an image/video is showing.
+//
+// Whole file gated on EWATCH_ENABLE_MEDIA.
+#if defined(EWATCH_ENABLE_MEDIA) && EWATCH_ENABLE_MEDIA
 #include <Arduino_GFX_Library.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
@@ -170,3 +173,5 @@ void MediaView::render() {
   }
   switchTo(exitTarget);
 }
+
+#endif  // EWATCH_ENABLE_MEDIA
