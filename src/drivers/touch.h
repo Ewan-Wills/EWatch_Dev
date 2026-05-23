@@ -18,5 +18,11 @@
 
 extern CST816S       touchpad;
 extern volatile bool touchPending;        // set true by ISR, cleared by reader
+extern volatile bool touchPresent;        // false if the chip never ACKed at boot
+
+// Pulse the CST816S RST line (GPIO13) using the chip's documented timing.
+// The CST816S sleeps at cold boot and will NOT ACK an I2C scan until reset,
+// so call this before i2cScan() to make the 0x15 line a real presence test.
+void touchReset();
 
 void touchBegin();

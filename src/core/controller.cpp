@@ -92,6 +92,7 @@ bool readAccel(int16_t &x, int16_t &y, int16_t &z) {
 // ISR events, so we go straight to the chip to detect ongoing contact and
 // release. Reads regs 0x02 (FingerNum) + 0x03..0x06 (XH/XL/YH/YL).
 static bool readTouchHeld(uint16_t &x, uint16_t &y) {
+  if (!touchPresent) return false;        // no controller — skip the I2C read
   Wire.beginTransmission(I2C_ADDR_TOUCH);
   Wire.write(0x02);
   if (Wire.endTransmission(false) != 0) return false;
@@ -139,11 +140,13 @@ void controllerInit() {
   // CST816S IrqCtl (0xFA): EnTouch + EnChange + EnMotion. Without EnChange the
   // chip stops firing IRQs while a finger is held still, which broke the
   // tap-and-hold ramp logic in Settings. Polling reg 0x02 also has to work
-  // reliably for the same flow.
-  Wire.beginTransmission(I2C_ADDR_TOUCH);
-  Wire.write(0xFA);
-  Wire.write(0x70);
-  Wire.endTransmission();
+  // reliably for the same flow. Skip when no controller answered at boot.
+  if (touchPresent) {
+    Wire.beginTransmission(I2C_ADDR_TOUCH);
+    Wire.write(0xFA);
+    Wire.write(0x70);
+    Wire.endTransmission();
+  }
 
   rtcWriteQueue = xQueueCreate(2, sizeof(RTCWrite));
 }

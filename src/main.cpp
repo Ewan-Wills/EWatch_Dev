@@ -300,6 +300,10 @@ void setup() {
     Serial.println("Touch wake confirmed.");
   }
 
+  // Wake the CST816S before scanning — it sleeps at cold boot and won't ACK
+  // until its RST line is pulsed, otherwise the scan reports a false "missing".
+  Serial.println("Touch  : pulsing RST (GPIO13) before scan");
+  touchReset();
   i2cScan();
   probeRV3028();
   probeMMA8451();

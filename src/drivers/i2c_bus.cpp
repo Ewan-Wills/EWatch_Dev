@@ -30,16 +30,52 @@ bool i2cReadReg(uint8_t addr, uint8_t reg, uint8_t &out) {
   return true;
 }
 
+// Friendly name for a known I2C address, or nullptr if unrecognised. Lets the
+// boot scan report *which* peripheral answered at each address so the addresses
+// in pins.h can be adjusted per-board when a different part is fitted.
+static const char *i2cDeviceName(uint8_t addr) {
+  switch (addr) {
+    case I2C_ADDR_TOUCH:     return "CST816S touch";
+    case I2C_ADDR_MMA8451_A: return "MMA8451 accel (SA0=0)";
+    case I2C_ADDR_MMA8451_B: return "MMA8451 accel (SA0=1)";
+    case I2C_ADDR_RV3028:    return "RV-3028 RTC";
+    case 0x34:               return "AXP2101 PMIC";
+    default:                 return nullptr;
+  }
+}
+
 void i2cScan() {
-  Serial.println("I2C scan:");
+  Serial.println("I2C scan (full 0x00-0x7F grid; ## = device responds):");
+  Serial.println("     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f");
   uint8_t found = 0;
+  for (uint8_t row = 0; row < 0x80; row += 0x10) {
+    Serial.printf("%02x:", row);
+    for (uint8_t col = 0; col < 0x10; col++) {
+      uint8_t a = row + col;
+      if (a < 0x08 || a >= 0x78) {        // reserved addresses — never probed
+        Serial.print("   ");
+      } else if (i2cPing(a)) {
+        Serial.print(" ##");
+        found++;
+      } else {
+        Serial.print(" --");
+      }
+    }
+    Serial.println();
+  }
+  Serial.printf("  %u device(s) found:\n", found);
   for (uint8_t a = 0x08; a < 0x78; a++) {
     if (i2cPing(a)) {
-      Serial.printf("  - 0x%02X\n", a);
-      found++;
+      const char *name = i2cDeviceName(a);
+      Serial.printf("  - 0x%02X  %s\n", a, name ? name : "(unknown device)");
     }
   }
-  Serial.printf("  %u device(s) found\n", found);
+
+  // Echo the addresses the firmware expects so a missing/relocated device is
+  // obvious against the scan list above — update these defines in pins.h.
+  Serial.printf("  configured: touch=0x%02X  accel=0x%02X/0x%02X  rtc=0x%02X\n",
+                I2C_ADDR_TOUCH, I2C_ADDR_MMA8451_A, I2C_ADDR_MMA8451_B,
+                I2C_ADDR_RV3028);
 }
 
 void probeRV3028() {
