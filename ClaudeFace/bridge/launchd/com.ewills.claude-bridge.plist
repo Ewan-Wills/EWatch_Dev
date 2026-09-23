@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Template: install-launchd.sh fills in @NODE_PATH@, @CLI_PATH@ and @HOME_DIR@ with
+  absolute paths discovered at install time, then writes the result to
+  ~/Library/LaunchAgents/com.ewills.claude-bridge.plist. Do not load this template
+  file directly with launchctl — it has literal @...@ placeholders in it.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.ewills.claude-bridge</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>@NODE_PATH@</string>
+    <string>@CLI_PATH@</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>@HOME_DIR@/Library/Logs/claude-bridge.log</string>
+  <key>StandardErrorPath</key>
+  <string>@HOME_DIR@/Library/Logs/claude-bridge.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+  </dict>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>
