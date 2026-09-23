@@ -143,6 +143,13 @@ static void checkPanicLoopAndMaybeShutdown(esp_reset_reason_t r) {
       Serial.println("!!! Crash loop — entering SAFE MODE boot !!!");
       return;
     }
+#if EW_NO_SLEEP
+    // Hold-to-power build: the latch only drops on the side-button hold, so
+    // never power off here; keep booting into safe mode instead.
+    gSafeMode = true;
+    Serial.println("!!! Crash loop persists — staying in SAFE MODE (latch held) !!!");
+    return;
+#endif
     // Safe mode crashed too: last resort is a hard power-off. On battery
     // this fully de-powers (RAM + RTC RAM clear); on USB it halts here with
     // the panic state already wiped, so the next manual reset starts clean.
@@ -300,12 +307,18 @@ void setup() {
     //   - the countdown Timer app came due  -> boot normally, alarm fires
     //     once the I/O task confirms the RTC deadline has passed.
     //   - the auto-power-off interval elapsed -> drop the rail and stop.
-    if (wake == ESP_SLEEP_WAKEUP_TIMER && !timerArmed()) {
+    if (!EW_NO_SLEEP && wake == ESP_SLEEP_WAKEUP_TIMER && !timerArmed()) {
       digitalWrite(PIN_LDO_LATCH, LOW);
       pinMode(PIN_LDO_LATCH, OUTPUT);
       for (;;) delay(1000);
     }
   }
+
+#if EW_NO_SLEEP
+  // Hold the latch pad HIGH so it can't float LOW through a reset (flash /
+  // USB chip reset / panic) and drop the rail. Only powerOffNow() releases it.
+  gpio_hold_en((gpio_num_t)PIN_LDO_LATCH);
+#endif
 
   // A panic reset (RTC_SW_CPU_RST) resets the CPU but NOT the GPIO matrix.
   // A level-triggered wake interrupt left armed by the sleep path (e.g. BTN
@@ -333,6 +346,10 @@ void setup() {
   esp_reset_reason_t resetReason = esp_reset_reason();
   checkPanicLoopAndMaybeShutdown(resetReason);
 
+  // Claude Face link: the bridge sends STATE + SESSIONS back to back
+  // (~280 B); the HWCDC default 256 B RX queue would drop the tail between
+  // console polls. Must precede begin() (resizing later races the USB ISR).
+  Serial.setRxBufferSize(1024);
   Serial.begin(115200);
   // On battery the USB-CDC never enumerates, so !Serial stays true for the
   // full timeout. That dominated wake-from-sleep latency. Skip the wait on

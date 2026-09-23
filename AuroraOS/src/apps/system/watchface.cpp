@@ -7,6 +7,11 @@
 //   2 Orbit   — hour/minute/second as planets orbiting a center star.
 //   3 SM Logo — ScrubMarine watermark + bold HH:MM (the classic).
 //   4 Mono    — terminal vibes, FreeMono, dim green.
+//   5 Claude  — Claude Code agent status (apps/claude/claude_face.*). This
+//               view only delegates to it: render / paintTo / frame pacing /
+//               gestures (it consumes its own swipes in the lower zone, tap,
+//               long press — see claude_face.cpp). Default face via the
+//               one-time "cfDefault" NVS migration in storage.cpp.
 //
 // Navigation from here (the hub of the whole UI):
 //   swipe up    -> app launcher       (sheet rises)
@@ -36,6 +41,7 @@
 #include "system_views.h"
 #include "smicon_bg.h"
 #include "photo_store.h"
+#include "claude/claude_face.h"
 
 using namespace aura;
 
@@ -49,8 +55,11 @@ static const FaceStyle kFaces[] = {
   { "Orbit",   &FreeSans12pt7b },
   { "Photo",   &FreeSans12pt7b },
   { "Mono",    &FreeMono12pt7b },
+  { "Claude",  &FreeSans12pt7b },   // must stay at CF_FACE_INDEX (append-only)
 };
 static const int kNumFaces = sizeof(kFaces) / sizeof(kFaces[0]);
+static_assert(sizeof(kFaces) / sizeof(kFaces[0]) == CF_FACE_INDEX + 1,
+              "Claude face must be the last kFaces[] entry at CF_FACE_INDEX");
 
 int watchFaceStyleCount() { return kNumFaces; }
 const char *watchFaceStyleName(int idx) {
@@ -117,10 +126,15 @@ public:
     canvas = frameCanvas();
     facePop.jump(0);
     forceFull = true;
+    claudeFaceOnEnter();          // cheap; forces its next frame to be full
+    lastFace = currentFace();
   }
+
+  void onExit() override { claudeFaceOnExit(); }
 
   uint16_t desiredFrameMs() const override {
     uint8_t f = currentFace();
+    if (f == CF_FACE_INDEX) return claudeFaceFrameMs();
     if (f == 1 || f == 2) return 33;                    // sweep hands / orbits
     if (stopwatchRunning() || timerArmed()) return 100; // live chips tick
     return 0;                                           // event-driven
@@ -129,17 +143,32 @@ public:
   bool paintTo(Arduino_Canvas *cv) override {
     if (!cv) return false;
     canvas = cv;
+    if (currentFace() == CF_FACE_INDEX) {
+      lastFace = CF_FACE_INDEX;
+      return claudeFacePaintTo(cv);
+    }
     drawFace();
     return true;
   }
 
   void render() override {
+    if (currentFace() == CF_FACE_INDEX) {
+      // Entering Claude from another face (swipe): its region cache is stale.
+      if (lastFace != CF_FACE_INDEX) claudeFaceOnEnter();
+      lastFace = CF_FACE_INDEX;
+      claudeFaceRender(canvas);   // dirty-region pushes; nullptr = direct
+      return;
+    }
+    lastFace = currentFace();
     if (!canvas) { legacyRender(); return; }
     drawFace();
     canvas->flush();
   }
 
   void onEvent(const Event &e) override {
+    // Claude face takes its own inputs first; anything it declines keeps
+    // the standard face behaviour below.
+    if (currentFace() == CF_FACE_INDEX && claudeFaceOnEvent(e)) return;
     switch (e.type) {
       case EventType::Touch:
         downX = e.x; downY = e.y;
@@ -190,6 +219,7 @@ private:
   uint32_t secAnchorMs = 0;
   float    secFrac = 0;      // 0..1 within the current RTC second
   uint16_t downX = 0, downY = 0;   // tap-vs-swipe for the corner toggle
+  uint8_t  lastFace = 255;         // face drawn by the previous render()
 
   void cycleFace(int dir) {
     uint8_t f = currentFace();

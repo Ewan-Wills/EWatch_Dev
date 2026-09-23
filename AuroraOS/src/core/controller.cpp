@@ -13,6 +13,7 @@
 #include "ewlog.h"
 #include "power_mgr.h"
 #include "wifi_svc.h"
+#include "claude/claude_face.h"   // claudeFaceTick() in the render loop
 
 // ---------- I/O request queue (cross-task -> taskIO) ----------
 struct RTCWrite {
@@ -499,8 +500,7 @@ static void shutdownNow() {
   hapticBuzz(180, 200);
   vTaskDelay(pdMS_TO_TICKS(80));
   backlightOff();
-  unlatchPower();
-  for (;;) vTaskDelay(pdMS_TO_TICKS(1000));
+  powerOffNow();   // battery: rail drops; USB: soft-off restart (power_mgr)
 }
 
 // Activity-flagging predicate: which event types count as "user is awake".
@@ -557,6 +557,11 @@ static void taskRender(void *) {
       if (isActivity(e.type)) powerOnActivity();
       if (currentView) currentView->onEvent(e);
     }
+
+    // Claude Face service: link snapshot -> haptics (on every screen) and
+    // its awake-hold / backlight policy. Before powerTick so a fresh hold
+    // lands before the idle progression runs.
+    claudeFaceTick();
 
     // Power manager owns the idle progression (ACTIVE -> IDLE dim ->
     // screensaver -> SCREEN_OFF light sleep -> DEEP). This call can block
