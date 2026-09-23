@@ -1,0 +1,395 @@
+{
+  "_comment": "Single source of truth for the Claude Face serial protocol. Edit this, then run `python3 gen.py`. Generates AuroraOS/src/apps/claude/cf_protocol.h, ClaudeFace/bridge/src/protocol.gen.ts and ClaudeFace/docs/protocol-layout.md.",
+  "version": 1,
+  "framing": {
+    "line_prefix": "#CF",
+    "host_to_watch": "#CF<type> <base64(payload || crc16le)>\\n",
+    "watch_to_host": "#CF<type> <base64(payload || crc16le)>\\n",
+    "crc": "CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF) over payload, appended little-endian",
+    "query": "host sends '#CFQ\\n'; watch answers with a HELLO frame",
+    "types": {
+      "S": "STATE (host -> watch)",
+      "L": "SESSIONS (host -> watch)",
+      "T": "TIME (host -> watch)",
+      "E": "EVENT (watch -> host)",
+      "H": "HELLO (watch -> host)"
+    }
+  },
+  "enums": {
+    "State": {
+      "NONE": 0,
+      "IDLE": 1,
+      "WORKING": 2,
+      "COMPACTING": 3,
+      "DONE": 4,
+      "WAITING_INPUT": 5,
+      "BLOCKED": 6,
+      "LIMITED": 7,
+      "STALE": 8
+    },
+    "Model": {
+      "UNKNOWN": 0,
+      "OPUS": 1,
+      "SONNET": 2,
+      "HAIKU": 3,
+      "FABLE": 4,
+      "OTHER": 5
+    },
+    "Effort": {
+      "UNKNOWN": 0,
+      "LOW": 1,
+      "MEDIUM": 2,
+      "HIGH": 3,
+      "XHIGH": 4,
+      "MAX": 5
+    },
+    "PrReview": {
+      "NONE": 0,
+      "PENDING": 1,
+      "APPROVED": 2,
+      "CHANGES_REQUESTED": 3,
+      "COMMENTED": 4,
+      "DRAFT": 5,
+      "MERGED": 6,
+      "CLOSED": 7,
+      "OTHER": 8
+    },
+    "EventCode": {
+      "ACK": 1,
+      "SELECT_SESSION": 2,
+      "HELLO_REQ": 3,
+      "APPROVE": 16,
+      "DENY": 17
+    }
+  },
+  "bits": {
+    "Flags": {
+      "RL_STALE": 1,
+      "INCIDENT": 2,
+      "QUIET": 4,
+      "BRIDGE_OK": 8,
+      "NO_RATE_LIMITS": 16,
+      "QUIET_HOURS": 32
+    },
+    "PFlags": {
+      "FAST_MODE": 1,
+      "THINKING": 2,
+      "CACHE_WARM": 4,
+      "HUNG": 8,
+      "UNACKED_DONE": 16,
+      "SELECTED": 32
+    }
+  },
+  "sentinels": {
+    "PCT_UNKNOWN": 255,
+    "PACE_UNKNOWN": -128,
+    "U16_UNKNOWN": 65535
+  },
+  "messages": {
+    "State": {
+      "type": "S",
+      "doc": "Global + primary-session snapshot. Sent on change (debounced 250 ms) and every 30 s heartbeat.",
+      "fields": [
+        [
+          "version",
+          "u8",
+          "protocol version (first byte of every message)"
+        ],
+        [
+          "seq",
+          "u16",
+          "increments per STATE frame"
+        ],
+        [
+          "flags",
+          "u8",
+          "Flags bits"
+        ],
+        [
+          "global_state",
+          "u8",
+          "State: highest-priority state across sessions"
+        ],
+        [
+          "five_used",
+          "u8",
+          "5h window used %, 255 = unknown"
+        ],
+        [
+          "five_resets_at",
+          "u32",
+          "epoch s, 0 = unknown"
+        ],
+        [
+          "seven_used",
+          "u8",
+          "7d window used %, 255 = unknown"
+        ],
+        [
+          "seven_resets_at",
+          "u32",
+          "epoch s, 0 = unknown"
+        ],
+        [
+          "five_pace",
+          "i8",
+          "used% - elapsed% for 5h, -128 = unknown"
+        ],
+        [
+          "seven_pace",
+          "i8",
+          "used% - elapsed% for 7d, -128 = unknown"
+        ],
+        [
+          "projected_hit",
+          "u32",
+          "epoch s when 5h limit is projected to be hit before reset, 0 = none"
+        ],
+        [
+          "rl_age_s",
+          "u16",
+          "seconds since rate limits were last updated, 65535 = never"
+        ],
+        [
+          "five_elapsed",
+          "u8",
+          "elapsed % of 5h window, 255 = unknown"
+        ],
+        [
+          "seven_elapsed",
+          "u8",
+          "elapsed % of 7d window, 255 = unknown"
+        ],
+        [
+          "session_count",
+          "u8",
+          "total live sessions"
+        ],
+        [
+          "blocked_count",
+          "u8",
+          "sessions in BLOCKED"
+        ],
+        [
+          "subagent_count",
+          "u8",
+          "running subagents in the primary session"
+        ],
+        [
+          "primary_index",
+          "u8",
+          "index of the primary session in the SESSIONS rows, 255 = none"
+        ],
+        [
+          "p_state",
+          "u8",
+          "State of primary session"
+        ],
+        [
+          "p_ctx",
+          "u8",
+          "primary context used %, 255 = unknown"
+        ],
+        [
+          "p_model",
+          "u8",
+          "Model"
+        ],
+        [
+          "p_effort",
+          "u8",
+          "Effort"
+        ],
+        [
+          "p_flags",
+          "u8",
+          "PFlags bits"
+        ],
+        [
+          "p_turn_elapsed_s",
+          "u32",
+          "seconds since the current turn started (0 if none). Watch keeps ticking it locally while WORKING/BLOCKED."
+        ],
+        [
+          "p_last_turn_s",
+          "u32",
+          "duration of the last finished turn in s"
+        ],
+        [
+          "p_tool_count",
+          "u16",
+          "tool calls this turn"
+        ],
+        [
+          "p_current_tool",
+          "char[24]",
+          "tool + target, separator '|' (firmware draws it as a middle dot), e.g. 'Bash|npm test'. ASCII only."
+        ],
+        [
+          "p_project",
+          "char[16]",
+          "repo or project dir basename"
+        ],
+        [
+          "p_model_name",
+          "char[16]",
+          "model.display_name, truncated"
+        ],
+        [
+          "p_cache_expires_at",
+          "u32",
+          "epoch s, 0 = unknown"
+        ],
+        [
+          "p_lines_added",
+          "u16",
+          "saturating"
+        ],
+        [
+          "p_lines_removed",
+          "u16",
+          "saturating"
+        ],
+        [
+          "p_cost_cents",
+          "u16",
+          "session cost estimate, 65535 = unknown"
+        ],
+        [
+          "cost_today_cents",
+          "u16",
+          "sum over today's sessions, 65535 = unknown"
+        ],
+        [
+          "p_pr_number",
+          "u16",
+          "0 = none"
+        ],
+        [
+          "p_pr_review",
+          "u8",
+          "PrReview"
+        ],
+        [
+          "bridge_now",
+          "u32",
+          "bridge epoch s at send time"
+        ]
+      ]
+    },
+    "SessionRow": {
+      "doc": "One row of the SESSIONS message.",
+      "fields": [
+        [
+          "state",
+          "u8",
+          "State"
+        ],
+        [
+          "ctx",
+          "u8",
+          "context used %, 255 = unknown"
+        ],
+        [
+          "project",
+          "char[12]",
+          "project name"
+        ],
+        [
+          "turn_elapsed_s",
+          "u32",
+          "seconds into current turn, 0 if none"
+        ]
+      ]
+    },
+    "Sessions": {
+      "type": "L",
+      "doc": "Up to 4 sessions, most important first; STATE.primary_index points into rows.",
+      "fields": [
+        [
+          "version",
+          "u8",
+          "protocol version"
+        ],
+        [
+          "seq",
+          "u16",
+          "increments per SESSIONS frame"
+        ],
+        [
+          "count",
+          "u8",
+          "valid rows (0..4)"
+        ],
+        [
+          "rows",
+          "SessionRow[4]",
+          "unused rows zeroed"
+        ]
+      ]
+    },
+    "Time": {
+      "type": "T",
+      "doc": "Sent on every (re)connect and hourly. Watch writes the RV-3028.",
+      "fields": [
+        [
+          "version",
+          "u8",
+          "protocol version"
+        ],
+        [
+          "epoch",
+          "u32",
+          "UTC epoch s"
+        ],
+        [
+          "utc_offset_min",
+          "i16",
+          "local offset from UTC in minutes"
+        ]
+      ]
+    },
+    "Event": {
+      "type": "E",
+      "doc": "Watch -> host.",
+      "fields": [
+        [
+          "version",
+          "u8",
+          "protocol version"
+        ],
+        [
+          "code",
+          "u8",
+          "EventCode"
+        ],
+        [
+          "arg",
+          "u8",
+          "SELECT_SESSION: row index; else 0"
+        ],
+        [
+          "seq",
+          "u16",
+          "watch event counter"
+        ]
+      ]
+    },
+    "Hello": {
+      "type": "H",
+      "doc": "Watch -> host, on boot and on '#CFQ'.",
+      "fields": [
+        [
+          "version",
+          "u8",
+          "protocol version the watch speaks"
+        ],
+        [
+          "fw",
+          "char[16]",
+          "firmware id, e.g. 'AuroraOS cf1'"
+        ]
+      ]
+    }
+  }
+}
