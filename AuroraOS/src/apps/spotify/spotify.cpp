@@ -308,7 +308,15 @@ static bool refreshAccess() {
 // Ensure we hold a non-expired access token. Refreshes if needed.
 static bool ensureToken() {
   if (accessToken[0] && (int32_t)(accessExpiryMs - millis()) > 0) return true;
-  return refreshAccess();
+  // Back off after a failed refresh. Without this every poll retried at once:
+  // 115 failed refreshes in one WiFi window (TLS "memory allocation failed")
+  // starved the heap and ended in a LittleFS assert panic (2026-09-23).
+  static uint32_t sNextTryMs = 0, sBackoffMs = 0;
+  if (sBackoffMs && (int32_t)(sNextTryMs - millis()) > 0) return false;
+  if (refreshAccess()) { sBackoffMs = 0; return true; }
+  sBackoffMs = sBackoffMs ? (sBackoffMs * 2 > 300000UL ? 300000UL : sBackoffMs * 2) : 15000UL;
+  sNextTryMs = millis() + sBackoffMs;
+  return false;
 }
 
 // ===================================================================
