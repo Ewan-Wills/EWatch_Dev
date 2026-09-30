@@ -53,3 +53,9 @@ pio device monitor       # logs; `pwr stats`, `log dump` consoles available
 
 Hardware target and pin map are unchanged from FirstOS Fable — see
 [PINOUT.md](PINOUT.md). ESP32-S3FH4R2, 4 MB flash (huge_app), 2 MB PSRAM.
+
+## Artwork
+
+The default background is "Neist Point" by Claire Wills, © Claire Wills, all
+rights reserved. It is not covered by the repository's MIT licence; see
+[tools/default_bg/NOTICE.md](tools/default_bg/NOTICE.md).
