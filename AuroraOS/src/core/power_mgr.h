@@ -55,27 +55,3 @@ void powerRequestSelfTest();
 bool powerSetConfig(const char *key, uint16_t val);   // dim|off|deep|sync
 
 bool powerDevMode();                   // USB connected or EW_DEV_MODE build
-
-// Awake hold (Claude Face, apps/claude): while held, the idle progression is
-// suspended exactly like a screenBlocksSleep() screen — no dim, screensaver
-// or screen-off — and the holder owns the backlight level. Render task only.
-// Releasing restarts the normal timeouts from "now".
-void powerHoldAwake(bool hold);
-
-// Ask a dark screen to wake as if the user did (any task; e.g. the Claude
-// link when an agent becomes BLOCKED). Serviced by the screen-off wait loop;
-// a no-op while the screen is on.
-void powerRequestWake();
-
-// ---- Hold-to-power, no sleep (EW_NO_SLEEP=1, set in platformio.ini) ----
-// Ewan, 2026-09-23: "remove sleep mode on the watch; just have it power on
-// and off with long hold". With the flag set the idle progression stops at
-// the IDLE dim: no screensaver, no screen-off, no light or deep sleep.
-#ifndef EW_NO_SLEEP
-#define EW_NO_SLEEP 0
-#endif
-// The ONLY path that drives the LDO latch LOW: the 3 s side-button hold.
-// On battery the watch is then truly off; pressing SW2 powers it back up and
-// setup() latches HIGH again. On USB the board stays powered: the watch stays
-// dark and idle until SW2 is held 1 s, then restarts.
-void powerOffNow() __attribute__((noreturn));

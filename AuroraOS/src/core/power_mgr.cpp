@@ -15,34 +15,6 @@
 #include "wifi_svc.h"
 #include "ewlog.h"
 #include "power_mgr.h"
-#include "power.h"
-
-// ---------------------------------------------------------------------------
-// Power-off (see power_mgr.h). The latch is driven HIGH as the first line of
-// setup() and only ever goes LOW here, from the 3 s side-button hold.
-// ---------------------------------------------------------------------------
-void powerOffNow() {
-  gpio_hold_dis((gpio_num_t)PIN_LDO_LATCH);   // setup() holds the pad HIGH
-  unlatchPower();          // battery: the rail drops here and we stop
-  delay(300);
-  // Still running => USB is powering the board. Stay dark and idle (the
-  // latch stays LOW, as asked) until SW2 is held again for 1 s, then boot.
-  // This task must stop feeding the task WDT without it firing.
-  esp_task_wdt_delete(NULL);
-  while (digitalRead(PIN_BTN)) delay(20);        // release of the off-hold
-  for (;;) {
-    if (digitalRead(PIN_BTN)) {
-      const uint32_t t0 = millis();
-      while (digitalRead(PIN_BTN) && millis() - t0 < 1000) delay(10);
-      if (millis() - t0 >= 1000) {
-        latchPower();
-        while (digitalRead(PIN_BTN)) delay(20);  // don't carry into a 3 s off
-        esp_restart();
-      }
-    }
-    delay(50);
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Config + state
@@ -55,12 +27,6 @@ static bool        sSelfTestReq = false;
 static bool        sSafeMode = false;   // crash-loop give-up: never sleep
 
 void powerSetSafeMode(bool on) { sSafeMode = on; }
-
-// Claude Face hold / wake request (see power_mgr.h).
-static bool          sHoldAwake = false;
-static volatile bool sWakeReq = false;
-void powerHoldAwake(bool hold) { sHoldAwake = hold; }
-void powerRequestWake() { sWakeReq = true; }
 
 // Stats (acceptance evidence for `pwr stats`).
 static uint64_t sTimeInState[4] = { 0, 0, 0, 0 };
@@ -254,8 +220,7 @@ static void fastWake(const char *cause, int64_t tWakeUs, bool fromRealSleep,
 // lighting the screen; returns only when the user wakes the watch. In dev
 // mode (USB attached) the sleep is simulated so serial stays alive.
 // ---------------------------------------------------------------------------
-enum { WK_NONE = 0, WK_BUTTON, WK_TOUCH, WK_MOTION, WK_RTC, WK_TIMER,
-       WK_REQUEST };   // WK_REQUEST: powerRequestWake() (Claude link alert)
+enum { WK_NONE = 0, WK_BUTTON, WK_TOUCH, WK_MOTION, WK_RTC, WK_TIMER };
 
 // Whether raise-to-wake participates this screen-off phase (threshold > 0).
 static bool sRaiseWakeEnabled = true;
@@ -272,8 +237,6 @@ static int classifyGpioWake() {
     return WK_TOUCH;
   }
   if (sRaiseWakeEnabled && digitalRead(PIN_MMA_INT2)) return WK_MOTION;
-  if (sWakeReq) { sWakeReq = false; return WK_REQUEST; }   // before RTC: a
-                                  // minute tick must not starve the request
   if (digitalRead(PIN_RTC_INT) == LOW)    return WK_RTC;
   return WK_NONE;
 }
@@ -293,7 +256,6 @@ static int fakeSleepWait(uint32_t maxMs) {
 
 static void enterScreenOff() {
   setState(PowerState::ScreenOff, "idle");
-  sWakeReq = false;                   // a request made while lit is moot
   sLightSleepEntries++;
 
   uint8_t raiseThr;
@@ -451,7 +413,7 @@ static void enterScreenOff() {
       touchValid = pts > 0;
       break;
     }
-    if (wake == WK_BUTTON || wake == WK_REQUEST) break;
+    if (wake == WK_BUTTON) break;
     // WK_NONE (spurious GPIO wake with no pin still asserted): log + re-sleep.
     if (!dev) {
       sSpuriousWakes++;
@@ -474,9 +436,8 @@ static void enterScreenOff() {
   // helps. Do the recovery AFTER the screen is visible (it costs ~70 ms).
   bool touchAwake = touchSetMonitorMode(false);
 
-  const char *cause = (wake == WK_BUTTON)  ? "button"
-                    : (wake == WK_TOUCH)   ? "touch"
-                    : (wake == WK_REQUEST) ? "request"
+  const char *cause = (wake == WK_BUTTON) ? "button"
+                    : (wake == WK_TOUCH)  ? "touch"
                     : "motion";
   fastWake(cause, tWakeUs, !dev, touchValid, touchWX, touchWY);
 
@@ -546,15 +507,6 @@ void powerTick() {
 
   if (screenBlocksSleep(scr)) { sLastActivity = millis(); return; }
 
-  // Claude Face hold (link live, face showing): same as a blocking screen,
-  // and pull an already-dimmed IDLE back to ACTIVE — the holder sets the
-  // backlight level itself, so no fade here.
-  if (sHoldAwake) {
-    sLastActivity = millis();
-    if (sState == PowerState::Idle) setState(PowerState::Active, "hold");
-    return;
-  }
-
   // A WiFi sync window in progress counts as activity: don't dim, don't
   // start the screensaver, and don't sleep out from under a connection the
   // user is likely watching (e.g. on the WiFi settings page).
@@ -563,9 +515,8 @@ void powerTick() {
   uint32_t idleMs = millis() - sLastActivity;
 
   // Screensaver (between dim and screen-off; only from the watch face, and
-  // only if it's configured to fire before the screen turns off). Not in
-  // hold-to-power builds: it would cover the always-on face.
-  if (!EW_NO_SLEEP && saverSec > 0 && scr == Screen::Watch &&
+  // only if it's configured to fire before the screen turns off).
+  if (saverSec > 0 && scr == Screen::Watch &&
       idleMs > (uint32_t)saverSec * 1000UL &&
       (sCfg.offSec == 0 || saverSec < sCfg.offSec)) {
     switchTo(Screen::ScreenSaver);
@@ -588,11 +539,9 @@ void powerTick() {
       break;
   }
 
-#if !EW_NO_SLEEP
   if (sCfg.offSec > 0 && idleMs > (uint32_t)sCfg.offSec * 1000UL) {
     enterScreenOff();                 // blocks until user wake (or deep sleep)
   }
-#endif
 }
 
 // ---------------------------------------------------------------------------

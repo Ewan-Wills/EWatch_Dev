@@ -58,11 +58,6 @@ uint8_t ewlogRuntimeLevel();
 void ewlogWrite(uint8_t level, const char *tag, const char *fmt, ...)
     __attribute__((format(printf, 3, 4)));
 
-// Write one pre-formatted protocol line (e.g. a Claude Face "#CF..." frame)
-// to USB serial ONLY — not the FS ring / RTC mirror — under the same mutex as
-// log lines, so the two can never interleave mid-line. Task context only.
-void ewlogWriteRaw(const char *line, size_t n);
-
 #if EW_LOG_LEVEL >= 0
 #define EWLOGE(tag, ...) ewlogWrite(EWLOG_ERROR, tag, __VA_ARGS__)
 #else

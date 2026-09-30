@@ -141,15 +141,6 @@ struct Model {
   // schema; the watch face clamps invalid values back to 0.
   uint8_t  watchFaceStyle = 0;
 
-  // Claude Face (apps/claude) settings, NVS-backed (storage.cpp), set via the
-  // `cf set ...` console. Quiet hours make its alerts visual-only (start ==
-  // end disables); ambient = backlight % while the bridge link holds the
-  // face awake; cfHaptics = master switch for its alert patterns.
-  uint8_t  cfQuietStart = 23;
-  uint8_t  cfQuietEnd   = 8;
-  uint8_t  cfAmbientPct = 15;
-  bool     cfHaptics    = true;
-
   // WiFi configuration (persisted).
   bool     wifiEnabled = false;
   WifiMode wifiMode    = WifiMode::AP;

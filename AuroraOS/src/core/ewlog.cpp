@@ -9,7 +9,6 @@
 #include <freertos/task.h>
 #include "ewlog.h"
 #include "power_mgr.h"     // powerStatsPrint / powerSelfTest for the console
-#include "claude/cf_link.h" // Claude Face USB link: "#CF" frames + `cf` commands
 
 // ---------------------------------------------------------------------------
 // Sinks + shared state
@@ -102,13 +101,6 @@ void ewlogWrite(uint8_t level, const char *tag, const char *fmt, ...) {
   if (Serial) Serial.write((const uint8_t *)line, len);
   rtcMirrorAppend(line, len);
   fsAppend(line, len);
-  if (sLogMutex) xSemaphoreGive(sLogMutex);
-}
-
-void ewlogWriteRaw(const char *line, size_t n) {
-  if (!line || !n) return;
-  if (sLogMutex) xSemaphoreTake(sLogMutex, portMAX_DELAY);
-  if (Serial) Serial.write((const uint8_t *)line, n);   // one write = one line
   if (sLogMutex) xSemaphoreGive(sLogMutex);
 }
 
@@ -243,14 +235,9 @@ static void handleLine(char *line) {
   while (*line == ' ') line++;
   if (!*line) return;
 
-  // Claude Face link frames ride the same USB serial as this console.
-  if (strncmp(line, "#CF", 3) == 0) { cfLinkFeedLine(line); return; }
-  if (cfLinkConsole(line)) return;          // "cf ..." commands
-
   if (strcmp(line, "help") == 0) {
     Serial.println("commands: log dump | log clear | log level <0-3> | "
-                   "pwr stats | pwr selftest | pwr set <dim|off|deep|sync> <n> | "
-                   "cf stats | cf set <quiet|ambient|haptics> ...");
+                   "pwr stats | pwr selftest | pwr set <dim|off|deep|sync> <n>");
   } else if (strcmp(line, "log dump") == 0) {
     cmdLogDump();
   } else if (strcmp(line, "log clear") == 0) {
@@ -279,12 +266,9 @@ static void handleLine(char *line) {
 }
 
 static void consoleTask(void *) {
-  // 320: a Claude Face STATE frame is ~170 chars ("#CFS " + base64 of
-  // 119 + 2 CRC bytes); the old 96-byte buffer truncated every frame.
-  static char line[320];
+  static char line[96];
   size_t pos = 0;
   for (;;) {
-    cfLinkService();                        // HELLO on attach + queued EVENTs
     while (Serial && Serial.available()) {
       char c = (char)Serial.read();
       if (c == '\n' || c == '\r') {
@@ -302,8 +286,5 @@ static void consoleTask(void *) {
 void ewlogStartConsole() {
   // Low priority, core 0 — the console is a debug convenience and must never
   // compete with the render/I-O tasks.
-  // 6 KiB (was 4): the task now also parses Claude Face frames and logs /
-  // saves NVS from `cf` commands (ewlog line + LittleFS append on this stack).
-  cfLinkInit();
-  xTaskCreatePinnedToCore(consoleTask, "ewcon", 6144, nullptr, 1, nullptr, 0);
+  xTaskCreatePinnedToCore(consoleTask, "ewcon", 4096, nullptr, 1, nullptr, 0);
 }

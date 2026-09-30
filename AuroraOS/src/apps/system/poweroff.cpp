@@ -8,7 +8,6 @@
 #include "ui_kit.h"
 #include "controller.h"
 #include "system_views.h"
-#include "power_mgr.h"
 
 class PowerOffView : public View {
 public:
@@ -103,18 +102,6 @@ private:
 
   void doAction() {
     fired = true;
-#if EW_NO_SLEEP
-    // Only the side-button hold may drop the power latch in this build.
-    if (gfx) {
-      uiClearAll();
-      gfx->setTextSize(2);
-      { ThemeColors _t = theme(); gfx->setTextColor(_t.fg, _t.bg); }
-      gfx->setCursor(12, 120); gfx->print("Hold the side");
-      gfx->setCursor(12, 144); gfx->print("button 3 s to");
-      gfx->setCursor(12, 168); gfx->print("power off");
-    }
-    return;
-#endif
     if (armed == ARM_SLEEP) goSleep();
     else                    goOff();
   }
@@ -130,7 +117,8 @@ private:
     backlightOff();
     hapticBuzz(180, 200);
     vTaskDelay(pdMS_TO_TICKS(80));
-    powerOffNow();   // battery: rail drops; USB: soft-off restart
+    unlatchPower();
+    for (;;) vTaskDelay(pdMS_TO_TICKS(1000));
   }
   void goSleep() {
     if (gfx) {
@@ -143,11 +131,7 @@ private:
     hapticBuzz(120, 80);
     vTaskDelay(pdMS_TO_TICKS(120));
     backlightOff();
-#if EW_NO_SLEEP
-    powerOffNow();            // hold-to-power build: no sleep state exists
-#else
     enterDeepSleep();         // does not return
-#endif
   }
 };
 

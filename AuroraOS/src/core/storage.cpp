@@ -5,7 +5,6 @@
 #include <string.h>
 #include "model.h"
 #include "storage.h"
-#include "claude/claude_face.h"   // CF_FACE_INDEX (default-face migration)
 
 static Preferences prefs;
 static const char *NS = "ewatch";
@@ -58,23 +57,6 @@ void Storage::load() {
   model.watchFaceStyle   = prefs.getUChar ("wfStyle",   model.watchFaceStyle);
   model.hapticStrength   = prefs.getUChar ("haptStr",   model.hapticStrength);
 
-  // Claude Face settings.
-  model.cfQuietStart     = prefs.getUChar ("cfQStart",  model.cfQuietStart);
-  model.cfQuietEnd       = prefs.getUChar ("cfQEnd",    model.cfQuietEnd);
-  model.cfAmbientPct     = prefs.getUChar ("cfAmbient", model.cfAmbientPct);
-  model.cfHaptics        = prefs.getBool  ("cfHaptics", model.cfHaptics);
-  if (model.cfQuietStart > 23) model.cfQuietStart = 23;
-  if (model.cfQuietEnd > 23)   model.cfQuietEnd = 8;
-  if (model.cfAmbientPct > 100) model.cfAmbientPct = 15;
-  // Claude Face becomes the default face exactly once: new installs (no key)
-  // and existing installs upgrading to this firmware both switch to it; the
-  // flag then sticks, so any face the user picks afterwards is kept.
-  if (!prefs.getBool("cfDefault", false)) {
-    model.watchFaceStyle = CF_FACE_INDEX;
-    prefs.putUChar("wfStyle", model.watchFaceStyle);
-    prefs.putBool("cfDefault", true);
-  }
-
   // Known networks blob: read via getBytes into the cache.
   KnownLock klk;
   knownN = prefs.getUChar("knownN", 0);
@@ -94,8 +76,6 @@ void Storage::save() {
   uint8_t  th, br, mot, sen;
   int16_t  tz;
   uint8_t  wfs, hap;
-  uint8_t  cfQs, cfQe, cfAmb;
-  bool     cfHap;
   WifiMode wMode;
   { ModelLock lk;
     t   = model.wakeOnTouch;
@@ -117,9 +97,7 @@ void Storage::save() {
     wMode = model.wifiMode;
     tz  = model.tzOffsetMin;
     wfs = model.watchFaceStyle;
-    hap = model.hapticStrength;
-    cfQs = model.cfQuietStart; cfQe = model.cfQuietEnd;
-    cfAmb = model.cfAmbientPct; cfHap = model.cfHaptics; }
+    hap = model.hapticStrength; }
   prefs.putBool  ("wkTouch",   t);
   prefs.putBool  ("wkButton",  b);
   prefs.putBool  ("wkImu",     i);
@@ -140,10 +118,6 @@ void Storage::save() {
   prefs.putShort ("tzOffMin",  tz);
   prefs.putUChar ("wfStyle",   wfs);
   prefs.putUChar ("haptStr",   hap);
-  prefs.putUChar ("cfQStart",  cfQs);
-  prefs.putUChar ("cfQEnd",    cfQe);
-  prefs.putUChar ("cfAmbient", cfAmb);
-  prefs.putBool  ("cfHaptics", cfHap);
 }
 
 uint8_t Storage::knownCount() { KnownLock klk; return knownN; }
