@@ -1,4 +1,4 @@
-// AuroraOS motion kit — easing curves, frame-time tweens, and touch scroll
+// EWatchOS motion kit — easing curves, frame-time tweens, and touch scroll
 // physics (momentum fling + rubber-band overscroll + snap).
 //
 // Everything here is pure math over millis(); no drawing, no tasks. Views use

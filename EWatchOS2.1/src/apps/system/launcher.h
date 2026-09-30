@@ -1,4 +1,4 @@
-// AuraListView — the AuroraOS launcher / menu list.
+// AuraListView — the EWatchOS launcher / menu list.
 //
 // A vertically scrolling list of icon cards with Apple-feel physics: momentum
 // flings, rubber-band edges, press-highlight on touch, cascade entrance, and

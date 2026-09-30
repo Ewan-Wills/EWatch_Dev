@@ -1,4 +1,4 @@
-// AuroraOS design system — the visual vocabulary every system screen shares.
+// EWatchOS design system — the visual vocabulary every system screen shares.
 //
 // Dark-first, Apple-Watch-inspired: near-black ground, white type, one vivid
 // accent, content on soft "card" surfaces with big corner radii. All colors

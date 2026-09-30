@@ -1,4 +1,4 @@
-// AuroraOS icon set — parametric vector glyphs drawn with GFX primitives.
+// EWatchOS icon set — parametric vector glyphs drawn with GFX primitives.
 //
 // Every launcher row / control-centre tile / face chip pulls from this one
 // table so the whole UI shares a single visual language. Icons are drawn

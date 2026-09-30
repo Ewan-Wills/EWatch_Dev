@@ -1,4 +1,4 @@
-"""Build AuroraOS' default background (Photo face fallback + screensaver) from
+"""Build EWatchOS' default background (Photo face fallback + screensaver) from
 a painting: portrait crop -> 240x280 -> RGB565 with Floyd-Steinberg dither.
 
   uv run --with pillow --with numpy tools/default_bg/gen_default_bg.py [--x0 N]

@@ -1,6 +1,6 @@
-# AuroraOS — the unified EWatch firmware
+# EWatchOS 2.1 — the unified EWatch firmware
 
-One firmware, every app. AuroraOS merges the whole EWatch catalogue onto the
+One firmware, every app. EWatchOS merges the whole EWatch catalogue onto the
 FirstOS Fable core (tiered power management, ewlog, duty-cycled WiFi) under a
 new GUI built to feel like a modern smartwatch: physics scrolling, slide
 transitions, vector icons, a control centre, and five watch faces.

@@ -63,7 +63,7 @@ static int jpegDraw(JPEGDRAW *p) {
 
 // ===================================================================
 void SpotifyView::onEnter() {
-  // AuroraOS runs client-mode WiFi in duty-cycled sync windows; the remote
+  // EWatchOS runs client-mode WiFi in duty-cycled sync windows; the remote
   // needs a live link the whole time it's on screen, so pin a window open.
   wifiSvcHold(true);
   if (gfx) { ThemeColors t = theme(); gfx->fillScreen(t.bg); }

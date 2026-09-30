@@ -1,4 +1,4 @@
-// Shared theme + chrome helpers — AuroraOS visual language.
+// Shared theme + chrome helpers — EWatchOS visual language.
 //
 // Every legacy settings / diagnostics page calls drawTitleBar()/drawBackButton()
 // for its frame, so restyling here restyles all of them at once: soft chevron

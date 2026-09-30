@@ -1,4 +1,4 @@
-// AuroraOS screen transitions — slide the outgoing frame away over the
+// EWatchOS screen transitions — slide the outgoing frame away over the
 // incoming one, Apple-style, using two PSRAM snapshots of the 240x280 frame.
 //
 // Contract: both the current and the target view implement paintTo(canvas)

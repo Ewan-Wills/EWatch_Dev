@@ -1,4 +1,4 @@
-// View registry / dispatch — AuroraOS edition. The launcher tables, the
+// View registry / dispatch — EWatchOS edition. The launcher tables, the
 // Screen -> View mapping, and switchTo(). Add a new app by writing its view
 // file, giving it a Screen enum entry (model.h), and one row in a table here.
 #include "display.h"

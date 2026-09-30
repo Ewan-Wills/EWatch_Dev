@@ -1,7 +1,7 @@
-// DoomView — AuroraOS adapter around the standalone doom.cpp game.
+// DoomView — EWatchOS adapter around the standalone doom.cpp game.
 //
 // Doom was written as a bare-metal firmware: it reads the CST816S touch point
-// straight off the I2C bus and polls the side button itself. Under AuroraOS
+// straight off the I2C bus and polls the side button itself. Under EWatchOS
 // the I/O task owns that bus at 50 Hz, so the adapter parks it with
 // controllerSuspendIo() for the whole session (the same cooperative pause the
 // light-sleep path uses) and gives the bus to the game. While suspended no

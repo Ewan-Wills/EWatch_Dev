@@ -23,7 +23,7 @@ public:
   // only while a stopwatch is displayed ticking).
   virtual uint16_t desiredFrameMs() const { return 0; }
 
-  // Transition support (AuroraOS). A view that can paint one complete frame
+  // Transition support (EWatchOS). A view that can paint one complete frame
   // into the shared canvas WITHOUT flushing returns true here after doing so;
   // switchToAnimated() uses it to run slide transitions between screens.
   // Views that draw straight to gfx (or block inside render) leave the

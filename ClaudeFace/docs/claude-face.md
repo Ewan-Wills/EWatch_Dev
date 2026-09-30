@@ -1,6 +1,6 @@
 # Claude Face — always-on Claude Code tracker for EWatch
 
-Status (2026-09-30): the watch firmware is now **stand-alone**: `ClaudeFace/firmware/` is a PlatformIO project of its own that is only this face (no launcher, other faces, WiFi or sleep). AuroraOS no longer contains the Claude face. The stand-alone build is host-tested but not yet flashed; the AuroraOS-hosted build described below (2026-09-23) is what ran on the watch until then.
+Status (2026-09-30): the watch firmware is now **stand-alone**: `ClaudeFace/firmware/` is a PlatformIO project of its own that is only this face (no launcher, other faces, WiFi or sleep). AuroraOS (renamed **EWatchOS 2.1**, folder `EWatchOS2.1/`, on 2026-09-30) no longer contains the Claude face. The stand-alone build was flashed and verified on the watch on 2026-09-30; the AuroraOS-hosted build described below (2026-09-23) is what ran before that.
 
 Earlier status (2026-09-23): **flashed and running on Ewan's watch** with live data from his Claude Code sessions (bridge under launchd, hooks + statusline installed). Firmware built with `EW_NO_SLEEP=1`: no sleep at all, the LDO latch is driven high at boot and pad-held (`gpio_hold_en`) so it can't float low through a reset. Only the 3 s side-button hold releases it. Verified 2026-09-23: an esptool chip reset with no button held no longer powers the watch off, so flashing works hands-free.
 
@@ -134,7 +134,7 @@ launchctl bootout gui/$(id -u)/com.ewills.claude-bridge                         
 cd ClaudeFace/firmware && ~/.platformio/penv/bin/pio run -t upload
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ewills.claude-bridge.plist
 ```
-Firmware older than the latch-hold build switches off during a flash unless the side button is held. Going back to AuroraOS is the same with `cd AuroraOS`.
+Firmware older than the latch-hold build switches off during a flash unless the side button is held. Going back to the OS is the same with `cd EWatchOS2.1`.
 
 ## First flash (Ewan's step) and on-hardware checks
 

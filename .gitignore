@@ -8,7 +8,5 @@
 **/.vscode/
 # Claude Face build outputs (regenerable)
 ClaudeFace/bridge/dist/
-AuroraOS/test/host/render/out/
-AuroraOS/test/host/**/build/
 ClaudeFace/tools/fontconv/generated/
 ClaudeFace/tools/fontconv/instances/

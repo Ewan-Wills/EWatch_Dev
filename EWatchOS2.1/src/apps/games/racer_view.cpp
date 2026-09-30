@@ -278,7 +278,7 @@ private:
   }
 
   // Keep the in-RAM best fresh and throttle NVS writes (flash wear) to at most
-  // once every 5 s — unless forced (end of run / crash). AuroraOS: the best
+  // once every 5 s — unless forced (end of run / crash). EWatchOS: the best
   // lives in its own NVS namespace ("racer"), not the shared model/Storage.
   void commitBest(bool force) {
     if (runDist_ > best_) best_ = (uint32_t)runDist_;

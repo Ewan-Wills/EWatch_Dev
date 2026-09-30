@@ -1,4 +1,4 @@
-// AuroraOS watch face — the home screen.
+// EWatchOS watch face — the home screen.
 //
 // Five faces, cycled with left/right swipes (persisted as model.watchFaceStyle):
 //   0 Aurora  — big rounded-segment digits, date pill, battery ring, live
