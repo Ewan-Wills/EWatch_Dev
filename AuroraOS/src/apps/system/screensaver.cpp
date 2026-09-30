@@ -1,16 +1,16 @@
 // ScreenSaverView — the idle screen (Screen::ScreenSaver). Shows the large
-// centred SM logo, dimmed. Entered by the render task after
+// default painting (or the user photo), dimmed. Entered by the render task after
 // model.screensaverTimeoutSec of inactivity on the watch face; deep sleep
 // still follows at model.sleepTimeoutSec.
 //
 // Dismiss needs a *deliberate* input — a sustained finger press or the
 // button; stray CST816S touch frames and IMU jolts are ignored so it doesn't
-// wake on its own. (Ported from the ScrubMarine slate.)
+// wake on its own.
 #include <Arduino_GFX_Library.h>
 #include "display.h"
 #include "ui_kit.h"
 #include "system_views.h"
-#include "smicon_bg.h"     // SMICON_BG  240x280 logo watermark
+#include "default_bg.h"    // DEFAULT_BG 240x280 default painting
 #include "photo_store.h"   // user background photo (preferred when set)
 
 // Backlight while the screensaver is up: a fraction of the user's setting so
@@ -58,8 +58,8 @@ public:
     if (drawn) return;                   // static — nothing changes per frame
     const uint16_t *bg = photoBgGet();   // render task: safe to decode here
     if (bg) gfx->draw16bitRGBBitmap(0, 0, (uint16_t *)bg, 240, 280);
-    else    gfx->draw16bitRGBBitmap(0, 0, (uint16_t *)SMICON_BG,
-                                    SMICON_BG_W, SMICON_BG_H);
+    else    gfx->draw16bitRGBBitmap(0, 0, (uint16_t *)DEFAULT_BG,
+                                    DEFAULT_BG_W, DEFAULT_BG_H);
     drawn = true;
   }
 

@@ -8,7 +8,7 @@
 
 enum class Screen : uint8_t {
   Watch, AppList,
-  ScreenSaver,      // dimmed SM-logo idle screen (shown before deep sleep)
+  ScreenSaver,      // dimmed default-painting idle screen (shown before deep sleep)
   SystemApps,       // sub-page of AppList — Settings/diagnostics/PowerOff
   Settings,         // sub-menu of settings sections
   SettingsTime,     // sub-page: clock set
@@ -82,7 +82,7 @@ struct Model {
   bool wakeOnButton = true;
   bool wakeOnImu    = false;
 
-  // Show the SM-logo screensaver after this many seconds of no input (from
+  // Show the painting screensaver after this many seconds of no input (from
   // the watch face only). Must be < sleepTimeoutSec (screen-off) to ever
   // appear; 0 disables it. Default sits between T_DIM (8 s) and screen-off.
   uint16_t screensaverTimeoutSec = 10;

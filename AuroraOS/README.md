@@ -29,7 +29,7 @@ transitions, vector icons, a control centre, and five watch faces.
 | System| Settings, diagnostics, Power Off |
 
 Faces: **Aurora** (rounded-segment digits + complications), **Analog**,
-**Orbit**, **SM Logo**, **Mono**.
+**Orbit**, **Photo** (your photo, or a Claire Wills painting by default), **Mono**.
 
 ## Architecture notes
 

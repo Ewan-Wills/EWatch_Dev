@@ -716,7 +716,7 @@ static void handleMediaDel() {
 static void handleMediaBg() {
   lastHttpMs = millis();
   String f = server.arg("f");
-  // Toggle: setting the current bg again clears it (back to SM logo).
+  // Toggle: setting the current bg again clears it (back to the default painting).
   if (f == photoBgName()) photoSetBg("");
   else                    photoSetBg(f.c_str());
   { ModelLock lk; model.revision++; }        // repaint the face

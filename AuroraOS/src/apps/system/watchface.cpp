@@ -5,7 +5,7 @@
 //               chips for stopwatch / timer / WiFi. The flagship.
 //   1 Analog  — minimal dial: tick ring, three hands, tiny date.
 //   2 Orbit   — hour/minute/second as planets orbiting a center star.
-//   3 SM Logo — ScrubMarine watermark + bold HH:MM (the classic).
+//   3 Photo   — user photo (or the default painting) + bold HH:MM.
 //   4 Mono    — terminal vibes, FreeMono, dim green.
 //
 // Navigation from here (the hub of the whole UI):
@@ -34,7 +34,7 @@
 #include "apptimer.h"
 #include "wifi_svc.h"
 #include "system_views.h"
-#include "smicon_bg.h"
+#include "default_bg.h"
 #include "photo_store.h"
 
 using namespace aura;
@@ -384,7 +384,7 @@ private:
     drawWifiToggle(auraTheme(), sn);
   }
 
-  // ---- face 3: Photo (user background; SM Logo watermark as fallback) ----
+  // ---- face 3: Photo (user background; default painting as fallback) ----
   void faceLogo(const AuraTheme &th, const Snap &sn) {
     const uint16_t *bg = photoBgGet();
     if (bg) {
@@ -398,8 +398,8 @@ private:
           row[x] = (row[x] >> 1) & 0x7BEF;
       }
     } else {
-      canvas->draw16bitRGBBitmap(0, 0, (uint16_t *)SMICON_BG,
-                                 SMICON_BG_W, SMICON_BG_H);
+      canvas->draw16bitRGBBitmap(0, 0, (uint16_t *)DEFAULT_BG,
+                                 DEFAULT_BG_W, DEFAULT_BG_H);
     }
     char tbuf[8];
     snprintf(tbuf, sizeof tbuf, "%02u:%02u", sn.rtcOk ? sn.h : 0,
