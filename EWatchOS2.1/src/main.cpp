@@ -293,8 +293,14 @@ void setup() {
   // block; release the hold now that the regular GPIO is asserted.
   esp_sleep_wakeup_cause_t wake = esp_sleep_get_wakeup_cause();
   bool fromSleep = (wake != ESP_SLEEP_WAKEUP_UNDEFINED);
+  // Release any pad hold on the latch on EVERY boot, not just deep-sleep
+  // wakes. A pad hold survives chip resets (incl. the one at the end of a
+  // flash), so one left by other firmware (ClaudeFace/HeadFace/GalleryFace
+  // hold the latch HIGH) would pin it: unlatchPower() then can't cut the
+  // rail, power-off hangs in its wait loop and the task WDT reboots the
+  // watch. latchPower() above already drives HIGH, so this is glitch-free.
+  gpio_hold_dis((gpio_num_t)PIN_LDO_LATCH);
   if (fromSleep) {
-    gpio_hold_dis((gpio_num_t)PIN_LDO_LATCH);
     gpio_deep_sleep_hold_dis();
     // A timer wake is one of two things:
     //   - the countdown Timer app came due  -> boot normally, alarm fires
