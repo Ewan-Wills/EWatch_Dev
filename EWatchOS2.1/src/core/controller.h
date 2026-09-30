@@ -17,6 +17,7 @@ bool writeRTC(uint8_t h, uint8_t m, uint8_t s,
               uint8_t weekday, uint8_t day, uint8_t month, uint16_t year);
 bool readAccel(int16_t &x, int16_t &y, int16_t &z);
 bool readBattery(float &volts, uint8_t &pct);
+void batMonEnable();   // pre-settle the divider before readBattery()
 
 // Thread-safe entry from any task: queue an RTC write to be performed by
 // taskIO at the start of its next cycle. Caller supplies HMS and date (year

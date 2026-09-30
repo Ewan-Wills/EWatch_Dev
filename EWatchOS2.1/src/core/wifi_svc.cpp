@@ -32,6 +32,7 @@
 #include "photo_store.h"
 #include "storage.h"
 #include "display.h"          // backlightSet for the brightness slider
+#include "hw_rev.h"           // WIFI_TX_QDBM per board revision
 #include "haptic.h"           // hapticSetStrengthPct on save
 #include "controller.h"       // requestSetRTC
 #include "view.h"             // watchFaceStyleCount / watchFaceStyleName
@@ -847,10 +848,25 @@ static void stopMDNS() {
   mdnsUp = false;
 }
 
+// ---------- TX power cap (per board revision, see hw_rev.h) ----------
+// The ESP32 restores its default TX power whenever the radio (re)starts, so
+// this runs after every mode switch, softAP() and begin().
+static void applyTxCap() {
+#if WIFI_TX_QDBM > 0
+  esp_err_t err = esp_wifi_set_max_tx_power((int8_t)WIFI_TX_QDBM);
+  int8_t q = 0;
+  esp_wifi_get_max_tx_power(&q);
+  EWLOGD("WIFI", "tx_cap req=%.2f dbm now=%.2f dbm%s", WIFI_TX_QDBM / 4.0f,
+         q / 4.0f, err == ESP_OK ? "" : " (set failed)");
+#endif
+}
+
 // ---------- AP lifecycle ----------
 static void startAP() {
   WiFi.mode(WIFI_AP);
+  applyTxCap();
   WiFi.softAP(AP_SSID, nullptr, AP_CHAN);
+  applyTxCap();
   delay(50);
   IPAddress ip = WiFi.softAPIP();
   dns.start(DNS_PORT, "*", ip);
@@ -1068,6 +1084,7 @@ static void converge() {
     // Window start: bring up STA mode and trigger a scan.
     stopAP();
     WiFi.mode(WIFI_STA);
+    applyTxCap();                 // scans transmit probe requests too
     // Keep the STA UP (wifioff=false) — turning it off here and letting the
     // scan flip it back on raced STA_START and yielded empty scan results.
     WiFi.disconnect(false, true);
@@ -1122,6 +1139,7 @@ static void converge() {
       sLastDiscReason = 0;
       Serial.printf("WIFI: connecting to \"%s\"\n", tSsid);
       WiFi.begin(tSsid, tPass);
+      applyTxCap();               // begin() can restore the default power
       connStart = millis();
       actual = RadioState::Connecting;
       scanInFlight = false;            // begin() consumes scan list itself

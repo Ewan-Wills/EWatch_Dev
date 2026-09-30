@@ -1,6 +1,7 @@
 #include <Wire.h>
 #include <esp_task_wdt.h>
 #include "pins.h"
+#include "hw_rev.h"
 #include "power.h"
 #include "i2c_bus.h"
 #include "touch.h"
@@ -163,17 +164,36 @@ static bool readTouchHeld(uint16_t &x, uint16_t &y) {
   return true;
 }
 
+#if defined(BAT_MON_SUPPORTED)
+static uint32_t sBatEnMs = 0;       // when the divider was switched on (0 = off)
+
+// Switch the divider on ahead of a read: the tap needs ~BAT_SETTLE_MS to
+// settle (V2.1: 2 ms read ~0.78 V = 0 %). The I/O task calls this a few
+// cycles before readBattery() so the read itself doesn't wait.
+void batMonEnable() {
+  if (sBatEnMs) return;
+  digitalWrite(PIN_BAT_MON_EN, HIGH);
+  sBatEnMs = millis();
+  if (!sBatEnMs) sBatEnMs = 1;
+}
+#else
+void batMonEnable() {}
+#endif
+
 bool readBattery(float &volts, uint8_t &pct) {
 #if defined(BAT_MON_SUPPORTED)
-  // Divider enabled only for the duration of the sample (power hygiene).
-  digitalWrite(PIN_BAT_MON_EN, HIGH);
-  delay(2);
+  // Divider enabled only around the sample (power hygiene). If nobody
+  // enabled it early, pay the settle time here.
+  batMonEnable();
+  uint32_t on = millis() - sBatEnMs;
+  if (on < BAT_SETTLE_MS) delay(BAT_SETTLE_MS - on);
   uint32_t acc = 0;
   for (int i = 0; i < 8; i++) acc += analogReadMilliVolts(PIN_BAT_MON_ADC);
   digitalWrite(PIN_BAT_MON_EN, LOW);
+  sBatEnMs = 0;
   uint32_t adc_mV = acc / 8;
   if (adc_mV == 0) return false;
-  volts = (adc_mV / 1000.0f) / 0.769f;
+  volts = (adc_mV / 1000.0f) / BAT_DIV_RATIO;
   float p = (volts - 3.30f) * (100.0f / 0.90f);
   if (p < 0) p = 0; if (p > 100) p = 100;
   pct = (uint8_t)(p + 0.5f);
@@ -414,6 +434,9 @@ static void taskIO(void *) {
     if (ranRtc) rtcOk = readRTC(h, mm, s, wd, dy, mo, yr);
 
     float vbat = 0; uint8_t pct = 0; bool batOk = false;
+    // Divider on BAT_SETTLE_MS (3 x 20 ms cycles) before the once-a-second
+    // read, so the sample is settled without stalling this task.
+    if (cycle % 50 == 50 - (BAT_SETTLE_MS + 19) / 20) batMonEnable();
     bool ranBat = (cycle % 50 == 0);
     if (ranBat) {
       batOk = readBattery(vbat, pct);

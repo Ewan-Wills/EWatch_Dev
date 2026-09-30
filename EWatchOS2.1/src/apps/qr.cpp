@@ -26,7 +26,7 @@ struct QRPayload {
 };
 static const QRPayload kPayloads[] = {
   { "Phone",
-    "tel:07361792063" },
+    "tel:00000000000" },
   { "Email",
     "mailto:contact@ewanwills.co.uk"
     "?subject=Hello"

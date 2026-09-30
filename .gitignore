@@ -10,3 +10,6 @@
 ClaudeFace/bridge/dist/
 ClaudeFace/tools/fontconv/generated/
 ClaudeFace/tools/fontconv/instances/
+# Local keys: never committed (EWatchOS secrets/secrets.example.h explains)
+**/secrets.local.h
+**/secrets/*.local.*

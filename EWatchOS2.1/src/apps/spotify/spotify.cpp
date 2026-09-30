@@ -3,6 +3,11 @@
 // Gated on EWATCH_ENABLE_WIFI: without the radio there is nothing to talk to,
 // and we don't want to drag WiFiClientSecure/HTTPClient into a no-WiFi build.
 #include "spotify.h"
+// Keys are compiled in only by the opt-in `ewatch_secrets` env (never by
+// default). The file is local and git-ignored: see secrets/secrets.example.h.
+#if defined(EWATCH_WITH_SECRETS) && EWATCH_WITH_SECRETS
+#include "secrets.local.h"
+#endif
 
 #if defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI && \
     defined(EWATCH_ENABLE_SPOTIFY) && EWATCH_ENABLE_SPOTIFY
@@ -781,6 +786,12 @@ void spotifyInit() {
   String id = spPrefs.getString("clientId", "");
   String rt = spPrefs.getString("refresh", "");
   strncpy(gClientId, id.c_str(), sizeof(gClientId)); gClientId[sizeof(gClientId) - 1] = '\0';
+#ifdef EWATCH_SPOTIFY_CLIENT_ID
+  if (!gClientId[0]) {               // opt-in build only; web page value wins
+    strncpy(gClientId, EWATCH_SPOTIFY_CLIENT_ID, sizeof(gClientId));
+    gClientId[sizeof(gClientId) - 1] = '\0';
+  }
+#endif
   strncpy(refreshToken, rt.c_str(), sizeof(refreshToken)); refreshToken[sizeof(refreshToken) - 1] = '\0';
   Serial.printf("SPOT: init (clientId %s, refresh %s)\n",
                 gClientId[0] ? "set" : "unset", refreshToken[0] ? "set" : "unset");
