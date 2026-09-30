@@ -5,7 +5,9 @@
 //   * WiFi toggle   * silent-mode toggle (haptics off)
 //   * torch tile    * settings shortcut
 //   * battery readout across the top
-// Swipe up / button / back chevron dismisses back to the face.
+// The sheet is taller than the screen: drag or fling to scroll (same
+// physics as the menu lists). Swipe up dismisses when the swipe starts with
+// the sheet already scrolled to the bottom; the button always dismisses.
 //
 // TorchView also lives here: full-white screen at max backlight, tap to
 // cycle white -> red -> off-back-to-facce. Blocks sleep via power_mgr.
@@ -37,6 +39,8 @@ public:
     // Gesture event; starting with swiped=true swallows it (a real tap always
     // begins with a fresh Touch, which re-arms).
     swiped = true;
+    phys.pos = 0; phys.velocity = 0; phys.release();
+    phys.maxScroll = CONTENT_H > H ? (float)(CONTENT_H - H) : 0.0f;
     entrance.start(18, 0, 220, easeOutCubic);
   }
 
@@ -57,6 +61,9 @@ public:
         dragBright = false;         // lost TouchUp — end the drag, persist
         Storage::save();
       }
+      if (phys.dragging && millis() - lastFingerMs > 400)
+        phys.release();             // lost TouchUp — let the scroll settle
+      phys.step();
       drawFrame();
       canvas->flush();
       if (!animating()) return;
@@ -87,14 +94,21 @@ private:
   uint32_t lastFingerMs = 0;        // drag watchdog (lost-TouchUp recovery)
   uint16_t downX = 0, downY = 0;
   bool     swiped = false;          // finger travelled: suppress the tile tap
+  ScrollPhys phys;                  // vertical scroll of the whole sheet
+  float    posAtDown = 0;           // scroll offset when the finger landed
+  uint32_t downMs = 0;
 
   // Layout (content coordinates).
   static const int16_t SLIDER_X = 24, SLIDER_Y = 96, SLIDER_W = W - 48;
   static const int16_t TILE = 92, TGAP = 16;
   static const int16_t ROW1 = 136, ROW2 = ROW1 + TILE + TGAP;
+  // The second tile row ends at 336 px, past the 280 px screen: scroll.
+  static const int16_t CONTENT_H = ROW2 + TILE + 16;
+
+  int16_t scrollY() const { return (int16_t)phys.pos; }
 
   bool animating() const {
-    return !entrance.done() || dragBright;
+    return !entrance.done() || dragBright || phys.moving();
   }
 
 public:
@@ -105,7 +119,7 @@ private:
   void drawTile(int col, int row, Icon ic, const char *label, bool active,
                 uint16_t activeColor, const AuraTheme &th) {
     int16_t x = (W - 2 * TILE - TGAP) / 2 + col * (TILE + TGAP);
-    int16_t y = (row == 0 ? ROW1 : ROW2);
+    int16_t y = (row == 0 ? ROW1 : ROW2) - scrollY();
     auraCard(canvas, x, y, TILE, TILE, kRadius, active ? activeColor : th.card);
     drawIcon(canvas, ic, x + TILE / 2, y + TILE / 2 - 10, 34,
              active ? kText : th.textDim, active ? activeColor : th.card);
@@ -116,10 +130,11 @@ private:
   void drawFrame() {
     AuraTheme th = auraTheme();
     canvas->fillScreen(th.bg);
-    float rise = entrance.value();
+    float rise = entrance.value() - phys.pos;   // entrance lift + scroll
+    const int16_t sy = scrollY();
 
     // Grab handle + battery header.
-    canvas->fillRoundRect(W / 2 - 22, 8, 44, 5, 2, th.line);
+    canvas->fillRoundRect(W / 2 - 22, 8 - sy, 44, 5, 2, th.line);
     uint8_t pct; bool ok, low; uint8_t bright; bool wifiOn; uint8_t hstr;
     { ModelLock lk; pct = model.batPct; ok = model.batOk; low = model.batLow;
       bright = model.brightness; wifiOn = model.wifiEnabled;
@@ -142,10 +157,10 @@ private:
     canvas->print("Control");
 
     // Brightness slider with sun icons.
-    drawIcon(canvas, Icon::Sun, SLIDER_X - 6, SLIDER_Y + 3, 14, th.textDim, th.bg);
-    auraSlider(canvas, SLIDER_X + 12, SLIDER_Y, SLIDER_W - 24,
+    drawIcon(canvas, Icon::Sun, SLIDER_X - 6, SLIDER_Y + 3 - sy, 14, th.textDim, th.bg);
+    auraSlider(canvas, SLIDER_X + 12, SLIDER_Y - sy, SLIDER_W - 24,
                bright / 255.0f, th.accent);
-    drawIcon(canvas, Icon::Sun, SLIDER_X + SLIDER_W + 4, SLIDER_Y + 3, 22, th.text, th.bg);
+    drawIcon(canvas, Icon::Sun, SLIDER_X + SLIDER_W + 4, SLIDER_Y + 3 - sy, 22, th.text, th.bg);
 
     // Tiles.
     drawTile(0, 0, Icon::Wifi,  wifiOn ? "WiFi on" : "WiFi",
@@ -154,9 +169,11 @@ private:
              hstr == 0, kPurple, th);
     drawTile(0, 1, Icon::Torch, "Torch", false, th.card, th);
     drawTile(1, 1, Icon::Gear,  "Settings", false, th.card, th);
+    auraScrollbar(canvas, phys.pos, phys.maxScroll, H);
   }
 
   int tileAt(int16_t x, int16_t y) {
+    y += scrollY();                          // screen -> content
     for (int row = 0; row < 2; row++)
       for (int col = 0; col < 2; col++) {
         int16_t tx = (W - 2 * TILE - TGAP) / 2 + col * (TILE + TGAP);
@@ -187,9 +204,13 @@ private:
       case EventType::Touch:
         lastFingerMs = millis();
         downX = e.x; downY = e.y; swiped = false;
+        downMs = millis();
+        posAtDown = phys.pos;
+        phys.grab(e.y);
         // Only NOMINATE the slider here — a synthetic wake-tap Touch has no
         // TouchUp and must not rewrite brightness from its x coordinate.
-        brightCandidate = (e.y > SLIDER_Y - 22 && e.y < SLIDER_Y + 28);
+        { int16_t cy = e.y + scrollY();
+          brightCandidate = (cy > SLIDER_Y - 22 && cy < SLIDER_Y + 28); }
         break;
       case EventType::TouchHold: {
         lastFingerMs = millis();
@@ -200,16 +221,37 @@ private:
         int16_t dx = (int16_t)e.x - (int16_t)downX;
         int16_t dy = (int16_t)e.y - (int16_t)downY;
         if ((int32_t)dx * dx + (int32_t)dy * dy > 14 * 14) swiped = true;
+        if (swiped) phys.drag(e.y);
         break;
       }
       case EventType::TouchUp:
         brightCandidate = false;
-        if (dragBright) { dragBright = false; Storage::save(); break; }
+        if (dragBright) { dragBright = false; phys.release(); Storage::save(); break; }
+        {
+          // A flick faster than the TouchHold stream never armed a drag:
+          // turn its travel into a fling (same as the menu lists).
+          int16_t dy = (int16_t)downY - (int16_t)e.y;
+          int16_t dx = (int16_t)e.x - (int16_t)downX;
+          bool travelled = (int32_t)dx * dx + (int32_t)dy * dy > 14 * 14;
+          if (!swiped && travelled) {
+            uint32_t dt = millis() - downMs;
+            if (dt < 1) dt = 1;
+            float v = (float)dy * 1000.0f / (float)dt;
+            if (v > 6000.0f) v = 6000.0f;
+            if (v < -6000.0f) v = -6000.0f;
+            phys.velocity = v;
+            swiped = true;
+          }
+        }
+        phys.release();
         if (!swiped) handleTap(e.x, e.y);
         swiped = false;
         break;
       case EventType::Gesture:
-        if (e.gesture == Gesture::SwipeUp) dismiss();
+        // Swipe up scrolls the sheet; it only dismisses when the swipe
+        // began with the sheet already at the bottom (or it fits).
+        if (e.gesture == Gesture::SwipeUp && posAtDown >= phys.maxScroll - 1.0f)
+          dismiss();
         break;
       case EventType::ButtonShort:
         dismiss();
