@@ -209,7 +209,7 @@ def write(path, s):
     open(path, "w").write(s); print("wrote", os.path.relpath(path, ROOT))
 
 
-write(os.path.join(ROOT, "AuroraOS/src/apps/claude/cf_protocol.h"), gen_c())
+write(os.path.join(ROOT, "ClaudeFace/firmware/src/cf_protocol.h"), gen_c())
 write(os.path.join(ROOT, "ClaudeFace/bridge/src/protocol.gen.ts"), gen_ts())
 write(os.path.join(ROOT, "ClaudeFace/docs/protocol-layout.md"), gen_md())
 for n in MSGS: print(f"  {n}: {msg_size(n)} bytes")

@@ -1,5 +1,5 @@
 {
-  "_comment": "Single source of truth for the Claude Face serial protocol. Edit this, then run `python3 gen.py`. Generates AuroraOS/src/apps/claude/cf_protocol.h, ClaudeFace/bridge/src/protocol.gen.ts and ClaudeFace/docs/protocol-layout.md.",
+  "_comment": "Single source of truth for the Claude Face serial protocol. Edit this, then run `python3 gen.py`. Generates ClaudeFace/firmware/src/cf_protocol.h, ClaudeFace/bridge/src/protocol.gen.ts and ClaudeFace/docs/protocol-layout.md.",
   "version": 1,
   "framing": {
     "line_prefix": "#CF",
