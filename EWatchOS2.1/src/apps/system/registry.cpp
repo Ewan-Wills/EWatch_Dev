@@ -17,12 +17,15 @@
 #endif
 #include "stopwatch.h"
 #include "timer_app.h"
+#include "bluetooth.h"
 #include "particles.h"
 #include "boids.h"
 #include "tunnel.h"
 #include "starfox_shooter.h"
 #include "petview.h"
-#include "island.h"
+#if defined(EWATCH_ENABLE_ISLAND) && EWATCH_ENABLE_ISLAND
+  #include "island.h"
+#endif
 #include "doom.h"
 #include "gallery.h"
 #if defined(EWATCH_ENABLE_SPOTIFY) && EWATCH_ENABLE_SPOTIFY && \
@@ -45,6 +48,7 @@ static const AuraEntry kTopApps[] = {
   { "Stopwatch", Icon::Stopwatch, aura::kOrange, Screen::Stopwatch,   "APPS"  },
 #endif
   { "Timer",     Icon::Timer,     aura::kTeal,   Screen::Timer,       nullptr },
+  { "Bluetooth", Icon::Bluetooth, aura::kBlue,   Screen::Bluetooth,   nullptr },
 #if defined(EWATCH_ENABLE_QR) && EWATCH_ENABLE_QR
   { "QR Share",  Icon::QR,        aura::kBlue,   Screen::QRCode,      nullptr },
 #endif
@@ -60,7 +64,9 @@ static const AuraEntry kTopApps[] = {
   { "Starfox",   Icon::Ship,      aura::kBlue,   Screen::Starfox,     nullptr },
   { "Racer",     Icon::Car,       aura::kOrange, Screen::Racer,       nullptr },
   { "Pet",       Icon::Paw,       aura::kPink,   Screen::Tamagotchi,  nullptr },
+#if defined(EWATCH_ENABLE_ISLAND) && EWATCH_ENABLE_ISLAND
   { "Island",    Icon::Island,    aura::kGreen,  Screen::Island,      nullptr },
+#endif
   { "Particles", Icon::Sparkle,   aura::kYellow, Screen::Particles,   "TOYS"  },
   { "Flock",     Icon::Bird,      aura::kTeal,   Screen::Boids,       nullptr },
   { "Settings",  Icon::Gear,      aura::kLine,   Screen::Settings,    "SYSTEM" },
@@ -109,13 +115,16 @@ static QRCodeView vQRCode;
 #endif
 static StopwatchView vStopwatch;
 static TimerView     vTimer;
+static BluetoothView vBluetooth;
 static ParticlesView vParticles;
 static BoidsView     vBoids;
 static TunnelRacerView    vTunnel;
 static StarfoxShooterView vStarfox;
 static PetView            vPet;
 static GalleryView        vGallery;
+#if defined(EWATCH_ENABLE_ISLAND) && EWATCH_ENABLE_ISLAND
 static IslandView         vIsland;
+#endif
 #if defined(EWATCH_ENABLE_SPOTIFY) && EWATCH_ENABLE_SPOTIFY && \
     defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
 static SpotifyView        vSpotify;
@@ -158,13 +167,16 @@ View *viewFor(Screen s) {
 #endif
     case Screen::Stopwatch:       return &vStopwatch;
     case Screen::Timer:           return &vTimer;
+    case Screen::Bluetooth:       return &vBluetooth;
     case Screen::Particles:       return &vParticles;
     case Screen::Boids:           return &vBoids;
     case Screen::TunnelRacer:     return &vTunnel;
     case Screen::Starfox:         return &vStarfox;
     case Screen::Tamagotchi:      return &vPet;
     case Screen::Gallery:         return &vGallery;
+#if defined(EWATCH_ENABLE_ISLAND) && EWATCH_ENABLE_ISLAND
     case Screen::Island:          return &vIsland;
+#endif
     case Screen::Racer:           return racerViewPtr();
     case Screen::Doom:            return doomViewPtr();
 #if defined(EWATCH_ENABLE_SPOTIFY) && EWATCH_ENABLE_SPOTIFY && \

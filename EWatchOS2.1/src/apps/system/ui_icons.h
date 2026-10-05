@@ -11,7 +11,7 @@ enum class Icon : uint8_t {
   Stopwatch, Timer, Music, QR, Photo, Cube, Sparkle, Bird,
   Skull, Tunnel, Ship, Car, Paw, Island,
   Gear, Wrench, Info, Power, Moon, Sun, Torch, Wifi,
-  Play, Pause, Next, Prev, Check, Cross, Clock, Vibrate, Memory,
+  Play, Pause, Next, Prev, Check, Cross, Clock, Vibrate, Memory, Bluetooth,
 };
 
 // Draw the glyph. `color` is the main stroke; `bg` is used by the few icons

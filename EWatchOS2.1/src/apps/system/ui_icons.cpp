@@ -234,6 +234,17 @@ void drawIcon(Arduino_GFX *d, Icon ic, int16_t cx, int16_t cy, int16_t s,
       d->fillCircle(cx, cy + sc(s, 3, 12), 2, color);
       break;
     }
+    case Icon::Bluetooth: {
+      // Rune: spine + two closed arrowheads to the right, two open tails left.
+      int16_t q = h / 2, x0 = cx - q / 2 - 1;
+      d->drawLine(x0, cy - h + 1, x0, cy + h - 1, color);
+      d->drawLine(x0 + 1, cy - h + 1, x0 + 1, cy + h - 1, color);
+      d->drawLine(x0, cy - h + 1, x0 + q + 2, cy - q, color);
+      d->drawLine(x0 + q + 2, cy - q, x0 - q, cy + q, color);
+      d->drawLine(x0, cy + h - 1, x0 + q + 2, cy + q, color);
+      d->drawLine(x0 + q + 2, cy + q, x0 - q, cy - q, color);
+      break;
+    }
     case Icon::Play: {
       d->fillTriangle(cx - sc(s, 3, 12), cy - h + 2, cx - sc(s, 3, 12), cy + h - 2,
                       cx + h - 2, cy, color);

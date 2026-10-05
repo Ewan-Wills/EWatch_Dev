@@ -27,6 +27,7 @@ enum class Screen : uint8_t {
   QRCode,           // user app: phone / email / website share QR
   Stopwatch,        // user app: count-up stopwatch
   Timer,            // user app: countdown timer (wakes from sleep)
+  Bluetooth,        // user app: BLE media remote (HID) + scanner
   Particles,        // user app: particle sandbox demo (tilt + touch)
   Boids,            // user app: flocking / starfield demo
   QuickSettings,    // control-centre sheet (swipe down from watch face)
@@ -37,7 +38,9 @@ enum class Screen : uint8_t {
   Starfox,          // game: on-rails wireframe space shooter
   Racer,            // game: pseudo-3D OutRun-style racer
   Tamagotchi,       // game: virtual pet
+#if defined(EWATCH_ENABLE_ISLAND) && EWATCH_ENABLE_ISLAND
   Island,           // 3D floating-island diorama face (launchable app)
+#endif
 #if defined(EWATCH_ENABLE_SPOTIFY) && EWATCH_ENABLE_SPOTIFY && \
     defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
   Spotify,          // Spotify Connect remote + now-playing

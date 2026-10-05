@@ -57,3 +57,8 @@ bool     wifiSvcQueueJob(void (*job)());
 // Tear the radio down and keep it down (deep-sleep prep). Blocks up to
 // waitMs for the radio task to finish the teardown.
 void     wifiSvcForceOff(uint32_t waitMs);
+
+// Radio suspend for apps that need the internal RAM the WiFi driver holds
+// (BLE: the controller can't allocate while WiFi is up). Like ForceOff but
+// reversible; windows resume on release. Always release on app exit.
+void     wifiSvcSuspend(bool on, uint32_t waitMs);

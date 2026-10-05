@@ -1358,6 +1358,11 @@ void wifiSvcForceOff(uint32_t waitMs) {
   }
 }
 
+void wifiSvcSuspend(bool on, uint32_t waitMs) {
+  if (on) { wifiSvcForceOff(waitMs); return; }
+  forceOffReq = false;
+}
+
 #else  // EWATCH_ENABLE_WIFI == 0 — stubs so callers still link.
 
 void wifiSvcInit() {}
@@ -1370,5 +1375,6 @@ void wifiSvcKickWindow() {}
 void wifiSvcHold(bool) {}
 bool wifiSvcQueueJob(void (*)()) { return false; }
 void wifiSvcForceOff(uint32_t) {}
+void wifiSvcSuspend(bool, uint32_t) {}
 
 #endif  // EWATCH_ENABLE_WIFI

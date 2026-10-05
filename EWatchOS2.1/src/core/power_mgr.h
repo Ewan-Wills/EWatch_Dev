@@ -45,6 +45,7 @@ const PowerConfig &powerConfig();
 // CPU clock demand from the render loop: true while the active view runs an
 // animation loop. De-bounced internally; logs SYS cpu_mhz on change.
 void powerPerfDemand(bool need240);
+void powerPerfPin(bool pin);   // hold 240 MHz (BLE controller running)
 
 // wifi_svc accounting: total associated time feeds the duty-cycle stat.
 void powerNoteWifiAssoc(uint32_t assocMs);

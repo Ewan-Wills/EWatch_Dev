@@ -83,12 +83,21 @@ bool powerDevMode() {
 // CPU frequency governor — 80 MHz base, 240 MHz only on demand.
 // ---------------------------------------------------------------------------
 static bool sPerf240 = false;
+static bool sPerfPinned = false;
 
 void powerPerfDemand(bool need240) {
+  if (sPerfPinned) return;          // BLE up: never retune the clock under it
   if (need240 == sPerf240) return;
   sPerf240 = need240;
   setCpuFrequencyMhz(need240 ? 240 : 80);
   EWLOGI("SYS", "cpu_mhz=%d", need240 ? 240 : 80);
+}
+
+// Pin the clock at 240 MHz while the BT controller runs, so the governor
+// never retunes it under a live controller (precaution; not proven harmful).
+void powerPerfPin(bool pin) {
+  if (pin) { powerPerfDemand(true); sPerfPinned = true; }
+  else     { sPerfPinned = false; }
 }
 
 // ---------------------------------------------------------------------------
@@ -148,11 +157,14 @@ static bool screenBlocksSleep(Screen s) {
     case Screen::Spotify:      // now-playing remote: user is watching it
 #endif
     case Screen::Torch:
+    case Screen::Bluetooth:    // light sleep would stop the BLE scan
     case Screen::Doom:
     case Screen::TunnelRacer:
     case Screen::Starfox:
     case Screen::Racer:
+#if defined(EWATCH_ENABLE_ISLAND) && EWATCH_ENABLE_ISLAND
     case Screen::Island:
+#endif
       return true;
     default:
       return false;
