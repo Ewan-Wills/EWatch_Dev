@@ -18,6 +18,9 @@
 #include "stopwatch.h"
 #include "timer_app.h"
 #include "bluetooth.h"
+#if EW_APP_LIVESTREAM
+#include "livestream.h"
+#endif  // EW_APP_LIVESTREAM
 #if EW_APP_BOOKS
 #include "bookreader.h"
 #endif  // EW_APP_BOOKS
@@ -102,6 +105,9 @@ static const AuraEntry kTopApps[] = {
 #endif
   { "Timer",     Icon::Timer,     aura::kTeal,   Screen::Timer,       nullptr },
   { "Bluetooth", Icon::Bluetooth, aura::kBlue,   Screen::Bluetooth,   nullptr },
+#if EW_APP_LIVESTREAM
+  { "Stream",    Icon::Photo,     aura::kTeal,   Screen::Stream,      nullptr },
+#endif  // EW_APP_LIVESTREAM
 #if EW_APP_BOOKS
   { "Books",     Icon::Book,      aura::kOrange, Screen::BookLibrary, nullptr },
 #endif  // EW_APP_BOOKS
@@ -222,6 +228,9 @@ static QRCodeView vQRCode;
 static StopwatchView vStopwatch;
 static TimerView     vTimer;
 static BluetoothView vBluetooth;
+#if EW_APP_LIVESTREAM
+static StreamView vStream;
+#endif  // EW_APP_LIVESTREAM
 #if EW_APP_BOOKS
 static LibraryView        vBookLibrary;
 static ReaderView         vBookReader;
@@ -319,6 +328,9 @@ View *viewFor(Screen s) {
     case Screen::Stopwatch:       return &vStopwatch;
     case Screen::Timer:           return &vTimer;
     case Screen::Bluetooth:       return &vBluetooth;
+#if EW_APP_LIVESTREAM
+    case Screen::Stream:          return &vStream;
+#endif  // EW_APP_LIVESTREAM
 #if EW_APP_BOOKS
     case Screen::BookLibrary:     return &vBookLibrary;
     case Screen::BookReader:      return &vBookReader;

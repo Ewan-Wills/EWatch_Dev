@@ -180,6 +180,9 @@ static bool screenBlocksSleep(Screen s) {
 #endif
     case Screen::Torch:
     case Screen::Bluetooth:    // light sleep would stop the BLE scan
+#if EW_APP_LIVESTREAM
+    case Screen::Stream:       // live frames over WiFi: no auto-sleep while open
+#endif  // EW_APP_LIVESTREAM
 #if EW_APP_BOOKS
     case Screen::BookLibrary:  // user is browsing books
     case Screen::BookReader:   // user is reading
