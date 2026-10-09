@@ -106,7 +106,9 @@ static bool sPerfPinned = false;
 
 void powerPerfDemand(bool need240) {
   if (sPerfPinned) return;          // BLE up: never retune the clock under it
-  if (need240 == sPerf240) return;
+  // Trust the clock, not just the flag: something can retune it behind our
+  // back (measured: Doom ran at 80 MHz with sPerf240 already true).
+  if (need240 == sPerf240 && getCpuFrequencyMhz() == (need240 ? 240u : 80u)) return;
   sPerf240 = need240;
   setCpuFrequencyMhz(need240 ? 240 : 80);
   EWLOGI("SYS", "cpu_mhz=%d", need240 ? 240 : 80);
