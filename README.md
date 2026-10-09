@@ -67,5 +67,6 @@ How to add one: `EWatchOS2.1/README.md` ("Optional app modules").
   `ewatchos21-with-old-apps`, `doom-original`, `3d-racer`, `3d-watchface`,
   `basic-analog`, `basic-digital`, `gallery-face`, `head-face`, `tank-face`,
   `scrubmarine`, `spotify-controller`, `starfox-shooter`, `tunnel-racer`,
-  `tamagotchi`, `llm-ondevice`, `shortsapps`, `claudeface-standalone`.
+  `tamagotchi`, `llm-ondevice`, `shortsapps`, `claudeface-standalone`,
+  `live-stream-app` (the May branch, now the livestream module).
 - `snapshot/2026-10-09`: everything on disk before the repo rework.
