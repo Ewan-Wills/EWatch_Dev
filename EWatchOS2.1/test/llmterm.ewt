@@ -1,0 +1,12 @@
+# module test: build with EW_APPS=llmterm
+# llmterm smoke: no PC bridge -> no tokens, must not crash
+# app owns Serial: keep the ewt console alive (app PC-RX path is inert under test)
+raw keepcon 1
+wake
+goto LlmTerm
+expect screen LlmTerm
+tap 120 120
+wait 500
+expect screen LlmTerm
+expect noerr
+snap boot

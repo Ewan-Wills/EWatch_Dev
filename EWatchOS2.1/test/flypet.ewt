@@ -1,0 +1,14 @@
+# module test: build with EW_APPS=flypet
+# flypet smoke: animates standalone (fps proves the loop runs), tap, no crash
+# app owns Serial: keep the ewt console alive (app PC-RX path is inert under test)
+raw keepcon 1
+wake
+goto FlyPet
+expect screen FlyPet
+expect fps 10
+wait 1500
+tap 120 140
+wait 400
+expect screen FlyPet
+expect noerr
+snap boot

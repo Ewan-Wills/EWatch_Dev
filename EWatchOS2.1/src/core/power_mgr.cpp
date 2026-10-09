@@ -174,6 +174,27 @@ static bool screenBlocksSleep(Screen s) {
 #endif
     case Screen::Torch:
     case Screen::Bluetooth:    // light sleep would stop the BLE scan
+#if EW_APP_BLECONTROLS
+    case Screen::BleControls:  // ...and drop the cloud panel's link
+#endif  // EW_APP_BLECONTROLS
+#if EW_APP_SCREENSHARE
+    case Screen::Screenshare:  // live USB stream: redraws with no touch input
+#endif  // EW_APP_SCREENSHARE
+#if EW_APP_HIDCTL
+    case Screen::HidCtl:       // Notes: serial typing isn't touch "activity"
+#endif  // EW_APP_HIDCTL
+#if EW_APP_FLYPET
+    case Screen::FlyPet:       // the pet animates continuously: keep it lit
+#endif  // EW_APP_FLYPET
+#if EW_APP_LLMTERM
+    case Screen::LlmTerm:      // tokens stream in over USB with no touch activity
+#endif  // EW_APP_LLMTERM
+#if EW_APP_PRINTSTREAM
+    case Screen::PrintStream:  // live camera + stats: keep the display lit
+#endif  // EW_APP_PRINTSTREAM
+#if EW_APP_STOCKS
+    case Screen::Stocks:       // live feed from PC: stay lit while receiving
+#endif  // EW_APP_STOCKS
 #if EW_APP_DOOM
     case Screen::Doom:
 #endif  // EW_APP_DOOM

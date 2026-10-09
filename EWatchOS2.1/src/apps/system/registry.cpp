@@ -18,6 +18,33 @@
 #include "stopwatch.h"
 #include "timer_app.h"
 #include "bluetooth.h"
+#if EW_APP_BLECONTROLS
+#include "blecontrols.h"
+#endif  // EW_APP_BLECONTROLS
+#if EW_APP_SCREENSHARE
+#include "screenshare.h"
+#endif  // EW_APP_SCREENSHARE
+#if EW_APP_HIDCTL
+#include "hidctl.h"
+#endif  // EW_APP_HIDCTL
+#if EW_APP_FLYPET
+#include "flypet.h"
+#endif  // EW_APP_FLYPET
+#if EW_APP_LLMTERM
+#include "llmterm.h"
+#endif  // EW_APP_LLMTERM
+#if EW_APP_MACROPAD
+#include "macropad.h"
+#endif  // EW_APP_MACROPAD
+#if EW_APP_PRINTSTREAM
+#include "printstream.h"
+#endif  // EW_APP_PRINTSTREAM
+#if EW_APP_HOMEASSISTANT
+#include "homeassistant.h"
+#endif  // EW_APP_HOMEASSISTANT
+#if EW_APP_STOCKS
+#include "stocks.h"
+#endif  // EW_APP_STOCKS
 #if EW_APP_WAKESOAK
 #include "wake_soak.h"
 #endif  // EW_APP_WAKESOAK
@@ -60,6 +87,33 @@ static const AuraEntry kTopApps[] = {
 #endif
   { "Timer",     Icon::Timer,     aura::kTeal,   Screen::Timer,       nullptr },
   { "Bluetooth", Icon::Bluetooth, aura::kBlue,   Screen::Bluetooth,   nullptr },
+#if EW_APP_BLECONTROLS
+  { "Controls",  Icon::Bluetooth, aura::kTeal,   Screen::BleControls, nullptr },
+#endif  // EW_APP_BLECONTROLS
+#if EW_APP_SCREENSHARE
+  { "Screenshare", Icon::Photo,   aura::kTeal,   Screen::Screenshare, nullptr },
+#endif  // EW_APP_SCREENSHARE
+#if EW_APP_HIDCTL
+  { "Notes",     Icon::Memory,    aura::kBlue,   Screen::HidCtl,      nullptr },
+#endif  // EW_APP_HIDCTL
+#if EW_APP_FLYPET
+  { "FlyPet",    Icon::Bird,      aura::kPurple, Screen::FlyPet,      nullptr },
+#endif  // EW_APP_FLYPET
+#if EW_APP_LLMTERM
+  { "LLM Term",  Icon::Memory,    aura::kBlue,   Screen::LlmTerm,     nullptr },
+#endif  // EW_APP_LLMTERM
+#if EW_APP_MACROPAD
+  { "Macropad",  Icon::Memory,    aura::kPurple, Screen::Macropad,    nullptr },
+#endif  // EW_APP_MACROPAD
+#if EW_APP_PRINTSTREAM
+  { "Printer",   Icon::Cube,      aura::kOrange, Screen::PrintStream, nullptr },
+#endif  // EW_APP_PRINTSTREAM
+#if EW_APP_HOMEASSISTANT
+  { "Home",      Icon::Sun,       aura::kYellow, Screen::HomeAssistant, nullptr },
+#endif  // EW_APP_HOMEASSISTANT
+#if EW_APP_STOCKS
+  { "Stocks",    Icon::Sparkle,   aura::kGreen,  Screen::Stocks,      nullptr },
+#endif  // EW_APP_STOCKS
 #if EW_APP_WAKESOAK
   { "Wake Soak", Icon::Info,      aura::kOrange, Screen::WakeSoak,    nullptr },
 #endif  // EW_APP_WAKESOAK
@@ -138,6 +192,33 @@ static QRCodeView vQRCode;
 static StopwatchView vStopwatch;
 static TimerView     vTimer;
 static BluetoothView vBluetooth;
+#if EW_APP_BLECONTROLS
+static BleControlsView vBleControls;
+#endif  // EW_APP_BLECONTROLS
+#if EW_APP_SCREENSHARE
+static ScreenshareView    vScreenshare;
+#endif  // EW_APP_SCREENSHARE
+#if EW_APP_HIDCTL
+static HidCtlView         vHidCtl;
+#endif  // EW_APP_HIDCTL
+#if EW_APP_FLYPET
+static FlyPetView         vFlyPet;
+#endif  // EW_APP_FLYPET
+#if EW_APP_LLMTERM
+static LlmTermView        vLlmTerm;
+#endif  // EW_APP_LLMTERM
+#if EW_APP_MACROPAD
+static MacropadView       vMacropad;
+#endif  // EW_APP_MACROPAD
+#if EW_APP_PRINTSTREAM
+static PrintStreamView    vPrintStream;
+#endif  // EW_APP_PRINTSTREAM
+#if EW_APP_HOMEASSISTANT
+static HomeAssistantView  vHomeAssistant;
+#endif  // EW_APP_HOMEASSISTANT
+#if EW_APP_STOCKS
+static StocksView         vStocks;
+#endif  // EW_APP_STOCKS
 #if EW_APP_WAKESOAK
 static WakeSoakView vWakeSoak;
 #endif  // EW_APP_WAKESOAK
@@ -195,6 +276,33 @@ View *viewFor(Screen s) {
     case Screen::Stopwatch:       return &vStopwatch;
     case Screen::Timer:           return &vTimer;
     case Screen::Bluetooth:       return &vBluetooth;
+#if EW_APP_BLECONTROLS
+    case Screen::BleControls:     return &vBleControls;
+#endif  // EW_APP_BLECONTROLS
+#if EW_APP_SCREENSHARE
+    case Screen::Screenshare:     return &vScreenshare;
+#endif  // EW_APP_SCREENSHARE
+#if EW_APP_HIDCTL
+    case Screen::HidCtl:          return &vHidCtl;
+#endif  // EW_APP_HIDCTL
+#if EW_APP_FLYPET
+    case Screen::FlyPet:          return &vFlyPet;
+#endif  // EW_APP_FLYPET
+#if EW_APP_LLMTERM
+    case Screen::LlmTerm:         return &vLlmTerm;
+#endif  // EW_APP_LLMTERM
+#if EW_APP_MACROPAD
+    case Screen::Macropad:        return &vMacropad;
+#endif  // EW_APP_MACROPAD
+#if EW_APP_PRINTSTREAM
+    case Screen::PrintStream:     return &vPrintStream;
+#endif  // EW_APP_PRINTSTREAM
+#if EW_APP_HOMEASSISTANT
+    case Screen::HomeAssistant:   return &vHomeAssistant;
+#endif  // EW_APP_HOMEASSISTANT
+#if EW_APP_STOCKS
+    case Screen::Stocks:          return &vStocks;
+#endif  // EW_APP_STOCKS
 #if EW_APP_WAKESOAK
     case Screen::WakeSoak:        return &vWakeSoak;
 #endif  // EW_APP_WAKESOAK
