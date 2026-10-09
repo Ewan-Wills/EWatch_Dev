@@ -43,6 +43,8 @@ bool ewsimHandleLine(char *line);
 const uint16_t *ewsimShadow();          // 240x280 RGB565 of what the panel shows
 uint32_t ewsimPxCount();                // pixels pushed so far (changes = redraw)
 void ewsimTapPause(bool paused);        // overlay pixels bypass the shadow
+// Full-width rows a view sent to the panel by DMA (the tap can't see those).
+void ewsimTapRows(int y0, int rows, const uint16_t *px);
 // ---- controller.cpp taskIO hooks (called every 20 ms I/O cycle) ----
 // Overrides the polled finger state while a simulated finger is down.
 void ewsimTouch(bool &live, uint16_t &x, uint16_t &y);
@@ -60,6 +62,7 @@ bool ewsimTakeWake();
 static inline const uint16_t *ewsimShadow() { return nullptr; }
 static inline uint32_t ewsimPxCount() { return 0; }
 static inline void    ewsimTapPause(bool) {}
+static inline void    ewsimTapRows(int, int, const uint16_t *) {}
 static inline void    ewsimTouch(bool &, uint16_t &, uint16_t &) {}
 static inline Gesture ewsimTakeGesture(uint16_t &, uint16_t &) { return Gesture::None; }
 static inline bool    ewsimButton() { return false; }

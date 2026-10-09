@@ -37,3 +37,6 @@ void             panelDispOn();
 void             panelSleepIn();
 
 Arduino_Canvas  *frameCanvas();
+// The panel's data bus, for views that stream pixel rows straight to the
+// panel (startWrite + writeAddrWindow + writePixels) instead of a canvas flush.
+Arduino_DataBus *displayBus();

@@ -174,6 +174,12 @@ private:
 const uint16_t *ewsimShadow() { return sShadow; }
 uint32_t ewsimPxCount() { return sPxCount; }
 void ewsimTapPause(bool paused) { sTapPaused = paused; }
+void ewsimTapRows(int y0, int rows, const uint16_t *px) {
+  if (y0 < 0 || rows <= 0 || y0 + rows > kH) return;
+  if (sShadow) memcpy(sShadow + y0 * kW, px, (size_t)rows * kW * 2);
+  sPxCount += (uint32_t)rows * kW;
+  sLastBusUs = esp_timer_get_time();
+}
 
 Arduino_DataBus *ewsimMakeBus(int8_t dc, int8_t cs, int8_t sck, int8_t mosi,
                               int8_t miso, uint8_t spiNum) {

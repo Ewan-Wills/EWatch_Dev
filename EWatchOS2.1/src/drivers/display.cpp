@@ -94,6 +94,8 @@ void panelSleepIn() {
 }
 
 static Arduino_Canvas *gFrameCanvas = nullptr;
+Arduino_DataBus *displayBus() { return bus; }
+
 Arduino_Canvas *frameCanvas() {
   if (gFrameCanvas) return gFrameCanvas;
   if (!gfx) return nullptr;
