@@ -256,7 +256,8 @@ public:
       touchHold = model.touchWakeHoldMs;
       sense     = model.touchWakeSense;
       raiseThr  = model.motionWakeThreshold;
-      joltThr   = model.imuWakeThreshold; }
+      joltThr   = model.imuWakeThreshold;
+      slpHold   = model.touchSleepHoldMs; }
     if (sense > 2) sense = 2;
     dirty = ALL;
     stopHold();
@@ -269,6 +270,7 @@ public:
       drawRowChrome(ROW1_Y, "Touch wake");
       drawRowChrome(ROW2_Y, "Raise wake (g)");
       drawRowChrome(ROW3_Y, "Deep jolt (g)");
+      drawRowChrome(ROW4_Y, "Sleep touch hold (ms)");
       { ThemeColors _t = theme(); gfx->fillRoundRect(SAVE_X, ACT_Y, ACT_W, ACT_H, 6, _t.accent); }
       gfx->setTextSize(2);
       { ThemeColors _t = theme(); gfx->setTextColor(contrastFor(_t.accent), _t.accent); }
@@ -287,8 +289,8 @@ public:
     if (e.type != EventType::Touch && e.type != EventType::TouchHold) return;
 
     int col = -1; int8_t sign = 0;
-    int16_t rowY[] = { ROW0_Y, ROW1_Y, ROW2_Y, ROW3_Y };
-    for (int r = 0; r < 4; r++) {
+    int16_t rowY[] = { ROW0_Y, ROW1_Y, ROW2_Y, ROW3_Y, ROW4_Y };
+    for (int r = 0; r < 5; r++) {
       if      (uiInRect(e.x, e.y, MINUS_X, rowY[r], BTN_W, BTN_H)) { col = r; sign = -1; break; }
       else if (uiInRect(e.x, e.y, PLUS_X,  rowY[r], BTN_W, BTN_H)) { col = r; sign = +1; break; }
     }
@@ -305,6 +307,7 @@ public:
           model.touchWakeSense      = sense;
           model.motionWakeThreshold = raiseThr;
           model.imuWakeThreshold    = joltThr;
+          model.touchSleepHoldMs    = slpHold;
           model.revision++; }
         Storage::save();
         requestMmaMotionReconfig();     // apply the new raise threshold live
@@ -318,12 +321,13 @@ public:
     }
   }
 private:
-  // Compact 4-row layout (title pushed up to make room).
-  static const int16_t ROW0_Y   = 48;
-  static const int16_t ROW1_Y   = 98;
-  static const int16_t ROW2_Y   = 148;
-  static const int16_t ROW3_Y   = 198;
-  static const int16_t BTN_H    = 34;
+  // Compact 5-row layout (title pushed up to make room).
+  static const int16_t ROW0_Y   = 50;
+  static const int16_t ROW1_Y   = 88;
+  static const int16_t ROW2_Y   = 126;
+  static const int16_t ROW3_Y   = 164;
+  static const int16_t ROW4_Y   = 202;
+  static const int16_t BTN_H    = 28;
   static const int16_t BTN_W    = 50;
   static const int16_t MINUS_X  = 20;
   static const int16_t PLUS_X   = 170;
@@ -338,6 +342,7 @@ private:
   uint8_t  sense     = 0;
   uint8_t  raiseThr  = 0x08;
   uint8_t  joltThr   = 0x20;
+  uint16_t slpHold   = 0;
   uint8_t  dirty = ALL;
 
   void drawRowChrome(int16_t y, const char *label) {
@@ -349,9 +354,9 @@ private:
     gfx->drawRoundRect(PLUS_X,  y, BTN_W, BTN_H, 6, DARKGREY);
     gfx->setTextSize(3);
     { ThemeColors _t = theme(); gfx->setTextColor(_t.fg, _t.bg); }
-    gfx->setCursor(MINUS_X + BTN_W / 2 - 9, y + 6);
+    gfx->setCursor(MINUS_X + BTN_W / 2 - 9, y + 2);
     gfx->print('-');
-    gfx->setCursor(PLUS_X  + BTN_W / 2 - 9, y + 6);
+    gfx->setCursor(PLUS_X  + BTN_W / 2 - 9, y + 2);
     gfx->print('+');
   }
 
@@ -382,7 +387,14 @@ private:
     joltThr = (uint8_t)v;
     dirty |= VALUE;
   }
+  // Sleep touch hold: 0 (off) .. 1000 ms in 50 ms steps, wraps.
+  void bumpSlpHold(int8_t d) {
+    if (d > 0) slpHold = (slpHold >= 1000) ? 0 : slpHold + 50;
+    else       slpHold = (slpHold == 0)   ? 1000 : slpHold - 50;
+    dirty |= VALUE;
+  }
   void bumpRow(int col, int8_t d) {
+    if (col == 4) bumpSlpHold(d);
     if (col == 0) bumpTouch(d);
     if (col == 1) bumpSense(d);
     if (col == 2) bumpRaise(d);
@@ -395,12 +407,13 @@ private:
     gfx->fillRect(valX, ROW1_Y, valW, BTN_H, BLACK);
     gfx->fillRect(valX, ROW2_Y, valW, BTN_H, BLACK);
     gfx->fillRect(valX, ROW3_Y, valW, BTN_H, BLACK);
+    gfx->fillRect(valX, ROW4_Y, valW, BTN_H, BLACK);
 
     gfx->setTextSize(3);
     gfx->setTextColor(YELLOW, BLACK);
     auto centerPrint = [&](int16_t y, const char *s) {
       int16_t w = (int16_t)strlen(s) * 18;
-      gfx->setCursor(valX + (valW - w) / 2, y + 6);
+      gfx->setCursor(valX + (valW - w) / 2, y + 2);
       gfx->print(s);
     };
 
@@ -418,6 +431,10 @@ private:
 
     snprintf(buf, sizeof(buf), "%.2f", joltThr * 0.063f);
     centerPrint(ROW3_Y, buf);
+
+    if (slpHold == 0) snprintf(buf, sizeof(buf), "off");
+    else              snprintf(buf, sizeof(buf), "%u", slpHold);
+    centerPrint(ROW4_Y, buf);
   }
 };
 

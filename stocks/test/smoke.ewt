@@ -1,0 +1,11 @@
+# stocks smoke: boots, swipe through (no PC data under ewt), no crash
+# app owns Serial: keep the ewt console alive (app PC-RX path is inert under test)
+raw keepcon 1
+goto Stocks
+expect screen Stocks
+wait 600
+swipe l
+wait 400
+expect screen Stocks
+expect noerr
+snap boot

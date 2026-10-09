@@ -16,6 +16,9 @@ bool readRTC(uint8_t &h, uint8_t &m, uint8_t &s,
 bool writeRTC(uint8_t h, uint8_t m, uint8_t s,
               uint8_t weekday, uint8_t day, uint8_t month, uint16_t year);
 bool readAccel(int16_t &x, int16_t &y, int16_t &z);
+void mmaSetCheckRate(bool fast);   // raise check: 200 Hz on, back to 50 Hz (FIFO off)
+void mmaFifoArm(bool on);          // screen-off: circular FIFO = pre-trigger history
+int  mmaFifoRead(int16_t (*out)[3], int max);   // oldest first
 bool readBattery(float &volts, uint8_t &pct);
 void batMonEnable();   // pre-settle the divider before readBattery()
 

@@ -1,0 +1,55 @@
+# BLE mouse integration via the msim test hook (same decode/cursor/finger path
+# as a real mouse; no radio). Snaps don't contain the cursor (it bypasses the
+# shadow by design): cursor drawing is checked through paints/drawn/at.
+wake
+goto Mouse
+expect screen Mouse
+snap mouse_app
+# cursor appears and follows (msimto re-reports the painter's state)
+wake
+raw msimto 120 140
+wait 200
+raw msim 10 10 0
+expect log msim ok cursor=128,148 .*paints=[1-9][0-9]* drawn=1 at=128,148 3000
+# left click on the title-bar back chevron = tap = back to the launcher
+raw msimto 22 22
+raw msim 0 0 1
+wait 120
+raw msim 0 0 0
+wait 400
+expect screen AppList
+# right click = back (side button)
+goto Mouse
+wait 300
+raw msim 0 0 2
+wait 150
+raw msim 0 0 0
+wait 400
+expect screen AppList
+# middle click = home (watch face)
+goto Mouse
+wait 300
+raw msim 0 0 4
+wait 150
+raw msim 0 0 0
+wait 400
+expect screen Watch
+# quick drag down on the watch face = swipe down = control centre
+raw msimto 120 40
+raw msimdrag 0 100 200
+wait 600
+expect screen QuickSettings
+btn short
+wait 500
+# wheel scrolls the launcher
+wake
+goto AppList
+wait 500
+snap list_before
+raw msimto 120 150
+# wheel rolled towards you (HID -3) = scroll down the list
+raw msim 0 0 0 -3
+wait 900
+snap list_after
+expect screen AppList
+expect noerr

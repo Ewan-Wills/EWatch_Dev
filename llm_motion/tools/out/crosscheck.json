@@ -1,0 +1,88 @@
+{
+ "agreement": {
+  "traces": 700,
+  "token_mismatch_traces": 0,
+  "segment_mismatch_traces": 0,
+  "segments": 714,
+  "label_mismatch": 0,
+  "max_abs_p_diff": 1.4496231078853228e-06
+ },
+ "trace_level_c_path": {
+  "seed": 4242,
+  "threshold": 0.6,
+  "gesture_trace_success": 0.9733333333333334,
+  "none_trace_no_trigger": 0.9888888888888889,
+  "per_class": {
+   "none": 0.9888888888888889,
+   "flick_out": 0.9633333333333334,
+   "flick_in": 0.9466666666666667,
+   "twist_l": 0.9966666666666667,
+   "twist_r": 1.0,
+   "shake": 0.9566666666666667,
+   "double_shake": 0.9833333333333333,
+   "raise": 1.0,
+   "lower": 0.99,
+   "knock": 0.9233333333333333,
+   "circle": 0.9733333333333334
+  },
+  "outcomes": {
+   "none": {
+    "none": 890,
+    "lower": 4,
+    "circle": 4,
+    "raise": 1,
+    "knock": 1
+   },
+   "flick_out": {
+    "flick_out": 289,
+    "none": 6,
+    "no_segment": 2,
+    "flick_in": 3
+   },
+   "flick_in": {
+    "flick_in": 284,
+    "none": 13,
+    "no_segment": 2,
+    "flick_out": 1
+   },
+   "twist_l": {
+    "twist_l": 299,
+    "none": 1
+   },
+   "twist_r": {
+    "twist_r": 300
+   },
+   "shake": {
+    "shake": 287,
+    "none": 5,
+    "flick_out": 1,
+    "double_shake": 7
+   },
+   "double_shake": {
+    "double_shake": 295,
+    "circle": 1,
+    "shake": 2,
+    "none": 2
+   },
+   "raise": {
+    "raise": 300
+   },
+   "lower": {
+    "lower": 297,
+    "none": 3
+   },
+   "knock": {
+    "knock": 277,
+    "none": 14,
+    "no_segment": 7,
+    "flick_out": 2
+   },
+   "circle": {
+    "circle": 292,
+    "none": 8
+   }
+  }
+ },
+ "touch_c_path_accuracy": 1.0,
+ "host_us_per_forward_mac": 6.338
+}

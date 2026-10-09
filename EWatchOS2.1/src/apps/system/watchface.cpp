@@ -2,7 +2,7 @@
 //
 // Five faces, cycled with left/right swipes (persisted as model.watchFaceStyle):
 //   0 Aurora  — big rounded-segment digits, date pill, battery ring, live
-//               chips for stopwatch / timer / WiFi. The flagship.
+//               chips for stopwatch / timer. The flagship.
 //   1 Analog  — minimal dial: tick ring, three hands, tiny date.
 //   2 Orbit   — hour/minute/second as planets orbiting a center star.
 //   3 Photo   — user photo (or the default painting) + bold HH:MM.
@@ -12,7 +12,10 @@
 //   swipe up    -> app launcher       (sheet rises)
 //   swipe down  -> control centre     (sheet drops)
 //   swipe left  -> next face          swipe right -> previous face
-//   button      -> app launcher
+//   button      -> sleep (screen off now)
+//
+// Every face shows a top-left WiFi status icon. It is display-only: WiFi is
+// switched from the control centre or Settings -> WiFi.
 //
 // Event-driven by default (the I/O task bumps model.revision each RTC tick);
 // faces with sweep motion ask for frames via desiredFrameMs().
@@ -34,6 +37,7 @@
 #include "apptimer.h"
 #include "wifi_svc.h"
 #include "system_views.h"
+#include "power_mgr.h"
 #include "default_bg.h"
 #include "photo_store.h"
 
@@ -141,24 +145,6 @@ public:
 
   void onEvent(const Event &e) override {
     switch (e.type) {
-      case EventType::Touch:
-        downX = e.x; downY = e.y;
-        return;
-      case EventType::TouchUp: {
-        // A tap (not a swipe) on the bottom-right corner toggles WiFi.
-        int16_t dx = (int16_t)e.x - (int16_t)downX;
-        int16_t dy = (int16_t)e.y - (int16_t)downY;
-        if ((int32_t)dx * dx + (int32_t)dy * dy <= 14 * 14 &&
-            inWifiCorner(e.x, e.y)) {
-          bool on;
-          { ModelLock lk; model.wifiEnabled = !model.wifiEnabled;
-            on = model.wifiEnabled; model.revision++; }
-          Storage::save();
-          if (on) wifiSvcKickWindow();   // connect now, skip scheduler backoff
-          hapticBuzz(on ? 40 : 24, on ? 45 : 28);
-        }
-        return;
-      }
       case EventType::Gesture:
         switch (e.gesture) {
           case Gesture::SwipeUp:
@@ -175,7 +161,7 @@ public:
         }
       case EventType::ButtonShort:
         hapticBuzz(20, 22);
-        switchToAnimated(Screen::AppList, Trans::SheetUp);
+        powerRequestSleep();
         return;
       default:
         return;
@@ -189,7 +175,6 @@ private:
   uint8_t  secSeen = 255;    // last RTC second observed (sweep anchor)
   uint32_t secAnchorMs = 0;
   float    secFrac = 0;      // 0..1 within the current RTC second
-  uint16_t downX = 0, downY = 0;   // tap-vs-swipe for the corner toggle
 
   void cycleFace(int dir) {
     uint8_t f = currentFace();
@@ -247,19 +232,16 @@ private:
   static const char *kWd[7];
   static const char *kMon[12];
 
-  // Bottom-right WiFi state + toggle target (all faces). accent = radio up,
+  // Top-left WiFi status (all faces; display-only). accent = radio up,
   // dim = enabled but idle (duty-cycled), slashed line-color = off.
-  void drawWifiToggle(const AuraTheme &th, const Snap &sn) {
-    const int16_t cx = W - 36, cy = H - 34;
+  void drawWifiStatus(const AuraTheme &th, const Snap &sn) {
+    const int16_t cx = 36, cy = 34;
     uint16_t c = sn.wifiUp ? th.accent : (sn.wifiOn ? th.textDim : th.line);
     drawIcon(canvas, Icon::Wifi, cx, cy, 26, c, th.bg);
     if (!sn.wifiOn) {
       canvas->drawLine(cx - 12, cy + 12, cx + 12, cy - 12, th.line);
       canvas->drawLine(cx - 11, cy + 12, cx + 13, cy - 12, th.line);
     }
-  }
-  static bool inWifiCorner(uint16_t x, uint16_t y) {
-    return x >= W - 72 && y >= H - 72;
   }
 
   void dateLine(char *buf, size_t n, const Snap &sn) {
@@ -296,7 +278,7 @@ private:
     int16_t pw = auraTextWidth(dbuf, 2) + 28;
     auraPill(canvas, (W - pw) / 2, 170, pw, 34, th.card, th.text, dbuf, 2);
 
-    drawWifiToggle(th, sn);
+    drawWifiStatus(th, sn);
 
     // Live chips: stopwatch / timer (only while active) centered at bottom.
     uint32_t epoch = sn.rtcOk
@@ -353,7 +335,7 @@ private:
     char dbuf[20];
     dateLine(dbuf, sizeof dbuf, sn);
     auraTextCentered(canvas, cx, cy + 46, dbuf, 1, th.textDim);
-    drawWifiToggle(th, sn);
+    drawWifiStatus(th, sn);
   }
 
   // ---- face 2: Orbit ----
@@ -381,7 +363,7 @@ private:
       snprintf(tbuf, sizeof tbuf, "%02u:%02u", sn.h, sn.m);
       auraTextCentered(canvas, cx - 24, H - 26, tbuf, 2, th.textDim);
     }
-    drawWifiToggle(auraTheme(), sn);
+    drawWifiStatus(auraTheme(), sn);
   }
 
   // ---- face 3: Photo (user background; default painting as fallback) ----
@@ -408,7 +390,7 @@ private:
     char dbuf[20];
     dateLine(dbuf, sizeof dbuf, sn);
     auraTextCentered(canvas, W / 2, 120, dbuf, 1, th.textDim);
-    drawWifiToggle(th, sn);
+    drawWifiStatus(th, sn);
   }
 
   // ---- face 4: Mono terminal ----
@@ -436,7 +418,7 @@ private:
     canvas->print(dbuf);
     canvas->setCursor(28, 176);
     canvas->printf("> wifi %s", sn.wifiOn ? (sn.wifiUp ? "up" : "on") : "off");
-    drawWifiToggle(th, sn);
+    drawWifiStatus(th, sn);
     // blinking block cursor
     if ((sn.s & 1) == 0) canvas->fillRect(28, 198, 12, 18, green);
   }

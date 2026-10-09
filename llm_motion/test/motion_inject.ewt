@@ -1,0 +1,53 @@
+# Motion LM: replay one held-out synthetic trace per class through the
+# firmware's real sample -> tokenizer -> segmenter -> LM path (motion inject),
+# and check the recognised gesture. Dry run (default): actions are only logged.
+# Works with ewsim_host (./ewsimrec llm_motion --snap DIR test/motion_inject.ewt)
+# and on the watch (ewt run test/motion_inject.ewt).
+goto Motion
+wait 500
+raw motion inject flick_out
+expect log MOTION:.gesture=flick_out.p= 5000
+expect log label=flick_out.dry=1 1000
+expect log MOTION:.inject_done 5000
+raw motion inject flick_in
+expect log MOTION:.gesture=flick_in.p= 5000
+expect log label=flick_in.dry=1 1000
+expect log MOTION:.inject_done 5000
+raw motion inject twist_l
+expect log MOTION:.gesture=twist_l.p= 5000
+expect log label=twist_l.dry=1 1000
+expect log MOTION:.inject_done 5000
+raw motion inject twist_r
+expect log MOTION:.gesture=twist_r.p= 5000
+expect log label=twist_r.dry=1 1000
+expect log MOTION:.inject_done 5000
+raw motion inject shake
+expect log MOTION:.gesture=shake.p= 5000
+expect log label=shake.dry=1 1000
+expect log MOTION:.inject_done 5000
+raw motion inject double_shake
+expect log MOTION:.gesture=double_shake.p= 5000
+expect log label=double_shake.dry=1 1000
+expect log MOTION:.inject_done 5000
+raw motion inject raise
+expect log MOTION:.gesture=raise.p= 5000
+expect log label=raise.dry=1 1000
+expect log MOTION:.inject_done 5000
+raw motion inject lower
+expect log MOTION:.gesture=lower.p= 5000
+expect log label=lower.dry=1 1000
+expect log MOTION:.inject_done 5000
+raw motion inject knock
+expect log MOTION:.gesture=knock.p= 5000
+expect log label=knock.dry=1 1000
+expect log MOTION:.inject_done 5000
+raw motion inject circle
+expect log MOTION:.gesture=circle.p= 5000
+expect log label=circle.dry=1 1000
+expect log MOTION:.inject_done 5000
+raw motion inject none 1
+expect log MOTION:.inject_done 6000
+expect nolog gesture=(?!none)
+expect noerr
+raw motion
+show motion:

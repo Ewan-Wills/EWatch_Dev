@@ -1,0 +1,26 @@
+# Craft: world builds, renders continuously (fps from real panel pushes),
+# touch look + mine don't crash, side button quits; Xbox Pad screen comes up.
+wake
+goto AppList
+wait 300
+goto Craft
+expect screen Craft
+expect log CRAFT: enter 5000
+wait 3000
+expect fps 8
+snap play
+drag 200 140 140 140 500
+wait 300
+tap 160 100
+wait 600
+expect screen Craft
+expect noerr
+snap after
+btn short
+wait 600
+expect screen AppList
+goto Pad
+expect screen Pad
+wait 2000
+snap pad
+expect noerr

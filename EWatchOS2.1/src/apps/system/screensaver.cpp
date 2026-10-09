@@ -74,21 +74,22 @@ public:
     switch (e.type) {
       // The physical button is reliable — a press is always intentional.
       case EventType::ButtonDown:
-      case EventType::ButtonShort:
+      case EventType::ButtonShort: {
         switchTo(Screen::Watch);
         return;
+      }
 
       // Touch must be *sustained*. A stray frame lands as a lone Touch with
       // no follow-up holds; a real finger keeps generating TouchHold at ~30 Hz.
       // With protection set to 0, the first Touch frame wakes immediately.
       case EventType::Touch:
-        if (saverHoldMs() == 0) { switchTo(Screen::Watch); return; }
+        if (saverHoldMs() == 0) { dismissByTouch(e, 0); return; }
         pressActive  = true;
         pressStartMs = millis();
         return;
       case EventType::TouchHold:
         if (pressActive && (millis() - pressStartMs) >= saverHoldMs()) {
-          switchTo(Screen::Watch);
+          dismissByTouch(e, (uint16_t)(millis() - pressStartMs));
         }
         return;
       case EventType::TouchUp:
@@ -104,6 +105,10 @@ public:
   }
 
 private:
+  void dismissByTouch(const Event &e, uint16_t heldMs) {
+    (void)e; (void)heldMs;
+    switchTo(Screen::Watch);
+  }
   bool     drawn        = false;   // static image — paint once per entry
   uint32_t entryMs      = 0;       // for the post-entry input grace window
   bool     pressActive  = false;   // a finger is currently down

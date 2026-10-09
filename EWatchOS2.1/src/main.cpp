@@ -1,6 +1,7 @@
 // EWatch v2 — boot only. Hardware bring-up + FreeRTOS task launch. All
 // runtime logic lives in controller.cpp (I/O + tasks) and view.cpp (UI).
 
+#include "bluetooth.h"
 #include <Arduino.h>
 #include <Wire.h>
 #include <Preferences.h>
@@ -25,10 +26,6 @@
 #include "apptimer.h"
 #include "wifi_svc.h"
 #include "photo_store.h"
-#if defined(EWATCH_ENABLE_SPOTIFY) && EWATCH_ENABLE_SPOTIFY && \
-    defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
-  #include "spotify.h"
-#endif
 #include "ewlog.h"
 #include "power_mgr.h"
 
@@ -252,7 +249,9 @@ static void reArmFromSpuriousWakeAndSleep() {
   bool     wkT   = p.getBool  ("wkTouch",  true);
   bool     wkB   = p.getBool  ("wkButton", true);
   bool     wkI   = p.getBool  ("wkImu",    false);
-  uint16_t toOff = p.getUShort("sleepOff", 30);
+  // Deep sleep -> full power-off after T_DEEP minutes, as enterDeepSleep()
+  // arms it ("sleepOff" now times screen-off -> deep sleep, not this).
+  uint32_t toOff = (uint32_t)p.getUShort("pDeepMin", 45) * 60u;
   p.end();
 
   // Drain CST816S touch buffer so the INT line de-asserts before we re-arm.
@@ -264,6 +263,7 @@ static void reArmFromSpuriousWakeAndSleep() {
   }
   delay(80);
 
+  esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
   if (wkT) {
     rtc_gpio_pullup_en((gpio_num_t)PIN_TOUCH_INT);
     esp_sleep_enable_ext0_wakeup((gpio_num_t)PIN_TOUCH_INT, 0);
@@ -312,6 +312,10 @@ void setup() {
       for (;;) delay(1000);
     }
   }
+  // Stale holds are cleared above (dbe73c2); now take our own, so the rail
+  // stays up through esptool / CDC / WDT resets. Every power-off path goes
+  // through unlatchPower(), which releases it first.
+  holdLatch();
 
   // A panic reset (RTC_SW_CPU_RST) resets the CPU but NOT the GPIO matrix.
   // A level-triggered wake interrupt left armed by the sleep path (e.g. BTN
@@ -339,6 +343,10 @@ void setup() {
   esp_reset_reason_t resetReason = esp_reset_reason();
   checkPanicLoopAndMaybeShutdown(resetReason);
 
+  // HWCDC drops RX bytes once its queue is full (no USB flow control), and
+  // the default queue is 256 B. Apps that receive bulk data over Serial need
+  // a queue that holds a whole block (see bookreader's block+ACK upload).
+  Serial.setRxBufferSize(4096);
   Serial.begin(115200);
   // On battery the USB-CDC never enumerates, so !Serial stays true for the
   // full timeout. That dominated wake-from-sleep latency. Skip the wait on
@@ -426,17 +434,10 @@ void setup() {
   installTaskWatchdog();
 
   if (!gSafeMode) wifiSvcInit();
-#if defined(EWATCH_ENABLE_SPOTIFY) && EWATCH_ENABLE_SPOTIFY && \
-    defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
-  if (!gSafeMode) spotifyInit();       // load Client ID + refresh token (NVS)
-#endif
   controllerStartTasks();
   if (!gSafeMode) wifiSvcStartTask();
-#if defined(EWATCH_ENABLE_SPOTIFY) && EWATCH_ENABLE_SPOTIFY && \
-    defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
-  if (!gSafeMode) spotifySvcStartTask();  // background auth/poll/art task
-#endif
-  ewlogStartConsole();          // `log ...` / `pwr ...` commands over USB
+  ewlogStartConsole();
+  btBegin();                    // Bluetooth remote: restore the saved on/off state
 
   // Give the render task a brief window to paint the first complete frame
   // (time, date, icons), then bring the backlight up at the user's level.

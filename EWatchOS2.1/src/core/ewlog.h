@@ -41,6 +41,10 @@ enum : uint8_t {
 void ewlogInit();
 void ewlogMountFs();
 void ewlogStartConsole();
+// Hand the USB serial RX stream to another reader (an app's own protocol) and
+// back. While paused the console reads nothing, so it can't steal bytes.
+void ewlogConsolePause(bool paused);
+bool ewlogConsolePaused();
 
 // Invalidate the RTC-RAM mirror without touching any other subsystem. Safe
 // to call before ewlogInit() — the crash-loop guard uses it to guarantee a

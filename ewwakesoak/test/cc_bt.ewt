@@ -1,0 +1,25 @@
+# Control Centre Bluetooth: tile on -> media row -> stays on across screens -> tile off.
+# Persistence (on hardware): run up to "remote on", re-flash or power-cycle, then
+#   ewt tail 8 -g "BLE: boot pref|remote on"   -> expect "boot pref on=1" + "remote on"
+wake
+goto Watch
+wait 300
+goto QuickSettings
+wait 500
+snap cc_off
+tap 174 180
+expect log BLE: remote on 10000
+wait 600
+snap cc_on
+tap 120 97
+expect log key playpause dropped: not connected 2000
+goto Watch
+wait 1500
+goto QuickSettings
+wait 500
+snap cc_back
+tap 174 240
+expect log BLE: remote off 10000
+wait 600
+snap cc_off2
+expect noerr

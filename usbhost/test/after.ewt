@@ -1,0 +1,4 @@
+# usbhost: after the 30 s window serial is back and the screen kept its results
+expect screen UsbHost
+expect noerr
+snap after

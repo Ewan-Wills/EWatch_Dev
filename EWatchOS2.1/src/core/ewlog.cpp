@@ -9,6 +9,7 @@
 #include <freertos/task.h>
 #include "ewlog.h"
 #include "power_mgr.h"     // powerStatsPrint / powerSelfTest for the console
+#include "ewsim.h"         // `sim ...` host test commands
 
 // ---------------------------------------------------------------------------
 // Sinks + shared state
@@ -193,28 +194,50 @@ void ewlogMountFs() {
 // ---------------------------------------------------------------------------
 // Serial console
 // ---------------------------------------------------------------------------
+// sLogMutex is held per chunk (open/seek/read), never across Serial.write:
+// a dump is up to 256 KB and each HWCDC write can block ~100 ms while the
+// host isn't draining, so holding the log mutex for the whole dump would
+// stall every task that logs (render task -> task WDT). A rotation mid-dump
+// just ends that half early.
 static void dumpFile(const char *path) {
-  if (!LittleFS.exists(path)) return;
-  File f = LittleFS.open(path, FILE_READ);
-  if (!f) return;
   uint8_t buf[256];
+  size_t off = 0, end = 0;
+  bool first = true;
   while (true) {
-    size_t n = f.read(buf, sizeof(buf));
+    size_t n = 0;
+    if (sLogMutex) xSemaphoreTake(sLogMutex, portMAX_DELAY);
+    if (sFsReady && LittleFS.exists(path)) {
+      File f = LittleFS.open(path, FILE_READ);
+      if (f) {
+        if (first) { end = f.size(); first = false; }
+        size_t want = (end > off) ? end - off : 0;
+        if (want > sizeof(buf)) want = sizeof(buf);
+        if (want && f.seek(off)) n = f.read(buf, want);
+        f.close();
+      }
+    }
+    if (sLogMutex) xSemaphoreGive(sLogMutex);
     if (n == 0) break;
     Serial.write(buf, n);
+    off += n;
   }
-  f.close();
 }
 
 static void cmdLogDump() {
   if (!sFsReady) { Serial.println("(fs sink not mounted)"); return; }
   if (sLogMutex) xSemaphoreTake(sLogMutex, portMAX_DELAY);
-  Serial.println("=== ewlog ring dump (oldest first) ===");
   // Inactive half holds the older data.
-  dumpFile(sActiveRing ? kRing0 : kRing1);
-  dumpFile(sActiveRing ? kRing1 : kRing0);
-  Serial.println("=== end dump ===");
+  const char *older = sActiveRing ? kRing0 : kRing1;
+  const char *newer = sActiveRing ? kRing1 : kRing0;
   if (sLogMutex) xSemaphoreGive(sLogMutex);
+  // HWCDC drops the rest of a write after tx_timeout (100 ms) of full ring;
+  // a dump outruns the host often enough to lose whole chunks. Allow 1 s.
+  Serial.setTxTimeoutMs(1000);
+  Serial.println("=== ewlog ring dump (oldest first) ===");
+  dumpFile(older);
+  dumpFile(newer);
+  Serial.println("=== end dump ===");
+  Serial.setTxTimeoutMs(100);
 }
 
 static void cmdLogClear() {
@@ -228,6 +251,20 @@ static void cmdLogClear() {
   Serial.println("log cleared");
 }
 
+// Test hook: `keepcon 1` (sent by ewt before entering a serial-owning app)
+// keeps the console reading while an app asks for the pause, and makes
+// ewlogConsolePaused() report false so the app's own Serial reader stays off.
+// The app's PC data path is therefore inert under test. RAM only: a reboot
+// restores normal behaviour.
+static volatile bool sConsolePaused = false;
+static volatile bool sAppWantsPause = false;
+static volatile bool sKeepConsole = false;
+void ewlogConsolePause(bool paused) {
+  sAppWantsPause = paused;
+  sConsolePaused = paused && !sKeepConsole;
+}
+bool ewlogConsolePaused() { return sConsolePaused; }
+
 static void handleLine(char *line) {
   // Trim trailing CR/LF and leading spaces.
   size_t n = strlen(line);
@@ -237,7 +274,8 @@ static void handleLine(char *line) {
 
   if (strcmp(line, "help") == 0) {
     Serial.println("commands: log dump | log clear | log level <0-3> | "
-                   "pwr stats | pwr selftest | pwr set <dim|off|deep|sync> <n>");
+                   "pwr stats | pwr selftest | pwr set <dim|off|deep|sync> <n> | "
+                   "keepcon <0|1> | sim <seq> <cmd> (ewsim.h)");
   } else if (strcmp(line, "log dump") == 0) {
     cmdLogDump();
   } else if (strcmp(line, "log clear") == 0) {
@@ -251,6 +289,12 @@ static void handleLine(char *line) {
   } else if (strcmp(line, "pwr selftest") == 0) {
     powerRequestSelfTest();
     Serial.println("selftest queued (runs on the render task; watch WAKE logs)");
+  } else if (strcmp(line, "pwr fifotest") == 0) {
+    powerRequestFifoTest();
+    Serial.println("fifotest queued (render task)");
+  } else if (strncmp(line, "pwr raisetest", 13) == 0) {
+    powerRequestRaiseTest(strstr(line, "fresh") != nullptr);
+    Serial.println("raisetest queued (render task)");
   } else if (strncmp(line, "pwr set ", 8) == 0) {
     char key[8] = "";
     int  val = -1;
@@ -258,18 +302,26 @@ static void handleLine(char *line) {
         val <= 65535 && powerSetConfig(key, (uint16_t)val)) {
       Serial.printf("pwr %s = %d\n", key, val);
     } else {
-      Serial.println("usage: pwr set <dim|off|deep|sync> <n>");
+      Serial.println("usage: pwr set <dim|off|deep|sync|dtest|rchk> <n> | keepcon <0|1>");
     }
+  } else if (strncmp(line, "keepcon ", 8) == 0) {
+    sKeepConsole = atoi(line + 8) != 0;
+    sConsolePaused = sAppWantsPause && !sKeepConsole;
+    Serial.printf("keepcon=%d\n", sKeepConsole ? 1 : 0);
+  } else if (ewsimHandleLine(line)) {
+    // host test command (ewsim.cpp)
   } else {
     Serial.printf("unknown: '%s' (try help)\n", line);
   }
 }
 
+
 static void consoleTask(void *) {
   static char line[96];
   size_t pos = 0;
   for (;;) {
-    while (Serial && Serial.available()) {
+    if (sConsolePaused) pos = 0;  // drop any half-typed line
+    while (!sConsolePaused && Serial && Serial.available()) {
       char c = (char)Serial.read();
       if (c == '\n' || c == '\r') {
         line[pos] = '\0';

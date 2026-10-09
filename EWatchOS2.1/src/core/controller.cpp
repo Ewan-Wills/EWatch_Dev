@@ -5,6 +5,7 @@
 #include "power.h"
 #include "i2c_bus.h"
 #include "touch.h"
+#include "ewsim.h"
 #include "display.h"
 #include "haptic.h"
 #include "controller.h"
@@ -108,6 +109,54 @@ static void mmaConfigureLowPowerMotion() {
   mmaWrite(0x2C, 0x02);   // CTRL_REG3: IPOL active-high
   mmaWrite(0x2E, 0x00);   // CTRL_REG5: TRANSIENT -> INT2
   mmaWrite(0x2A, 0x21);   // CTRL_REG1: DR=50 Hz + ACTIVE
+}
+
+// Raise check (power_mgr): 200 Hz while judging a motion wake, so the wrist
+// settling is seen in ~60 ms instead of ~100+ ms at the 50 Hz sleep rate.
+// Data-rate changes need STANDBY; the rest of the config is untouched.
+void mmaSetCheckRate(bool fast) {
+  if (!mmaAddr) return;
+  mmaWrite(0x2A, 0x00);                  // STANDBY
+  if (fast) mmaWrite(0x09, 0x00);        // FIFO off: OUT regs = live sample again
+  mmaWrite(0x2A, fast ? 0x11 : 0x21);    // DR=200 Hz | DR=50 Hz, ACTIVE
+}
+
+// Raise-to-wake (power_mgr): during screen-off the MMA8451's 32-sample FIFO
+// runs in circular mode, so at a motion trigger the last ~640 ms (50 Hz) of
+// wrist movement BEFORE it can be read back. Off while awake: with the
+// FIFO on, the OUT registers return the oldest FIFO entry, not live data.
+void mmaFifoArm(bool on) {
+  if (!mmaAddr) return;
+  mmaWrite(0x2A, 0x00);                  // STANDBY (F_SETUP needs it)
+  mmaWrite(0x09, on ? 0x40 : 0x00);      // F_MODE=01 circular | off
+  mmaWrite(0x2A, 0x21);                  // 50 Hz, ACTIVE
+}
+
+// Drain the FIFO, oldest first. Returns the count (0..32).
+int mmaFifoRead(int16_t (*out)[3], int max) {
+  if (!mmaAddr) return 0;
+  Wire.beginTransmission(mmaAddr);
+  Wire.write(0x00);                      // F_STATUS
+  if (Wire.endTransmission(false) != 0) return 0;
+  if (Wire.requestFrom((int)mmaAddr, 1) != 1) return 0;
+  int cnt = Wire.read() & 0x3F;
+  if (cnt > max) cnt = max;
+  int got = 0;
+  while (got < cnt) {                    // <= 20 samples per read (Wire buffer)
+    int k = cnt - got; if (k > 20) k = 20;
+    Wire.beginTransmission(mmaAddr);
+    Wire.write(0x01);                    // OUT_X_MSB; wraps 0x06 -> 0x01 in FIFO mode
+    if (Wire.endTransmission(false) != 0) break;
+    if (Wire.requestFrom((int)mmaAddr, k * 6) != k * 6) break;
+    for (int i = 0; i < k; i++, got++) {
+      uint8_t b[6];
+      for (int j = 0; j < 6; j++) b[j] = Wire.read();
+      out[got][0] = (int16_t)((b[0] << 8) | b[1]) >> 2;
+      out[got][1] = (int16_t)((b[2] << 8) | b[3]) >> 2;
+      out[got][2] = (int16_t)((b[4] << 8) | b[5]) >> 2;
+    }
+  }
+  return got;
 }
 
 // Settings pages can't touch the I2C bus (taskIO owns it) — they raise this
@@ -258,6 +307,7 @@ static void taskIO(void *) {
   bool     lastBtn = false;
   uint32_t btnDownMs = 0;
   bool     veryLongFired = false;
+  bool     wakePress = false;   // press that woke us: no ButtonShort on release
 
   int16_t  pax = 0, pay = 0, paz = 0;
   uint32_t motionAcc = 0, motionWindowStart = 0, lastMotionMs = 0;
@@ -279,6 +329,15 @@ static void taskIO(void *) {
       vTaskSuspend(nullptr);
       esp_task_wdt_add(nullptr);
       esp_task_wdt_reset();
+      // A button still held on resume is the press that woke the watch.
+      // Its release must not become a ButtonShort (on the watch face that
+      // means "sleep" — it would go straight back off). A 3 s hold still
+      // powers off, timed from here.
+      if ((digitalRead(PIN_BTN) || ewsimButton()) && !lastBtn) {
+        lastBtn = true; wakePress = true;
+        btnDownMs = millis(); veryLongFired = false;
+        { ModelLock lk; model.button = true; model.revision++; }
+      }
       continue;
     }
 
@@ -314,6 +373,7 @@ static void taskIO(void *) {
     // is held stationary — the previous design relied on those.
     uint16_t hx = 0, hy = 0;
     bool live = readTouchHeld(hx, hy);
+    ewsimTouch(live, hx, hy);            // host-simulated finger (ewsim)
 
     if (live && !fingerDown) {
       fingerDown = true;
@@ -338,9 +398,15 @@ static void taskIO(void *) {
     }
 
     // Drain ISR-reported gestures (only — Touch state already comes from poll).
-    if (touchPending) {
+    uint16_t simGx = 0, simGy = 0;
+    Gesture simG = ewsimTakeGesture(simGx, simGy);   // host-simulated (ewsim)
+    if (touchPending || simG != Gesture::None) {
       touchPending = false;
-      if (touchpad.available()) {
+      if (simG != Gesture::None) {
+        touchpad.data.gestureID = (uint8_t)simG;
+        touchpad.data.x = simGx; touchpad.data.y = simGy;
+      }
+      if (simG != Gesture::None || touchpad.available()) {
         Gesture g = (Gesture)touchpad.data.gestureID;
         if (g != Gesture::None) {
           // Dedup: in continuous-report mode the chip can fire multiple
@@ -380,18 +446,19 @@ static void taskIO(void *) {
     }
 
     // ---- Button (GPIO, no Wire) ----
-    bool btn = digitalRead(PIN_BTN);
+    bool btn = digitalRead(PIN_BTN) || ewsimButton();
     if (btn != lastBtn) {
       if (btn) {
         btnDownMs = millis();
         veryLongFired = false;
+        wakePress = false;
         Event e = makeEvent(EventType::ButtonDown);
         postEvent(e);
       } else {
         uint32_t held = millis() - btnDownMs;
         Event e = makeEvent(EventType::ButtonUp);
         postEvent(e);
-        if (held < 1000 && !veryLongFired) {
+        if (held < 1000 && !veryLongFired && !wakePress) {
           Event s = makeEvent(EventType::ButtonShort);
           postEvent(s);
         }
@@ -408,6 +475,7 @@ static void taskIO(void *) {
     // ---- Accel + shake (Wire) ----
     int16_t ax = 0, ay = 0, az = 0;
     bool accOk = readAccel(ax, ay, az);
+    ewsimAccel(accOk, ax, ay, az);       // host tilt/shake override (ewsim)
     if (accOk) {
       uint32_t d = (uint32_t)abs(ax - pax) + abs(ay - pay) + abs(az - paz);
       pax = ax; pay = ay; paz = az;
@@ -581,6 +649,10 @@ static void taskRender(void *) {
       if (currentView) currentView->onEvent(e);
     }
 
+    // Host-requested screen jump (ewsim `goto`), on the render task.
+    int simGoto = ewsimTakeGoto();
+    if (simGoto >= 0) { powerOnActivity(); switchTo((Screen)simGoto); }
+
     // Power manager owns the idle progression (ACTIVE -> IDLE dim ->
     // screensaver -> SCREEN_OFF light sleep -> DEEP). This call can block
     // for the whole screen-off phase and never returns if deep sleep fires.
@@ -675,7 +747,9 @@ void enterDeepSleep() {
     wkTouch  = model.wakeOnTouch;
     wkBtn    = model.wakeOnButton;
     wkImu    = model.wakeOnImu;
-    toOffSec = model.sleepToOffSec;
+    // Deep sleep -> full LDO power-off after the power manager's T_DEEP
+    // minutes ("Sleep -> power off" now times screen-off -> deep sleep).
+    toOffSec = (uint16_t)(powerConfig().deepMin * 60u);
     rtcH = model.hour; rtcM = model.minute; rtcS = model.second;
     rtcDay = model.day; rtcMon = model.month; rtcYear = model.year;
     rtcOk = model.rtcOk; }
@@ -732,6 +806,10 @@ void enterDeepSleep() {
 
   // Settle: wait for the user's finger to lift and the INT lines to deassert.
   vTaskDelay(pdMS_TO_TICKS(300));
+
+  // Only the sources armed below may wake us: drop anything a caller left
+  // armed (the light-sleep GPIO wake set rebooted the watch every minute).
+  esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
 
   // CST816S touch INT is active-low -> ext0 with level=0.
   if (wkTouch) {

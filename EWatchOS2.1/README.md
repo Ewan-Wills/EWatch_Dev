@@ -16,15 +16,15 @@ transitions, vector icons, a control centre, and five watch faces.
 ```
 
 - **Swipe right** (or the side button) = back, everywhere.
-- Games: hold the side button ~2 s to leave Doom; other games have on-screen exits.
+- Games have on-screen exits.
 - Long-press the side button 3 s = power off (global, unchanged).
 
 ## What's aboard
 
 | Section | Apps |
 |---|---|
-| Apps  | Spotify remote, Stopwatch, Timer, QR Share, Media, 3D Viewer |
-| Games | Doom, Tunnel Racer, Starfox, Racer, Pet (tamagotchi), Island |
+| Apps  | Stopwatch, Timer, Bluetooth (media remote), QR Share, Photos, Media, 3D Viewer |
+| Games | Tunnel Racer, Starfox, Island (compiled out) |
 | Toys  | Particles, Flock |
 | System| Settings, diagnostics, Power Off |
 
@@ -38,10 +38,11 @@ Faces: **Aurora** (rounded-segment digits + complications), **Analog**,
 - `src/core/ui_transition.cpp` — snapshot slide transitions (2 PSRAM frames);
   views opt in via `View::paintTo()`. Non-participating views get a clean cut.
 - `src/apps/system/launcher.*` — one list view drives Apps/System/Settings.
-- Ported apps live in `src/apps/games/`, `src/apps/spotify/`, `src/apps/island/`.
-- Doom owns the I2C bus while running (`controllerSuspendIo()` — the same
-  cooperative pause light sleep uses). Racer's best run lives in NVS `racer`.
-- Spotify pins a WiFi sync-window open while on screen (`wifiSvcHold`).
+- Ported apps live in `src/apps/games/` and `src/apps/island/`.
+- Moved out to their own projects (2026-10-09), each = this OS + that one
+  feature: `../ewdoom` (Doom), `../ewracer` (Racer), `../ewpet` (Pet),
+  `../ewspotify` (Spotify remote + web sign-in + secrets env),
+  `../ewwakesoak` (wake soak test + gesture traces + tools/soak_pull.py).
 
 ## Build & flash
 

@@ -37,10 +37,7 @@
 #include "controller.h"       // requestSetRTC
 #include "view.h"             // watchFaceStyleCount / watchFaceStyleName
 #include "ewlog.h"
-#include "power_mgr.h"
-#if defined(EWATCH_ENABLE_SPOTIFY) && EWATCH_ENABLE_SPOTIFY
-  #include "spotify.h"        // Spotify Client ID + sign-in code entry (web form)
-#endif        // syncSec config + wifi duty accounting
+#include "power_mgr.h"        // syncSec config + wifi duty accounting
 
 // ---------- desired vs actual state ----------
 enum class RadioState : uint8_t { Off, AP, Scanning, Connecting, Connected };
@@ -62,7 +59,7 @@ static uint32_t assocStartMs   = 0;
 static uint32_t sessConnectMs  = 0;        // time from begin() to associated
 static uint8_t  failBackoff    = 1;        // multiplies syncSec, capped at 8
 static uint32_t lastHttpMs     = 0;        // web activity extends the window
-static volatile bool sRadioHold = false;   // app hold: window stays open (Spotify)
+static volatile bool sRadioHold = false;   // app hold: window stays open
 static volatile uint32_t sHoldPingMs = 0;  // deadman: hold expires 3 s after last ping
 
 // Job queue: apps queue work for the next window instead of touching WiFi.
@@ -299,38 +296,6 @@ static String htmlPage() {
   h += "<form method=POST action=/known/scan style='margin-top:.4em'><button class=warn style='background:#456'>Rescan</button></form>";
   h += "</fieldset>";
 
-#if defined(EWATCH_ENABLE_SPOTIFY) && EWATCH_ENABLE_SPOTIFY
-  // ===== Spotify (Client ID + one-time sign-in) =====
-  h += F("<fieldset><legend>Spotify</legend>");
-  {
-    SpotifyAuth sa = spotifyAuthState();
-    const char *st = "?";
-    switch (sa) {
-      case SpotifyAuth::NeedWifi:     st = "waiting for WiFi (Client mode + network)"; break;
-      case SpotifyAuth::NeedClientId: st = "enter your Client ID below"; break;
-      case SpotifyAuth::NeedAuth:     st = "scan the QR on the watch, then paste the code"; break;
-      case SpotifyAuth::Authorizing:  st = "signing in&hellip;"; break;
-      case SpotifyAuth::Ready:        st = "connected"; break;
-      case SpotifyAuth::AuthError:    st = "sign-in failed &mdash; paste a fresh code"; break;
-    }
-    h += "<p class=muted>Status: "; h += st; h += "</p>";
-  }
-  h += F("<form method=POST action=/spotify/id>"
-         "<label>Client ID (from your Spotify Developer app)</label>"
-         "<input name=clientId maxlength=64 autocomplete=off");
-  if (spotifyHasClientId()) h += " placeholder='(saved &mdash; paste a new one to change)'";
-  h += F("><button>Save Client ID</button></form>"
-         "<p class=muted>Register redirect URI "
-         "<b>http://127.0.0.1:8888/callback</b> in your Spotify app "
-         "(Dashboard &rarr; Settings &rarr; Redirect URIs).</p>"
-         "<form method=POST action=/spotify/code>"
-         "<label>Paste the redirect URL (or just the code) from your phone</label>"
-         "<input name=code maxlength=512 autocomplete=off>"
-         "<button>Submit sign-in code</button></form>"
-         "<form method=POST action=/spotify/logout style='margin-top:.4em'>"
-         "<button class=warn>Sign out of Spotify</button></form>"
-         "</fieldset>");
-#endif
 
   // ===== Photos (upload / gallery / background) =====
   h += F("<fieldset><legend>Photos</legend>"
@@ -610,34 +575,6 @@ static void handleKnownScan() {
   server.send(303);
 }
 
-#if defined(EWATCH_ENABLE_SPOTIFY) && EWATCH_ENABLE_SPOTIFY
-// ---------- Spotify config ----------
-static void handleSpotifyId() {
-  lastHttpMs = millis();
-  String id = server.arg("clientId"); id.trim();
-  if (id.length()) spotifySetClientId(id.c_str());
-  EWLOGI("WEB", "spotify client id len=%u", id.length());
-  server.sendHeader("Location", "/");
-  server.send(303);
-}
-
-static void handleSpotifyCode() {
-  lastHttpMs = millis();
-  String code = server.arg("code"); code.trim();
-  bool ok = code.length() && spotifySubmitAuthCode(code.c_str());
-  EWLOGI("WEB", "spotify code submitted ok=%d", ok ? 1 : 0);
-  server.sendHeader("Location", "/");
-  server.send(303);
-}
-
-static void handleSpotifyLogout() {
-  lastHttpMs = millis();
-  spotifyLogout();
-  EWLOGI("WEB", "spotify logout");
-  server.sendHeader("Location", "/");
-  server.send(303);
-}
-#endif
 
 // ---------- Photos ----------
 static File   sUpFile;
@@ -814,11 +751,6 @@ static void startServer() {
   server.on("/media/img",   HTTP_GET,  handleMediaImg);
   server.on("/media/del",   HTTP_POST, handleMediaDel);
   server.on("/media/bg",    HTTP_POST, handleMediaBg);
-#if defined(EWATCH_ENABLE_SPOTIFY) && EWATCH_ENABLE_SPOTIFY
-  server.on("/spotify/id",     HTTP_POST, handleSpotifyId);
-  server.on("/spotify/code",   HTTP_POST, handleSpotifyCode);
-  server.on("/spotify/logout", HTTP_POST, handleSpotifyLogout);
-#endif
   server.onNotFound(handleNotFound);
   server.begin();
   serverUp = true;
@@ -1241,10 +1173,10 @@ static void converge() {
     bool ntpSettled = ntpDoneThisConn && !ntpPending;
     uint32_t assocMs = millis() - assocStartMs;
     bool httpIdle = (millis() - lastHttpMs) > 20000;
-    // An app hold (e.g. the Spotify remote on screen) pins the window open —
+    // An app hold (an app that needs the network on screen) pins the window open —
     // both the normal close and the 120 s hard cap defer until it releases.
     // DEADMAN: the hold only counts while the holder keeps pinging (the
-    // Spotify view pings from its render loop, ~5 Hz). If the holder stops —
+    // holding view pings from its render loop). If the holder stops —
     // view exited without onExit, screen slept, crash — the hold lapses in
     // 3 s and the window closes normally instead of pinning the radio (and
     // the power manager) up forever.

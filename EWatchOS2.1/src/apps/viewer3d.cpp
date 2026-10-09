@@ -11,6 +11,7 @@
 #include <esp_heap_caps.h>
 #include <Arduino_GFX_Library.h>
 #include "display.h"
+#include "safe_canvas.h"
 #include "haptic.h"
 #include "ui_kit.h"
 #include "viewer3d.h"
@@ -286,7 +287,7 @@ static uint16_t       *zbuf = nullptr;
 
 static void ensureCanvas() {
   if (canvas) return;
-  canvas = new Arduino_Canvas(CANVAS_W, CANVAS_H, gfx, 0, SCENE_TOP);
+  canvas = new SafeCanvas(CANVAS_W, CANVAS_H, gfx, 0, SCENE_TOP);
   canvasOk = canvas->begin();
   if (!canvasOk) {
     Serial.println("viewer3d: canvas alloc failed; falling back to direct draw");

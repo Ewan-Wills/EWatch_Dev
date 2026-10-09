@@ -10,6 +10,7 @@
 #include <BLEServer.h>
 #include <BLEHIDDevice.h>
 #include <BLESecurity.h>
+#include <Preferences.h>
 #include <string.h>
 #include <stdio.h>
 
@@ -350,6 +351,76 @@ static void bleStop() {
 }
 
 // --------------------------------------------------------------------------
+// Background service (Control Centre toggle). The remote stays up across
+// screens until switched off; a small task does what render() used to do on
+// connection changes (log + re-advertise), since the app may not be open.
+// The on/off choice is saved in NVS ("bt"/"on") and restored at boot.
+// --------------------------------------------------------------------------
+static TaskHandle_t gSvcTask = nullptr;
+static volatile bool gSvcRun = false;
+static volatile bool gRemoteOn = false;
+
+static void svcTask(void *) {
+  while (gSvcRun) {
+    if (gConnChanged) {
+      gConnChanged = false;
+      EWLOGI("BLE", "remote %s", gConnected ? "connected" : "disconnected");
+      { ModelLock lk; model.revision++; }          // repaint whatever shows it
+      if (!gConnected && gRemoteUp && !gTask) BLEDevice::getAdvertising()->start();
+    }
+    vTaskDelay(pdMS_TO_TICKS(150));
+  }
+  gSvcTask = nullptr;
+  vTaskDelete(nullptr);
+}
+
+bool btRemoteOn()        { return gRemoteOn; }
+bool btRemoteConnected() { return gRemoteOn && gConnected; }
+bool btRemoteFailed()    { return gFailed; }
+
+static void saveBtPref(bool on) {
+  Preferences p;
+  if (p.begin("bt", false)) { p.putBool("on", on); p.end(); }
+}
+
+bool btRemoteSetOn(bool on) {
+  if (on == gRemoteOn) return true;
+  if (on) {
+    if (!bleInit()) { bleStop(); return false; }
+    remoteStart();
+    gRemoteOn = true;
+    gSvcRun = true;
+    xTaskCreatePinnedToCore(svcTask, "btsvc", 3072, nullptr, 1, &gSvcTask, 0);
+    EWLOGI("BLE", "remote on (background)");
+  } else {
+    gSvcRun = false;
+    for (int i = 0; i < 20 && gSvcTask; i++) delay(20);
+    gRemoteOn = false;
+    bleStop();
+    EWLOGI("BLE", "remote off");
+  }
+  saveBtPref(on);
+  { ModelLock lk; model.revision++; }
+  return true;
+}
+
+// Boot: bring the remote back if it was on when the watch went down.
+void btBegin() {
+  Preferences p;
+  bool on = false;
+  if (p.begin("bt", true)) { on = p.getBool("on", false); p.end(); }
+  EWLOGI("BLE", "boot pref on=%d", (int)on);
+  if (on && !btRemoteSetOn(true)) EWLOGW("BLE", "boot restore failed");
+}
+
+bool btRemoteSend(uint8_t key) {
+  const char *name = key == KEY_PLAYPAUSE ? "playpause" : key == KEY_NEXT ? "next" :
+                     key == KEY_PREV ? "prev" : key == KEY_VOLUP ? "volup" :
+                     key == KEY_VOLDOWN ? "voldown" : "mute";
+  return gRemoteOn && remoteSend(key, name);
+}
+
+// --------------------------------------------------------------------------
 
 static void snapshot() {
   xSemaphoreTake(gMux, portMAX_DELAY);
@@ -381,31 +452,34 @@ static bool inBox(const Event &e, int16_t x, int16_t y, int16_t w, int16_t h) {
          (int16_t)e.y >= y && (int16_t)e.y < y + h;
 }
 
-static void drawGlyph(uint8_t key, int16_t cx, int16_t cy, uint16_t c) {
+static void drawGlyphOn(Arduino_GFX *g, uint8_t key, int16_t cx, int16_t cy, uint16_t c) {
   switch (key) {
     case KEY_PLAYPAUSE:
-      gfx->fillTriangle(cx - 16, cy - 13, cx - 16, cy + 13, cx + 2, cy, c);
-      gfx->fillRect(cx + 6, cy - 12, 4, 24, c);
-      gfx->fillRect(cx + 13, cy - 12, 4, 24, c);
+      g->fillTriangle(cx - 16, cy - 13, cx - 16, cy + 13, cx + 2, cy, c);
+      g->fillRect(cx + 6, cy - 12, 4, 24, c);
+      g->fillRect(cx + 13, cy - 12, 4, 24, c);
       break;
     case KEY_NEXT:
-      gfx->fillTriangle(cx - 14, cy - 11, cx - 14, cy + 11, cx + 2, cy, c);
-      gfx->fillTriangle(cx - 2, cy - 11, cx - 2, cy + 11, cx + 14, cy, c);
+      g->fillTriangle(cx - 14, cy - 11, cx - 14, cy + 11, cx + 2, cy, c);
+      g->fillTriangle(cx - 2, cy - 11, cx - 2, cy + 11, cx + 14, cy, c);
       break;
     case KEY_PREV:
-      gfx->fillTriangle(cx + 14, cy - 11, cx + 14, cy + 11, cx - 2, cy, c);
-      gfx->fillTriangle(cx + 2, cy - 11, cx + 2, cy + 11, cx - 14, cy, c);
+      g->fillTriangle(cx + 14, cy - 11, cx + 14, cy + 11, cx - 2, cy, c);
+      g->fillTriangle(cx + 2, cy - 11, cx + 2, cy + 11, cx - 14, cy, c);
       break;
     case KEY_VOLUP:
     case KEY_VOLDOWN:
-      gfx->fillRect(cx - 22, cy - 6, 8, 12, c);                         // speaker
-      gfx->fillTriangle(cx - 14, cy - 6, cx - 4, cy - 14, cx - 4, cy + 14, c);
-      gfx->fillTriangle(cx - 14, cy - 6, cx - 14, cy + 6, cx - 4, cy + 14, c);
-      gfx->fillRect(cx + 4, cy - 2, 16, 4, c);                          // minus
-      if (key == KEY_VOLUP) gfx->fillRect(cx + 10, cy - 8, 4, 16, c);   // plus
+      g->fillRect(cx - 22, cy - 6, 8, 12, c);                         // speaker
+      g->fillTriangle(cx - 14, cy - 6, cx - 4, cy - 14, cx - 4, cy + 14, c);
+      g->fillTriangle(cx - 14, cy - 6, cx - 14, cy + 6, cx - 4, cy + 14, c);
+      g->fillRect(cx + 4, cy - 2, 16, 4, c);                          // minus
+      if (key == KEY_VOLUP) g->fillRect(cx + 10, cy - 8, 4, 16, c);   // plus
       break;
   }
 }
+
+static void drawGlyph(uint8_t key, int16_t cx, int16_t cy, uint16_t c) { drawGlyphOn(gfx, key, cx, cy, c); }
+void btDrawMediaGlyph(Arduino_GFX *g, uint8_t key, int16_t cx, int16_t cy, uint16_t c) { drawGlyphOn(g, key, cx, cy, c); }
 
 static void drawRemoteButton(const Btn &b, bool pressed) {
   ThemeColors t = theme();
@@ -452,10 +526,12 @@ void BluetoothView::onEnter() {
   if (gfx) { ThemeColors t = theme(); gfx->fillScreen(t.bg); }
   firstDraw = true; shownGen = 0xFFFFFFFF; scroll = 0; detail = -1;
   mode = Mode::Remote; shownConn = -1;
-  if (bleInit()) remoteStart();
+  btRemoteSetOn(true);                 // stays on after leaving; Control Centre turns it off
 }
 
-void BluetoothView::onExit() { bleStop(); }
+void BluetoothView::onExit() {
+  if (mode == Mode::Scan) { scanStop(); remoteResume(); }
+}
 
 void BluetoothView::setMode(Mode m) {
   if (m == mode) return;
@@ -467,11 +543,6 @@ void BluetoothView::setMode(Mode m) {
 
 void BluetoothView::render() {
   if (!gfx) return;
-  if (gConnChanged) {                  // from the BTC task: log + re-advertise here
-    gConnChanged = false;
-    EWLOGI("BLE", "remote %s", gConnected ? "connected" : "disconnected");
-    if (!gConnected && gRemoteUp && mode == Mode::Remote) BLEDevice::getAdvertising()->start();
-  }
   if (mode == Mode::Remote) {
     if (firstDraw) { drawRemote(); firstDraw = false; shownConn = gConnected; }
     if (shownConn != (int)gConnected) { shownConn = gConnected; drawRemoteStatus(); }

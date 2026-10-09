@@ -1,5 +1,6 @@
 // Central pin map for EWatch v2 (ESP32-S3FH4R2).
-// Every pin number here was verified against EWatch_Final.net (rev 2.0).
+// Every pin number here was verified against EWatch_Final.net (rev 2.0) and
+// re-checked against EWatchV2.1.net (2026-09-28): no GPIO changes.
 #pragma once
 
 // ---- Power -------------------------------------------------------------
@@ -29,13 +30,14 @@
 #define PIN_MOTOR_PWM    37   // IN: PWM signal becomes vibration
 
 // ---- Battery monitor ---------------------------------------------------
-// NOTE: GPIO34 on the schematic is not ADC-capable on the ESP32-S3. A bodge
-// wire reroutes the divider tap from GPIO34 -> GPIO5 (ADC1_CH4 on S3).
-// BAT_MON_SUPPORTED marks boards where the tap actually lands on an ADC1 pin
-// (V2 bodge). On V1 hardware leave it undefined: all battery sampling is
+// Divider tap is GPIO5 (ADC1_CH4). On rev 2.0 boards it was drawn on GPIO34,
+// which isn't ADC-capable on the S3, and needs a bodge wire to GPIO5; V2.1
+// routes it to GPIO5 directly (GPIO34 is now a spare test point, CN15).
+// BAT_MON_SUPPORTED marks boards where the tap lands on an ADC1 pin (V2 with
+// bodge, V2.1). On V1 hardware leave it undefined: all battery sampling is
 // compiled out and the logs report bat=NA.
 #define PIN_BAT_MON_EN   33   // HIGH enables the divider (saves quiescent)
-#define PIN_BAT_MON_ADC   5   // bodge wire from GPIO34; ADC1_CH4 on S3
+#define PIN_BAT_MON_ADC   5   // ADC1_CH4; native on V2.1, bodge on V2.0
 #define BAT_MON_SUPPORTED 1
 
 // ---- Peripheral interrupts --------------------------------------------

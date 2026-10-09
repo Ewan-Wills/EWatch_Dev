@@ -1,0 +1,127 @@
+# Demo footage: HELLO written on the watch
+goto Write
+wait 500
+tap 210 72
+wait 400
+touch down 166 113
+touch move 167 124
+touch move 165 135
+touch move 165 145
+touch move 165 155
+touch move 164 166
+touch move 163 176
+touch move 163 186
+touch move 162 197
+touch move 161 207
+touch move 161 217
+touch move 160 227
+touch move 159 237
+touch move 159 248
+touch move 158 257
+touch up
+touch down 82 114
+touch move 80 131
+touch move 79 149
+touch move 76 166
+touch move 75 184
+touch move 76 202
+touch move 75 219
+touch move 75 236
+touch move 74 254
+touch up
+touch down 161 184
+touch move 149 184
+touch move 137 187
+touch move 124 185
+touch move 112 184
+touch move 100 185
+touch move 87 186
+touch move 77 184
+touch up
+wait 1100
+touch down 94 139
+touch move 95 157
+touch move 95 174
+touch move 97 192
+touch move 98 209
+touch move 99 226
+touch move 99 234
+touch up
+touch down 141 135
+touch move 129 137
+touch move 118 137
+touch move 107 138
+touch move 96 139
+touch move 93 138
+touch up
+touch down 99 235
+touch move 114 234
+touch move 130 233
+touch move 145 233
+touch move 147 233
+touch up
+touch down 96 185
+touch move 106 187
+touch move 117 186
+touch move 127 184
+touch move 133 185
+touch up
+wait 1100
+touch down 97 129
+touch move 97 146
+touch move 95 161
+touch move 95 178
+touch move 93 194
+touch move 93 211
+touch move 93 227
+touch move 97 238
+touch move 114 240
+touch move 131 240
+touch move 147 242
+touch up
+wait 1100
+touch down 155 249
+touch move 138 249
+touch move 122 249
+touch move 107 248
+touch move 90 248
+touch move 89 233
+touch move 89 217
+touch move 87 201
+touch move 87 184
+touch move 87 168
+touch move 86 152
+touch move 86 136
+touch move 85 121
+touch up
+wait 1100
+touch down 117 133
+touch move 106 135
+touch move 96 141
+touch move 88 149
+touch move 83 160
+touch move 79 170
+touch move 79 182
+touch move 79 194
+touch move 82 205
+touch move 87 215
+touch move 94 224
+touch move 103 232
+touch move 113 237
+touch move 125 237
+touch move 136 235
+touch move 145 228
+touch move 153 219
+touch move 157 210
+touch move 160 198
+touch move 162 186
+touch move 160 175
+touch move 157 164
+touch move 152 154
+touch move 145 145
+touch move 135 137
+touch move 125 134
+touch move 117 133
+touch up
+wait 1100
+wait 1500

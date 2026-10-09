@@ -2,7 +2,9 @@
 #include <Arduino_GFX_Library.h>
 #include "pins.h"
 #include "display.h"
+#include "safe_canvas.h"
 #include "ewlog.h"
+#include "ewsim.h"
 
 static Arduino_DataBus *bus = nullptr;
 Arduino_GFX *gfx = nullptr;
@@ -22,9 +24,10 @@ bool displayBegin() {
   pinMode(PIN_DISP_BL, OUTPUT);
   digitalWrite(PIN_DISP_BL, LOW);
 
-  bus = new Arduino_ESP32SPI(PIN_DISP_DC, PIN_DISP_CS,
-                             PIN_DISP_SCK, PIN_DISP_MOSI,
-                             PIN_DISP_MISO, FSPI);
+  // ewsimMakeBus: the normal ESP32 SPI bus, plus (EW_SIM) a tap that
+  // mirrors every pixel into a shadow frame for host screenshots.
+  bus = ewsimMakeBus(PIN_DISP_DC, PIN_DISP_CS, PIN_DISP_SCK, PIN_DISP_MOSI,
+                     PIN_DISP_MISO, FSPI);
 
   // 240x280 IPS, col offset 0, row offset 20 (matches the FPC panel).
   gfx = new Arduino_ST7789(bus, PIN_DISP_RST, /*rotation=*/0, /*IPS=*/true,
@@ -94,7 +97,7 @@ static Arduino_Canvas *gFrameCanvas = nullptr;
 Arduino_Canvas *frameCanvas() {
   if (gFrameCanvas) return gFrameCanvas;
   if (!gfx) return nullptr;
-  gFrameCanvas = new Arduino_Canvas(240, 280, gfx, 0, 0);
+  gFrameCanvas = new SafeCanvas(240, 280, gfx, 0, 0);   // clips off-buffer writes
   // GFX_SKIP_OUTPUT_BEGIN: the underlying ST7789 + SPI bus were already
   // started in displayBegin(). Letting Canvas re-run output->begin() registers
   // a second APB-change callback for the SPI bus and logs a "duplicate" warning

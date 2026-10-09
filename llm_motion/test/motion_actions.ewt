@@ -1,0 +1,39 @@
+# Motion LM with actions LIVE (dry run off): recognised gestures drive the OS.
+# Restores dry=1 / global=0 at the end (RAM-only settings anyway).
+goto Motion
+raw motion dry 0
+# U-U -> app launcher
+swipe u
+wait 250
+swipe u
+expect log label=swipe_uu.dry=0.done=1 2000
+wait 300
+expect screen AppList
+# twist -> torch on (from the Motion app)
+goto Motion
+raw motion inject twist_l
+expect log label=twist_l.dry=0.done=1 4000
+wait 300
+expect screen Torch
+# background mode keeps the engine alive on other screens: twist again -> torch off
+raw motion global 1
+raw motion inject twist_r 1
+expect log label=twist_r.dry=0.done=1 4000
+wait 300
+expect screen Motion
+# shake -> back (the Motion view's own ButtonShort handler -> AppList)
+raw motion global 0
+raw motion inject shake 1
+expect log label=shake.dry=0.done=1 4000
+wait 300
+expect screen AppList
+# tap-tap-swipe-right -> stopwatch
+goto Motion
+dtap 120 140
+swipe r
+expect log label=tap_tap_r.dry=0.done=1 2000
+wait 300
+expect screen Stopwatch
+goto Motion
+raw motion dry 1
+expect noerr

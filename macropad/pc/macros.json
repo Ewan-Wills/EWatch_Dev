@@ -1,0 +1,9 @@
+{
+  "_comment": "Maps macro id (sent by the watch as `MACRO <id>`) to an action. Ids are 0-based, row-major (left-to-right, top-to-bottom), and MUST match the order of kMacroLabels in src/apps/macropad_config.h. Action types: 'hotkey' (press keys together, e.g. cmd+c), 'keys' (press a sequence one after another), 'type' (type literal text), 'app' (bring an app to the front / launch it), 'shell' (run a shell command). Key names are pyautogui names: command, ctrl, option(alt), shift, c, v, space, tab, enter, left, f11 ...",
+  "0": { "type": "hotkey", "keys": ["command", "c"],         "label": "Copy" },
+  "1": { "type": "hotkey", "keys": ["command", "v"],         "label": "Paste" },
+  "2": { "type": "hotkey", "keys": ["command", "z"],         "label": "Undo" },
+  "3": { "type": "hotkey", "keys": ["command", "shift", "z"], "label": "Redo" },
+  "4": { "type": "hotkey", "keys": ["ctrl", "up"],           "label": "Mission Control" },
+  "5": { "type": "hotkey", "keys": ["command", "space"],     "label": "Spotlight" }
+}

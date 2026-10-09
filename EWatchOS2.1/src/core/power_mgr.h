@@ -39,6 +39,9 @@ void        powerInit();               // load config, drop CPU to 80 MHz
 void        powerSetSafeMode(bool on);
 void        powerOnActivity();         // any user input (render task only)
 void        powerTick();               // render loop hook; may sleep / not return
+// Ask for SCREEN_OFF now (e.g. side button on the watch face). Render task
+// only; taken on the next powerTick(). Ignored in safe mode.
+void        powerRequestSleep();
 PowerState  powerState();
 const PowerConfig &powerConfig();
 
@@ -53,6 +56,11 @@ void powerNoteWifiAssoc(uint32_t assocMs);
 // `pwr stats` / `pwr selftest` / `pwr set <key> <n>` (ewlog console).
 void powerStatsPrint(Stream &out);
 void powerRequestSelfTest();
+// Bench: run the raise-to-wake check once on the live accelerometer and print
+// the verdict. fresh = no baseline (any settled face-up pose passes); else the
+// current pose is the baseline, so a still watch must report no_turn.
+void powerRequestRaiseTest(bool fresh);
+void powerRequestFifoTest();     // bench: MMA FIFO pre-trigger history read-back
 bool powerSetConfig(const char *key, uint16_t val);   // dim|off|deep|sync
 
 bool powerDevMode();                   // USB connected or EW_DEV_MODE build

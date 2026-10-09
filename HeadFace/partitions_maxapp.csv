@@ -1,0 +1,5 @@
+# Single factory app filling the 4 MB flash: no OTA, no filesystem.
+# Everything after the bootloader/partition table/NVS is app (= head frames).
+# Name,   Type, SubType, Offset,   Size
+nvs,      data, nvs,     0x9000,   0x5000
+factory,  app,  factory, 0x10000,  0x3F0000

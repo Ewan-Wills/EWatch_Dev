@@ -45,8 +45,8 @@ uint32_t wifiSvcNextWindowInMs();
 void     wifiSvcKickWindow();
 
 // App hold: while on, a client-mode sync window stays open (and one is opened
-// if none is). Used by apps that need a live connection while on screen
-// (Spotify remote). Always release on app exit.
+// if none is). Used by apps that need a live connection while on screen.
+// Always release on app exit.
 void     wifiSvcHold(bool on);
 
 // Queue work for the next window instead of touching WiFi directly. The

@@ -1,0 +1,425 @@
+>>> p
+-- paused --
+>>> w
+wifi   : active scan, tx 11.0 dBm...
+
+---- WiFi scan ----
+   #  RSSI  qual  ch  auth    BSSID              SSID
+   1   -49  100%   8  WPA2    A2:5A:95:25:A9:80  ScrubHub
+   2   -49  100%   8  WPA2    A2:5A:95:25:A9:81  <hidden>
+   3   -58   84%   4  WPA2/3  14:36:0E:E6:42:81  ScrubHub Edinburgh
+   4   -72   56%   1  WPA2    20:97:27:7B:BD:22  WAN112_2G
+   5   -79   42%   8  WPA2    C2:07:1D:BC:82:C1  <hidden>
+   6   -91   18%   1  WPA2    56:D9:E7:4D:53:1C  <hidden>
+   7   -94   12%   1  WPA2    B0:7F:B9:89:87:17  <hidden>
+  7 network(s)
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+>>> w
+wifi   : active scan, tx 11.0 dBm...
+
+---- WiFi scan ----
+   #  RSSI  qual  ch  auth    BSSID              SSID
+   1   -49  100%   8  WPA2    A2:5A:95:25:A9:81  <hidden>
+   2   -50  100%   8  WPA2    A2:5A:95:25:A9:80  ScrubHub
+   3   -58   84%   4  WPA2/3  14:36:0E:E6:42:81  ScrubHub Edinburgh
+   4   -90   20%   6  WPA2    D8:C7:C8:4E:C0:01  NECTAR
+   5   -91   18%   6  WPA2    D8:C7:C8:4E:C0:00  RCPE-WIFI
+   6   -93   14%   1  WPA2/3  DC:08:56:99:2B:C2  ThistleTFOffice
+   7   -95   10%   1  WPA2    46:D9:E7:4D:53:1C  DestinyScotland
+  7 network(s)
+>>> x 2
+
+---- crystal check vs "ScrubHub" (row 2, ch 8, -50 dBm), 30 s ----
+   5 s:   48 beacons  our clock vs AP    +7.9 ppm
+  10 s:   94 beacons  our clock vs AP    +7.5 ppm
+  15 s:  143 beacons  our clock vs AP    +7.3 ppm
+  20 s:  191 beacons  our clock vs AP    +7.1 ppm
+  25 s:  239 beacons  our clock vs AP    +7.0 ppm
+  30 s:  286 beacons  our clock vs AP    +6.8 ppm
+  result: +6.8 ppm -> within WiFi spec: the crystal is NOT why joins fail
+>>> t 2
+wifi   : tx power cap now 2.0 dBm
+>>> j ScrubHub,<pass>
+wifi   : joining "ScrubHub" (pass 13 chars) ch 8 BSSID A2:5A:95:25:A9:80 tx 2.0 dBm
+wifi   : connected in 603 ms, IP 192.168.1.150, ch 8, BSSID A2:5A:95:25:A9:80, tx power 2.0 dBm
+>>> s 2
+
+---- speed test, 2.0 MB each way, host speed.cloudflare.com ----
+  link   : RSSI -49 dBm, ch 8, tx cap 2.0 dBm, phy bgn
+[ 48343][E][WiFiGeneric.cpp:1583] hostByName(): DNS Failed for speed.cloudflare.com
+[ 48385][E][WiFiGeneric.cpp:1583] hostByName(): DNS Failed for speed.cloudflare.com
+[ 48431][E][WiFiGeneric.cpp:1583] hostByName(): DNS Failed for speed.cloudflare.com
+[ 48462][E][WiFiGeneric.cpp:1583] hostByName(): DNS Failed for speed.cloudflare.com
+[ 48499][E][WiFiGeneric.cpp:1583] hostByName(): DNS Failed for speed.cloudflare.com
+  latency: 0/5 connects - no internet path (DNS/gateway?)
+  result : FAIL
+>>> c
+wifi   : disconnected (scan table every 10 s)
+>>> t 5
+wifi   : tx power cap now 5.0 dBm
+>>> j ScrubHub,<pass>
+wifi   : joining "ScrubHub" (pass 13 chars) ch 8 BSSID A2:5A:95:25:A9:80 tx 5.0 dBm
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+wifi   : connected in 1004 ms, IP 192.168.0.50, ch 8, BSSID A2:5A:95:25:A9:80, tx power 5.0 dBm
+>>> s 2
+
+---- speed test, 2.0 MB each way, host speed.cloudflare.com ----
+  link   : RSSI -49 dBm, ch 8, tx cap 5.0 dBm, phy bgn
+  latency: TCP connect 5/5 ok, min 55 / avg 79 / max 152 ms
+[ 86488][E][WiFiClient.cpp:429] write(): fail on fd 48, errno: 1  down   : HTTP 200, 2000000 / 2000000 bytes in 23959 ms -> 0.67 Mbit/s
+13, "Software caused connection abort"
+  up     : HTTP 0, 35832 / 2000000 bytes in 8803 ms -> 0.03 Mbit/s  (INCOMPLETE)
+  after  : RSSI 0 dBm, LINK LOST
+>>> c
+wifi   : active scan, tx 5.0 dBm...
+
+---- WiFi scan: no networks (-2) ----
+wifi   : nothing saved on the watch; use 'j ssid,pass'
+wifi   : disconnect reason 2 AUTH_EXPIRE (after associating)
+         -> AP never answered our frames: it can't decode our TX (RF/crystal/power) - try 'm b' and 't' up/down
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgpeed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+>>> t 8
+wifi   : tx power cap now 8.0 dBm
+>>> j ScrubHub,<pass>
+wifi   : joining "ScrubHub" (pass 13 chars) ch 8 BSSID A2:5A:95:25:A9:80 tx 8.0 dBm
+wifi   : disconnect reason 2 AUTH_EXPIRE (never associated)
+         -> AP never answered our frames: it can't decode our TX (RF/crystal/power) - try 'm b' and 't' up/down
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+wifi   : join gave up after 15 s (status 6, last reason 2 AUTH_EXPIRE)
+>>> c
+wifi   : active scan, tx 8.0 dBm...
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+
+---- WiFi scan ----
+   #  RSSI  qual  ch  auth    BSSID              SSID
+   1   -50  100%   8  WPA2    A2:5A:95:25:A9:80  ScrubHub
+   2   -50  100%   8  WPA2    A2:5A:95:25:A9:81  <hidden>
+3   -55   90%   4  WPA2/3  14:36:0E:E6:42:81  ScrubHub Edinburgh
+   4   -76   48%   6  WPA2    B2:5C:DA:BB:EF:02  DIRECT-02-HP OfficeJet Pro 7740
+   5   -78   44%   9  WPA2    82:AF:CA:61:70:6C  <hidden>
+   7   -84   32%   1  WPA2    44:D9:E7:4D:53:1C  Destiny Management
+   8   -84   32%   6  WPA2    38:17:B1:44:B9:E5  OrAnGe
+   9   -84   32%  11  WPA2    0E:EA:14:2B:30:02  <hidden>
+  10   -85   30%   8  WPA2    C2:07:1D:BC:82:C0  ScrubHub
+  11   -85   30%   1  WPA2    56:D9:E7:4D:53:1C  <hidden>
+  12   -89   22%  11  WPA2    74:AC:B9:24:3D:DF  PNG Mobile
+  12 network(s)
+
+wifi   : nothing saved on the watch; use 'j ssid,pass'
+>>> t 11
+wifi   : tx power cap now 11.0 dBm
+>>> j ScrubHub,<pass>
+wifi   : joining "ScrubHub" (pass 13 chars) ch 8 BSSID A2:5A:95:25:A9:80 tx 11.0 dBm
+wifi   : disconnect reason 2 AUTH_EXPIRE (never associated)
+         -> AP never answered our frames: it can't decode our TX (RF/crystal/power) - try 'm b' and 't' up/down
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+wifi   : join gave up after 15 s (status 6, last reason 2 AUTH_EXPIRE)
+>>> c
+wifi   : active scan, tx 11.0 dBm...
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+
+---- WiFi scan ----
+   #  RSSI  qual  ch  auth    BSSID              SSID
+   1   -51   98%   8  WPA2    A2:5A:95:25:A9:80  ScrubHub
+   2   -53   94%   8  WPA2    A2:5A:95:25:A9:81  <hidden>
+   3   -58   84%   4  WPA2/3     4   -74   52%   1  WPA2    20:97:27:7B:BD:22  WAN112_2G
+   5   -77   46%   6  WPA2    B2:5C:DA:BB:EF:02  DIRECT-02-HP OfficeJet Pro 7740
+   6   -88   24%   1  WPA2    8C:83:94:2C:92:C6  EE-5RCXR9
+  6 network(s)
+
+wifi   : nothing saved on the watch; use 'j ssid,pass'
+>>> t 14
+wifi   : tx power cap now 14.0 dBm
+>>> j ScrubHub,<pass>
+wifi   : joining "ScrubHub" (pass 13 chars) ch 8 BSSID A2:5A:95:25:A9:80 tx 14.0 dBm
+wifi   : disconnect reason 2 AUTH_EXPIRE (never associated)
+         -> AP never answered our frames: it can't decode our TX (RF/crystal/power) - try 'm b' and 't' up/down
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppct saved/disconnect  n=saved list  p=pause
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive sca m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+wifi   : join gave up after 15 s (status 6, last reason 2 AUTH_EXPIRE)
+>>> c
+wifi   : active scan, tx 14.0 dBm...
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+
+---- WiFi scan ----
+   #  RSSI  qual  ch  auth    BSSID              SSID
+   1   -50  100%   8  WPA2    A2:5A:95:25:A9:81  <hidden>
+   2   -51   98%   8  WPA2    A2:5A:95:25:A9:80  ScrubHub
+   3   -57   86%   4  WPA2/3  14:36:0E:E6:42:81  ScrubHub Edinburgh
+   4   -73   54%   6  WPA2    B2:5C:DA:BB:EF:02  DIRECT-02-HP OfficeJet Pro 7740
+   5   -74   52%   1  WPA2    20:97:27:7B:BD:22  WAN112_2G
+   6   -78   44%   9  WPA2    82:AF:CA:61:70:6C  <hidden>
+   7   -83   34%   1  WPA2    56:D9:E7:4D:53:1C  <hidden>
+   8   -86   28%   1  WPA2    46:D9:E7:4D:53:1C  DestinyScotland
+   9   -89   22%   1  WPA2/3  DC:08:56:99:2B:C2  ThistleTFOffice
+  9 network(s)
+
+wifi   : nothing saved on the watch; use 'j ssid,pass'
+>>> t 17
+wifi   : tx power cap now 17.0 dBm
+>>> j ScrubHub,<pass>
+wifi   : joining "ScrubHub" (pass 13 chars) ch 8 BSSID A2:5A:95:25:A9:80 tx 17.0 dBm
+Guru Meditation Error: Core  0 panic'ed (Interrupt wdt timeout on CPU0).
+x3fcf5934
+A14     : 0x02c95870  A15     : 0x00ffffff  SAR     : 0x00000011  EXCCAUSE: 0x00000005
+EXCVADDR: 0x00000000  LBEG    : 0x40056f5c  LEND    : 0x40056f72  LCOUNT  : 0xffffffff
+
+
+Backtrace: 0x40381bd1:0x3fcf29d0 0x403790a0:0x3fcf2a00 0x42034263:0x3fcf2a20
+
+
+Core  1 register dump:
+PC      : 0x42085756  PS      : 0x00060734  A0      : 0x82014ead  A1      : 0x3fcf4b40
+A2      : 0x00000000  A3      : 0x80000001  A4      : 0x80380601  A5      : 0x3fcebb50
+A6      : 0x00060023  A7      : 0x00000003  A8      : 0x3fc968c8  A9      : 0x3fc968c4
+A10     : 0x3fcf4cf8  A11     : 0x80000001  A12     : 0x3fc9c37c  A13     : 0x60038000
+A14     : 0x00000000  A15     : 0x3c0942e8  SAR     : 0x00000000  EXCCAUSE: 0x00000005
+EXCVADDR: 0x00000000  LBEG    : 0x00000000  LEND    : 0x00000000  LCOUNT  : 0x00000000
+
+
+Backtrace: 0x42085753:0x3fcf4b40 0x42014eaa:0x3fcf4b60 0x4037e7a8:0x3fcf4b80
+
+
+
+
+ELF file SHA256: 4dd4398e7eabe3ed
+
+Guru Meditation Error: Core  0 panic'ed (Interrupt wdt timeout on CPU0).
+
+Core  0 register dump:
+PC      : 0x40384c5f  PS      : 0x00020734  A0      : 0x820365f6  A1      : 0x3fcf27e0
+A2      : 0x00020723  A3      : 0xa5a5a5a5  A4      : 0x820365f6  A5      : 0x00060725
+A6      : 0xfffbfff0  A7      : 0x00000046  A8      : 0x3fc97f60  A9      : 0x00000001
+A10     : 0x60000000  A11     : 0x00000001  A12     : 0x0000000a  A13     : 0x3fcf27cc
+A14     : 0x00000001  A15     : 0x3fcf4b80  SAR     : 0x0000000a  EXCCAUSE: 0x00000005
+EXCVADDR: 0x00000000  LBEG    : 0x400570e8  LEND    : 0x400570f3  LCOUNT  : 0x00000000
+
+
+Backtrace: 0x40384c5c:0x3fcf27e0 0x420365f3:0x3fcf27f0 0x42036bf5:0x3fcf2810 0x42015c9a:0x3fcf2830 0x42015f7a:0x3fcf28a0 0x40377ed9:0x3fcf28f0 0x40377890:0x3fcf2910 0x00040022:0x3fcf29d0 |<-CORRUPTED
+
+
+Core  1 register dump:
+PC      : 0x42085756  PS      : 0x00060734  A0      : 0x82014ead  A1      : 0x3fcf4b40
+A2      : 0x00000000  A3      : 0x80000001  A4      : 0x80380601  A5      : 0x3fcebb50
+A6      : 0x00060023  A7      : 0x00000003  A8      : 0x3fc968c8  A9      : 0x3fc968c4
+A10     : 0x3fcf4cf8  A11     : 0x80000001  A12     : 0x3fc9c37c  A13     : 0x60038000
+A14     : 0x00000000  A15     : 0x3c0942e8  SAR     : 0x00000000  EXCCAUSE: 0x00000005
+EXCVADDR: 0x00000000  LBEG    : 0x00000000  LEND    : 0x00000000  LCOUNT  : 0x00000000
+
+
+Backtrace: 0x42085753:0x3fcf4b40 0x42014eaa:0x3fcf4b60 0x4037e7a8:0x3fcf4b80
+
+
+
+
+ELF file SHA256: 4dd4398e7eabe3ed
+
+Re-entered core dump! Exception happened during core dump!
+Rebooting...
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0xc (RTC_SW_CPU_RST),boot:0x29 (SPI_FAST_FLASH_BOOT)
+Saved PC:0x40377a78
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce3808,len:0x4bc
+load:0x403c9700,len:0xbd8
+load:0x403cc700,len:0x2a0c
+entry 0x403c98d0
+
+==== EWatch hardware reader (I2C + battery + WiFi) ====
+reset  : reason 5  <-- crashed last run
+bus    : SDA idle high, OK
+bus    : SDA=GPIO8 SCL=GPIO9 400000 Hz
+
+---- I2C scan 0x08..0x77 ----
+  0x1C  MMA8451 accel (SA0=0)  WHO_AM_I=0x1A (ok)
+  1 device(s)  | MISSING 0x52 RV-3028 RTC  | MISSING 0x15 CST816S touch
+  (CST816S NACKs while asleep - touch the screen and rescan with 'i')
+
+
+---- battery divider (GPIO5 ADC, GPIO33 EN, ratio 0.500) ----
+  EN low :    0 mV at tap (ok, divider off)
+  EN high, settle curve:
+    t= 0 ms    15 mV    0%  -> 0.030 V
+    t= 1 ms    70 mV    3%  -> 0.140 V
+    t= 2 ms   388 mV   18%  -> 0.776 V
+    t= 3 ms   683 mV   33%  -> 1.366 V
+    t= 5 ms  1108 mV   53%  -> 2.216 V
+    t= 8 ms  1516 mV   73%  -> 3.032 V
+    t=10 ms  1687 mV   81%  -> 3.374 V
+    t=15 ms  1914 mV   92%  -> 3.828 V
+    t=20 ms  2008 mV   97%  -> 4.016 V
+    t=30 ms  2058 mV   99%  -> 4.116 V
+    t=50 ms  2069 mV  100%  -> 4.138 V
+  (AuroraOS samples at t=2 ms; check that against the settled value)
+
+mac    : 28:84:85:6D:45:24
+nvs    : 0 saved network(s)
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+>>> p
+-- paused --
+>>> t 20
+wifi   : tx power cap now 20.0 dBm
+>>> j ScrubHub,<pass>
+wifi   : joining "ScrubHub" (pass 13 chars) (not in last scan, any BSSID) tx 20.0 dBm
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+Guru Meditation Error: Core  0 panic'ed (Interrupt wdt timeout on CPU0).
+ : 0x00ffffff  A8      : 0x00000000  A9      : 0x00000004
+A10     : 0x3fcf4cf8  A11     : 0x80000001  A12     : 0x80380601  A13     : 0x3fcebb40
+A14     : 0x00060023  A15     : 0x00000003  SAR     : 0x00000000  EXCCAUSE: 0x00000005
+EXCVADDR: 0x00000000  LBEG    : 0x00000000  LEND    : 0x00000000  LCOUNT  : 0x00000000
+
+
+Backtrace: 0x42085753:0x3fcf4b40 0x42014eaa:0x3fcf4b60 0x4037e7a8:0x3fcf4b80
+
+
+
+
+ELF file SHA256: 4dd4398e7eabe3ed
+
+Guru Meditation Error: Core  0 panic'ed (Interrupt wdt timeout on CPU0).
+
+Core  0 register dump:
+PC      : 0x40384c5f  PS      : 0x00020734  A0      : 0x820365f6  A1      : 0x3fcf27e0
+A2      : 0x00020723  A3      : 0xa5a5a5a5  A4      : 0x820365f6  A5      : 0x00060725
+A6      : 0xfffbfff0  A7      : 0x00000046  A8      : 0x3fc97f60  A9      : 0x00000001
+A10     : 0x60000000  A11     : 0x00000001  A12     : 0x0000000a  A13     : 0x3fcf27cc
+A14     : 0x00000001  A15     : 0x3fcf4b80  SAR     : 0x0000000a  EXCCAUSE: 0x00000005
+EXCVADDR: 0x00000000  LBEG    : 0x400570e8  LEND    : 0x400570f3  LCOUNT  : 0x00000000
+
+
+Backtrace: 0x40384c5c:0x3fcf27e0 0x420365f3:0x3fcf27f0 0x42036bf5:0x3fcf2810 0x42015c9a:0x3fcf2830 0x42015f7a:0x3fcf28a0 0x40377ed9:0x3fcf28f0 0x40377890:0x3fcf2910 0x00040022:0x3fcf29d0 |<-CORRUPTED
+
+
+Core  1 register dump:
+PC      : 0x42085756  PS      : 0x00060734  A0      : 0x82014ead  A1      : 0x3fcf4b40
+A2      : 0x00000000  A3      : 0x00000000  A4      : 0x00060420  A5      : 0x80000000
+A6      : 0x02c96920  A7      : 0x00ffffff  A8      : 0x00000000  A9      : 0x00000004
+A10     : 0x3fcf4cf8  A11     : 0x80000001  A12     : 0x80380601  A13     : 0x3fcebb40
+A14     : 0x00060023  A15     : 0x00000003  SAR     : 0x00000000  EXCCAUSE: 0x00000005
+EXCVADDR: 0x00000000  LBEG    : 0x00000000  LEND    : 0x00000000  LCOUNT  : 0x00000000
+
+
+Backtrace: 0x42085753:0x3fcf4b40 0x42014eaa:0x3fcf4b60 0x4037e7a8:0x3fcf4b80
+
+
+
+
+ELF file SHA256: 4dd4398e7eabe3ed
+
+Re-entered core dump! Exception happened during core dump!
+Rebooting...
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0xc (RTC_SW_CPU_RST),boot:0x29 (SPI_FAST_FLASH_BOOT)
+Saved PC:0x40377a78
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce3808,len:0x4bc
+load:0x403c9700,len:0xbd8
+load:0x403cc700,len:0x2a0c
+entry 0x403c98d0
+
+==== EWatch hardware reader (I2C + battery + WiFi) ====
+reset  : reason 5  <-- crashed last run
+bus    : SDA idle high, OK
+bus    : SDA=GPIO8 SCL=GPIO9 400000 Hz
+
+---- I2C scan 0x08..0x77 ----
+  0x1C  MMA8451 accel (SA0=0)  WHO_AM_I=0x1A (ok)
+  1 device(s)  | MISSING 0x52 RV-3028 RTC  | MISSING 0x15 CST816S touch
+  (CST816S NACKs while asleep - touch the screen and rescan with 'i')
+
+
+---- battery divider (GPIO5 ADC, GPIO33 EN, ratio 0.500) ----
+  EN low :    0 mV at tap (ok, divider off)
+  EN high, settle curve:
+    t= 0 ms    17 mV    0%  -> 0.034 V
+    t= 1 ms    51 mV    2%  -> 0.102 V
+    t= 2 ms   393 mV   19%  -> 0.786 V
+    t= 3 ms   683 mV   33%  -> 1.366 V
+    t= 5 ms  1108 mV   53%  -> 2.216 V
+    t= 8 ms  1516 mV   73%  -> 3.032 V
+    t=10 ms  1686 mV   81%  -> 3.372 V
+    t=15 ms  1913 mV   92%  -> 3.826 V
+    t=20 ms  2008 mV   97%  -> 4.016 V
+    t=30 ms  2053 mV   99%  -> 4.106 V
+    t=50 ms  2068 mV  100%  -> 4.136 V
+  (AuroraOS samples at t=2 ms; check that against the settled value)
+
+mac    : 28:84:85:6D:45:24
+nvs    : 0 saved network(s)
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+>>> p
+-- paused --
+>>> p
+
+==== v2.1: ScrubHub, 2026-09-28 21:31 ====
+crystal: result: +6.8 ppm -> within WiFi spec: the crystal is NOT why joins fail
+tx dBm  join     ms  RSSI  lat ms  down Mb/s  up Mb/s  after/reason
+     2    ok    603   -49                              
+     5    ok   1004   -49      79       0.67    0.03*  LINK LOST
+     8  FAIL                                           2 AUTH_EXPIRE
+    11  FAIL                                           2 AUTH_EXPIRE
+    14  FAIL                                           2 AUTH_EXPIRE
+    17 RESET                                           Guru Meditation Error: Core  0 panic'ed (Interrupt wdt timeout on CPU0).
+    20 RESET                                           Guru Meditation Error: Core  0 panic'ed (Interrupt wdt timeout on CPU0).
+(* = transfer incomplete)

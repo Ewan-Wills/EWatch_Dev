@@ -15,6 +15,7 @@
 //                       power-off gestures and the wake-from-sleep path.
 #pragma once
 #include <Arduino.h>
+#include <driver/gpio.h>
 #include "pins.h"
 
 // Pre-load HIGH on the GPIO output register, THEN enable the driver. The
@@ -25,7 +26,16 @@ static inline void latchPower() {
   pinMode(PIN_LDO_LATCH, OUTPUT);
 }
 
+// Pad-hold the latch HIGH so it survives chip resets (esptool's reset into
+// the bootloader, USB CDC resets, WDT/panic reboots); without it the rail
+// drops at every reset and flashing needs SW2 held. Called once setup() has
+// cleared any stale hold. unlatchPower() releases it before driving LOW.
+static inline void holdLatch() {
+  gpio_hold_en((gpio_num_t)PIN_LDO_LATCH);
+}
+
 static inline void unlatchPower() {
+  gpio_hold_dis((gpio_num_t)PIN_LDO_LATCH);   // a held pad ignores the write
   digitalWrite(PIN_LDO_LATCH, LOW);
 }
 

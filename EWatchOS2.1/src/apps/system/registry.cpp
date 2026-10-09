@@ -22,31 +22,17 @@
 #include "boids.h"
 #include "tunnel.h"
 #include "starfox_shooter.h"
-#include "petview.h"
 #if defined(EWATCH_ENABLE_ISLAND) && EWATCH_ENABLE_ISLAND
   #include "island.h"
 #endif
-#include "doom.h"
 #include "gallery.h"
-#if defined(EWATCH_ENABLE_SPOTIFY) && EWATCH_ENABLE_SPOTIFY && \
-    defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
-  #include "spotify.h"
-#endif
 
-View *racerViewPtr();   // games/racer_view.cpp
-View *doomViewPtr();    // games/doom_app.cpp
 
 // ---------------------------------------------------------------------------
 // Launcher tables. Sections render as dim headers above their first row.
 // ---------------------------------------------------------------------------
 static const AuraEntry kTopApps[] = {
-#if defined(EWATCH_ENABLE_SPOTIFY) && EWATCH_ENABLE_SPOTIFY && \
-    defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
-  { "Spotify",   Icon::Music,     aura::kGreen,  Screen::Spotify,     "APPS"  },
-  { "Stopwatch", Icon::Stopwatch, aura::kOrange, Screen::Stopwatch,   nullptr },
-#else
   { "Stopwatch", Icon::Stopwatch, aura::kOrange, Screen::Stopwatch,   "APPS"  },
-#endif
   { "Timer",     Icon::Timer,     aura::kTeal,   Screen::Timer,       nullptr },
   { "Bluetooth", Icon::Bluetooth, aura::kBlue,   Screen::Bluetooth,   nullptr },
 #if defined(EWATCH_ENABLE_QR) && EWATCH_ENABLE_QR
@@ -59,11 +45,8 @@ static const AuraEntry kTopApps[] = {
 #if defined(EWATCH_ENABLE_VIEWER3D) && EWATCH_ENABLE_VIEWER3D
   { "3D Viewer", Icon::Cube,      aura::kPurple, Screen::Viewer3D,    nullptr },
 #endif
-  { "Doom",      Icon::Skull,     aura::kRed,    Screen::Doom,        "GAMES" },
-  { "Tunnel",    Icon::Tunnel,    aura::kTeal,   Screen::TunnelRacer, nullptr },
+  { "Tunnel",    Icon::Tunnel,    aura::kTeal,   Screen::TunnelRacer, "GAMES" },
   { "Starfox",   Icon::Ship,      aura::kBlue,   Screen::Starfox,     nullptr },
-  { "Racer",     Icon::Car,       aura::kOrange, Screen::Racer,       nullptr },
-  { "Pet",       Icon::Paw,       aura::kPink,   Screen::Tamagotchi,  nullptr },
 #if defined(EWATCH_ENABLE_ISLAND) && EWATCH_ENABLE_ISLAND
   { "Island",    Icon::Island,    aura::kGreen,  Screen::Island,      nullptr },
 #endif
@@ -120,14 +103,9 @@ static ParticlesView vParticles;
 static BoidsView     vBoids;
 static TunnelRacerView    vTunnel;
 static StarfoxShooterView vStarfox;
-static PetView            vPet;
 static GalleryView        vGallery;
 #if defined(EWATCH_ENABLE_ISLAND) && EWATCH_ENABLE_ISLAND
 static IslandView         vIsland;
-#endif
-#if defined(EWATCH_ENABLE_SPOTIFY) && EWATCH_ENABLE_SPOTIFY && \
-    defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
-static SpotifyView        vSpotify;
 #endif
 
 View *currentView = nullptr;
@@ -172,16 +150,9 @@ View *viewFor(Screen s) {
     case Screen::Boids:           return &vBoids;
     case Screen::TunnelRacer:     return &vTunnel;
     case Screen::Starfox:         return &vStarfox;
-    case Screen::Tamagotchi:      return &vPet;
     case Screen::Gallery:         return &vGallery;
 #if defined(EWATCH_ENABLE_ISLAND) && EWATCH_ENABLE_ISLAND
     case Screen::Island:          return &vIsland;
-#endif
-    case Screen::Racer:           return racerViewPtr();
-    case Screen::Doom:            return doomViewPtr();
-#if defined(EWATCH_ENABLE_SPOTIFY) && EWATCH_ENABLE_SPOTIFY && \
-    defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
-    case Screen::Spotify:         return &vSpotify;
 #endif
     case Screen::PowerOff:        return powerOffViewPtr();
     default:                      break;

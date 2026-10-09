@@ -1,0 +1,268 @@
+>>> p
+-- paused --
+>>> w
+wifi   : active scan, tx 11.0 dBm...
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+
+---- WiFi scan ----
+   #  RSSI  qual  ch  auth    BSSID              SSID
+   1   -78   44%   8  WPA2    A2:5A:95:25:A9:80  ScrubHub   [saved]
+   2   -78   44%   8  WPA2    A2:5A:95:25:A9:81  <hidden>
+   3   -85   30%   4  WPA2/3  14:36:0E:E6:42:81  ScrubHub Edinburgh
+   4   -95   10%   8  WPA2    C2:07:1D:BC:82:C1  <hidden>
+  4 network(s)
+>>> w
+wifi   : active scan, tx 11.0 dBm...
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          jodes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=conne
+---- WiFi scan ----
+   #  RSSI  qual  ch  auth    BSSID              SSID
+   1   -78   44%   8  WPA2    A2:5A:95:25:A9:80  ScrubHub   [saved]
+   2   -78   44%   8  WPA2    A2:5A:95:25:A9:81  <hidden>
+   3   -84   32%   4  WPA2/3  14:36:0E:E6:42:81  ScrubHub Edinburgh
+   4   -88   24%   6  WPA2    B2:5C:DA:BB:EF:02  DIRECT-02-HP OfficeJet Pro 7740
+   5   -94   12%   1  WPA2    20:97:27:7B:BD:22  WAN112_2G
+  5 network(s)
+>>> x 1
+
+---- crystal check vs "ScrubHub" (row 1, ch 8, -78 dBm), 30 s ----
+   5 s:   49 beacons  our clock vs AP    +9.2 ppm
+  10 s:   98 beacons  our clock vs AP    +9.2 ppm
+  15 s:  147 beacons  our clock vs AP    +9.0 ppm
+  20 s:  196 beacons  our clock vs AP    +9.0 ppm
+  25 s:  235 beacons  our clock vs AP    +8.9 ppm
+  30 s:  280 beacons  our clock vs AP    +8.8 ppm
+  result: +8.8 ppm -> within WiFi spec: the crystal is NOT why joins fail
+>>> t 2
+wifi   : tx power cap now 2.0 dBm
+>>> j ScrubHub,<pass>
+wifi   : joining "ScrubHub" (pass 13 chars) ch 8 BSSID A2:5A:95:25:A9:80 tx 2.0 dBm
+wifi   : disconnect reason 2 AUTH_EXPIRE (never associated)
+         -> AP never answered our frames: it can't decode our TX (RF/crystal/power) - try 'm b' and 't' up/down
+wifi   : disconnect reason 2 AUTH_EXPIRE (never associated)
+         -> AP never answered our frames: it can't decode our TX (RF/crystal/power) - try 'm b' and 't' up/down
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pauwifi   : join gave up after 15 s (status 6, last reason 2 AUTH_EXPIRE)
+>>> c
+wifi   : active scan, tx 2.0 dBm...
+
+---- WiFi scan ----
+   #  RSSI  qual  ch  auth    BSSID              SSID
+   1   -75   50%   4  WPA2/3  14:36:0E:E6:42:81  ScrubHub Edinburgh
+   2   -84   32%   8  WPA2    A2:5A:95:25:A9:80  ScrubHub   [saved]
+   3   -85   30%   8  WPA2    A2:5A:95:25:A9:81  <hidden>
+   4   -92   16%   8  WPA2    C2:07:1D:BC:82:C1  <hidden>
+   5   -93   14%   8  WPA2    C2:07:1D:BC:82:C0  ScrubHub   [saved]
+   6   -93   14%   6  WPA2    B2:5C:DA:BB:EF:02  DIRECT-02-HP OfficeJet Pro 7740
+  6 network(s)
+
+wifi   : joining "ScrubHub" (pass 13 chars) ch 8 BSSID A2:5A:95:25:A9:80 tx 2.0 dBm
+wifi   : join gave up after 15 s (status 6, last reason 2 AUTH_EXPIRE)
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+>>> t 5
+wifi   : tx power cap now 5.0 dBm
+>>> j ScrubHub,<pass>
+wifi   : joining "ScrubHub" (pass 13 chars) ch 8 BSSID A2:5A:95:25:A9:80 tx 5.0 dBm
+wifi   : disconnect reason 2 AUTH_EXPIRE (never associated)
+         -> AP never answered our frames: it can't decode our TX (RF/crystal/power) - try 'm b' and 't' up/down
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+ ct saved/disconnect  n=saved list  p=pause
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+wifi   : join gave up after 15 s (status 6, last reason 2 AUTH_EXPIRE)
+>>> c
+wifi   : active scan, tx 5.0 dBm...
+
+---- WiFi scan ----
+   #  RSSI  qual  ch  auth    BSSID              SSID
+   1   -75   50%   4  WPA2/3  14:36:0E:E6:42:81  ScrubHub Edinburgh
+   2   -80   40%   8  WPA2    A2:5A:95:25:A9:80  ScrubHub   [saved]
+   3   -81   38%   8  WPA2    A2:5A:95:25:A9:81  <hidden>
+   4   -88   24%   6  WPA2    B2:5C:DA:BB:EF:02  DIRECT-02-HP OfficeJet Pro 7740
+   5   -94   12%   8  WPA2    C2:07:1D:BC:82:C0  ScrubHub   [saved]
+   6   -95   10%   8  WPA2    C2:07:1D:BC:82:C1  <hidden>
+  6 network(s)
+
+wifi   : joining "ScrubHub" (pass 13 chars) ch 8 BSSID A2:5A:95:25:A9:80 tx 5.0 dBm
+wifi   : join gave up after 15 s (status 6, last reason 2 AUTH_EXPIRE)
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+>>> t 8
+wifi   : tx power cap now 8.0 dBm
+>>> j ScrubHub,<pass>
+wifi   : joining "ScrubHub" (pass 13 chars) ch 8 BSSID A2:5A:95:25:A9:80 tx 8.0 dBm
+wifi   : disconnect reason 2 AUTH_EXPIRE (never associated)
+         -> AP never answered our frames: it can't decode our TX (RF/crystal/power) - try 'm b' and 't' up/down
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=conne
+wifi   : join gave up after 15 s (status 6, last reason 2 AUTH_EXPIRE)
+>>> c
+wifi   : active scan, tx 8.0 dBm...
+
+---- WiFi scan ----
+   #  RSSI  qual  ch  auth    BSSID              SSID
+   1   -75   50%   4  WPA2/3  14:36:0E:E6:42:81  ScrubHub Edinburgh
+   2   -80   40%   8  WPA2    A2:5A:95:25:A9:81  <hidden>
+   3   -81   38%   8  WPA2    A2:5A:95:25:A9:80  ScrubHub   [saved]
+   4   -90   20%   1  WPA2    20:97:27:7B:BD:22  WAN112_2G
+   5   -92   16%   8  WPA2    C2:07:1D:BC:82:C0  ScrubHub   [saved]
+  5 network(s)
+
+wifi   : joining "ScrubHub" (pass 13 chars) ch 8 BSSID A2:5A:95:25:A9:80 tx 8.0 dBm
+wifi   : join gave up after 15 s (status 6, last reason 2 AUTH_EXPIRE)
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+>>> t 11
+wifi   : tx power cap now 11.0 dBm
+>>> j ScrubHub,<pass>
+wifi   : joining "ScrubHub" (pass 13 chars) ch 8 BSSID A2:5A:95:25:A9:80 tx 11.0 dBm
+wifi   : disconnect reason 2 AUTH_EXPIRE (never associated)
+         -> AP never answered our frames: it can't decode our TX (RF/crystal/power) - try 'm b' and 't' up/down
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b| c=connect saved/disconnect  n=saved list  p=pause
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+wifi   : join gave up after 15 s (status 6, last reason 2 AUTH_EXPIRE)
+>>> c
+wifi   : active scan, tx 11.0 dBm...
+
+---- WiFi scan ----
+   #  RSSI  qual  ch  auth    BSSID              SSID
+   1   -73   54%   4  WPA2/3  14:36:0E:E6:42:81  ScrubHub Edinburgh
+   2   -84   32%   8  WPA2    A2:5A:95:25:A9:80  ScrubHub   [saved]
+   3   -86   28%   8  WPA2    A2:5A:95:25:A9:81  <hidden>
+   4   -87   26%   6  WPA2    B2:5C:DA:BB:EF:02  DIRECT-02-HP OfficeJet Pro 7740
+   5   -89   22%   1  WPA2    20:97:27:7B:BD:22  WAN112_2G
+  5 network(s)
+
+wifi   : joining "ScrubHub" (pass 13 chars) ch 8 BSSID A2:5A:95:25:A9:80 tx 11.0 dBm
+wifi   : join gave up after 15 s (status 6, last reason 2 AUTH_EXPIRE)
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+>>> t 14
+wifi   : tx power cap now 14.0 dBm
+>>> j ScrubHub,<pass>
+wifi   : joining "ScrubHub" (pass 13 chars) ch 8 BSSID A2:5A:95:25:A9:80 tx 14.0 dBm
+wifi   : disconnect reason 39 TIMEOUT (never associated)
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+wifi   : join gave up after 15 s (status 6, last reason 39 TIMEOUT)
+>>> c
+wifi   : active scan, tx 14.0 dBm...
+
+---- WiFi scan ----
+   #  RSSI  qual  ch  auth    BSSID              SSID
+   1   -74   52%   4  WPA2/3  14:36:0E:E6:42:81  ScrubHub Edinburgh
+   2   -81   38%   8  WPA2    A2:5A:95:25:A9:80  ScrubHub   [saved]
+   3   -84   32%   8  WPA2    A2:5A:95:25:A9:81  <hidden>
+   4   -91   18%   1  WPA2    20:97:27:7B:BD:22  WAN112_2G
+   5   -93   14%   8  WPA2    C2:07:1D:BC:82:C0  ScrubHub   [saved]
+   6   -94   12%   8  WPA2    C2:07:1D:BC:82:C1  <hidden>
+  6 network(s)
+
+wifi   : joining "ScrubHub" (pass 13 chars) ch 8 BSSID A2:5A:95:25:A9:80 tx 14.0 dBm
+wifi   : join gave up after 15 s (status 6, last reason 39 TIMEOUT)
+commands: i=I2C scan  d=dump regs  b=battery check  w=WiFi scan  wp=passive scan
+          j ssid,pass | j N,pass=join row N  t <dBm>=tx power  m b|bg|bgn=modes
+          x [N]=crystal ppm vs row N's beacons  s [MB]=speed test (connected)
+          c=connect saved/disconnect  n=saved list  p=pause
+>>> t 17
+wifi   : tx power cap now 17.0 dBm
+>>> j ScrubHub,<pass>
+wifi   : joining "ScrubHub" (pass 13 chars) ch 8 BSSID A2:5A:95:25:A9:80 tx 17.0 dBm
+wifi   : connected in 1363 ms, IP 192.168.1.105, ch 8, BSSID A2:5A:95:25:A9:80, tx power 17.0 dBm
+>>> s 2
+
+---- speed test, 2.0 MB each way, host speed.cloudflare.com ----
+  link   : RSSI -81 dBm, ch 8, tx cap 17.0 dBm, phy bgn
+[161009][E][WiFiGeneric.cpp:1583] hostByName(): DNS Failed for speed.cloudflare.com
+[161128][E][WiFiGeneric.cpp:1583] hostByName(): DNS Failed for speed.cloudflare.com
+[161218][E][WiFiGeneric.cpp:1583] hostByName(): DNS Failed for speed.cloudflare.com
+[161469][E][WiFiGeneric.cpp:1583] hostByName(): DNS Failed for speed.cloudflare.com
+[161580][E][WiFiGeneric.cpp:1583] hostByName(): DNS Failed for speed.cloudflare.com
+  latency: 0/5 connects - no internet path (DNS/gateway?)
+  result : FAIL
+>>> c
+wifi   : disconnected (scan table every 10 s)
+>>> t 20
+wifi   : tx power cap now 20.0 dBm
+>>> j ScrubHub,<pass>
+wifi   : joining "ScrubHub" (pass 13 chars) ch 8 BSSID A2:5A:95:25:A9:80 tx 20.0 dBm
+wifi   : connected in 1052 ms, IP 192.168.0.30, ch 8, BSSID A2:5A:95:25:A9:80, tx power 20.0 dBm
+>>> s 2
+
+---- speed test, 2.0 MB each way, host speed.cloudflare.com ----
+  link   : RSSI -86 dBm, ch 8, tx cap 20.0 dBm, phy bgn
+  latency: TCP connect 5/5 ok, min 34 / avg 64 / max 101 ms
+  down   : HTTP 200, 1888103 / 2000000 bytes in 30000 ms -> 0.50 Mbit/s  (INCOMPLETE)
+  up     : HTTP 200, 2000000 / 2000000 bytes in 18227 ms -> 0.88 Mbit/s
+  after  : RSSI -85 dBm, still connected
+>>> c
+wifi   : disconnected (scan table every 10 s)
+>>> p
+
+==== v2: ScrubHub, 2026-09-28 21:36 ====
+crystal: result: +8.8 ppm -> within WiFi spec: the crystal is NOT why joins fail
+tx dBm  join     ms  RSSI  lat ms  down Mb/s  up Mb/s  after/reason
+     2  FAIL                                           2 AUTH_EXPIRE
+     5  FAIL                                           2 AUTH_EXPIRE
+     8  FAIL                                           2 AUTH_EXPIRE
+    11  FAIL                                           2 AUTH_EXPIRE
+    14  FAIL                                           39 TIMEOUT
+    17    ok   1363   -81                              
+    20    ok   1052   -86      64      0.50*     0.88  still connected
+(* = transfer incomplete)

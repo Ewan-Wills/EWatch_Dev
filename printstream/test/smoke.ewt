@@ -1,0 +1,6 @@
+# printstream smoke: no printer/WiFi config -> waiting for stats, must not crash
+goto PrintStream
+expect screen PrintStream
+wait 1200
+expect noerr
+snap boot

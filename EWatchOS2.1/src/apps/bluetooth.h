@@ -8,6 +8,19 @@
 #pragma once
 #include "view.h"
 
+// Background remote service (also driven by the Control Centre).
+// Key values match the HID report bits.
+enum : uint8_t { BT_KEY_PLAYPAUSE = 1 << 0, BT_KEY_NEXT = 1 << 1, BT_KEY_PREV = 1 << 2,
+                 BT_KEY_VOLUP = 1 << 3, BT_KEY_VOLDOWN = 1 << 4, BT_KEY_MUTE = 1 << 5 };
+bool btRemoteOn();
+bool btRemoteSetOn(bool on);           // blocking (~0.3 s on); saved to NVS; false if the stack failed
+bool btRemoteConnected();
+bool btRemoteFailed();
+bool btRemoteSend(uint8_t key);        // press+release; false if not connected
+void btBegin();                        // boot: restore the saved on/off state
+class Arduino_GFX;
+void btDrawMediaGlyph(Arduino_GFX *g, uint8_t key, int16_t cx, int16_t cy, uint16_t c);
+
 class BluetoothView : public View {
 public:
   void onEnter() override;

@@ -1,0 +1,6 @@
+# Python venv (torch, ~750 MB) and regenerable training data
+tools/.venv/
+tools/data/
+tools/host/host_eval
+tools/out/smoke_finetune/
+__pycache__/
