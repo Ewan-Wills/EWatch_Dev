@@ -7,9 +7,9 @@
 # Editor state
 **/.vscode/
 # Claude Face build outputs (regenerable)
-ClaudeFace/bridge/dist/
-ClaudeFace/tools/fontconv/generated/
-ClaudeFace/tools/fontconv/instances/
+**/claudeface/bridge/dist/
+**/claudeface/tools/fontconv/generated/
+**/claudeface/tools/fontconv/instances/
 # Local keys: never committed (EWatchOS secrets/secrets.example.h explains)
 **/secrets.local.h
 **/secrets/*.local.*
