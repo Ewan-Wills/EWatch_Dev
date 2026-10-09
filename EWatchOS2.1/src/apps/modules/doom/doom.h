@@ -13,3 +13,4 @@ void doomInit();
 void doomFrame();
 // True once after the player holds the side button ~2 s in-game (exit request).
 bool doomExitRequested();
+void doomLeave();          // restore the shared canvas (portrait) for the OS

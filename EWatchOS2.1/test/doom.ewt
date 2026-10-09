@@ -1,0 +1,34 @@
+# module test: build with EW_APPS=doom
+# Doom (landscape 280x240; sim touch takes PANEL coords: logical (x,y) -> panel (239-y, x)).
+# Doom polls input once a frame (~70-90 ms): hold touches, don't use short taps.
+# Note: `goto` is ignored while Doom runs (its render() owns the loop) - exit first.
+goto Doom
+wait 800
+snap doom_title
+touch down 119 140
+wait 300
+touch up
+wait 600
+snap doom_play
+# stick (logical 62,178 -> panel 61,62): push right = strafe right
+touch down 61 62
+touch down 61 102
+wait 800
+snap doom_strafe
+touch up
+# look = tilt. ewt `tilt` takes g (not raw counts). "Level" is taken over the
+# first 0.3 s of a level, so tilt relative to the start: -y = right side down.
+tilt -0.45 -0.42 -0.8
+wait 800
+snap doom_look_right
+tilt off
+# right half = fire (logical 220,120 -> panel 119,220)
+touch down 119 220
+wait 200
+snap doom_fire
+touch up
+btn short
+wait 300
+btn hold 2400
+wait 1500
+state

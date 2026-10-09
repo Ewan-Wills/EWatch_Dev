@@ -21,6 +21,8 @@
 #include "controller.h"
 #include "ewlog.h"
 #include "doom.h"
+#include "power_mgr.h"
+#include "ewsim.h"
 
 class DoomView : public View {
 public:
@@ -30,12 +32,21 @@ public:
 
   void onEnter() override {
     controllerSuspendIo();          // game owns the I2C bus + button now
+    // render() never returns, so the render loop's per-frame clock choice was
+    // made for the PREVIOUS view (80 MHz from a watch face): ask for 240 here.
+    uint32_t mhz0 = getCpuFrequencyMhz();
+    powerPerfDemand(true);
+    uint32_t mhz1 = getCpuFrequencyMhz();
+    if (mhz1 < 240) setCpuFrequencyMhz(240);   // governor flag out of step: force it
+    EWLOGI("APP", "doom clock mhz=%u->%u->%u", (unsigned)mhz0, (unsigned)mhz1,
+           (unsigned)getCpuFrequencyMhz());
     ioSuspended = true;
     doomInit();
     EWLOGI("APP", "doom enter");
   }
 
   void onExit() override {
+    doomLeave();                    // canvas back to portrait for the OS
     resumeIoIfHeld();
     EWLOGI("APP", "doom exit");
   }
@@ -79,12 +90,13 @@ private:
   // stale in the queue, THEN hand the bus back and switch.
   void exitToLauncher() {
     uint32_t t0 = millis();
-    while (digitalRead(PIN_BTN) && millis() - t0 < 4000) {
+    while ((digitalRead(PIN_BTN) || ewsimButton()) && millis() - t0 < 4000) {
       esp_task_wdt_reset();
       delay(20);
     }
     if (eventQueue) xQueueReset(eventQueue);
     resumeIoIfHeld();
+    powerOnActivity();              // fresh idle clock: the screen mustn't blank on arrival
     switchTo(Screen::AppList);
   }
 };
