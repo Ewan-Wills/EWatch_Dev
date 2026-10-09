@@ -7,7 +7,7 @@ bar, crisp x4 pixels, optional 1080x1920 Shorts padding and a 6-frame contact
 sheet.
 
 ```bash
-cd ~/Documents/EWatch/EWatch_Firmware/ewsim_host
+cd ~/Documents/EWatch/EWatch_Firmware/tools/ewsim_host
 ./ewsimrec EWatchOS2.1 out/stopwatch.mp4 "goto Stopwatch; wait 600; tap 66 228; wait 3000; tap 66 228" --short
 ./ewsimrec EWatchOS2.1 out/tour.mp4 examples/tour.ewt --short
 ./ewsimrec ewcraft out/craft.mp4 examples/craft.ewt --short

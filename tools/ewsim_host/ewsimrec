@@ -6,9 +6,10 @@
   ewsimrec PROJECT --snap DIR "STEPS"            run steps, `snap NAME` PNGs into DIR, no video
   ewsimrec PROJECT --screens                     screen names (from the project's model.h)
 
-PROJECT = folder under ~/Documents/EWatch/EWatch_Firmware (EWatchOS2.1, ewcraft,
-flypet, stocks, ...) or a path. The project is compiled for the Mac on first use
-(build/<project>/ewsim) and rebuilt when its sources change.
+PROJECT = EWatchOS2.1 (or another EWatchOS2.1-family project path). App modules:
+set EW_APPS, e.g. EW_APPS="stocks flypet" ewsimrec EWatchOS2.1 ... The project is
+compiled for the Mac on first use (build/<project>[+modules]/ewsim) and rebuilt
+when its sources change.
 
 STEPS use the ewt language: goto NAME | tap X Y | dtap X Y | long X Y [MS] |
 drag X1 Y1 X2 Y2 [MS] | swipe u|d|l|r | btn short|long|down|up|hold MS |
@@ -78,7 +79,11 @@ def main():
     if r.returncode != 0:
         errs = [l for l in (r.stdout + r.stderr).splitlines() if "error" in l.lower() or "ewsim:" in l]
         die("build failed for " + proj + ":\n  " + "\n  ".join((errs or (r.stdout + r.stderr).splitlines())[-25:]), 2)
-    bindir = os.path.join(HERE, "build", os.path.basename(os.path.abspath(proj)) if os.path.isdir(proj) else os.path.basename(proj))
+    # the build dir depends on the module set (EW_APPS / custom_apps): ask genconfig
+    g = subprocess.run([sys.executable, os.path.join(HERE, "tools", "genconfig.py"), proj, env],
+                       capture_output=True, text=True)
+    bindir = g.stdout.strip().splitlines()[-1] if g.returncode == 0 and g.stdout.strip() else \
+        os.path.join(HERE, "build", os.path.basename(os.path.abspath(proj)) if os.path.isdir(proj) else os.path.basename(proj))
     exe = os.path.join(bindir, "ewsim")
     if not os.path.isfile(exe):
         die(f"no binary at {exe}")

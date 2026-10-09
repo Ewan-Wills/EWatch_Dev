@@ -79,7 +79,8 @@ def ini_env(proj, env):
         incs.append(os.path.join(mods, a))
         excl = [e for e in excl if e.rstrip("/") != "apps/modules"] + \
                [f"apps/modules/{m}" for m in have if m not in apps]
-    return defs, incs, excl
+    mods = sorted(dict.fromkeys(x.lower() for x in apps))
+    return defs, incs, excl, mods
 
 
 def main():
@@ -88,10 +89,14 @@ def main():
     proj = resolve_proj(sys.argv[1])
     env = sys.argv[2] if len(sys.argv) > 2 else "ewatch"
     name = os.path.basename(proj)
+    defs, incs, excl, mods = ini_env(proj, env)
+    # one build dir per module set: the OS hooks are compiled with -DEW_APP_*,
+    # so objects built without a module must never be reused with it
+    if mods:
+        name += "+" + "+".join(mods)
     B = os.path.join(HERE, "build", name)
     os.makedirs(os.path.join(B, "obj"), exist_ok=True)
     os.makedirs(os.path.join(B, "libs"), exist_ok=True)
-    defs, incs, excl = ini_env(proj, env)
     src = os.path.join(proj, "src")
     if not os.path.isfile(os.path.join(src, "core", "ewsim.cpp")):
         sys.exit(f"ewsim: {name} has no src/core/ewsim.cpp (not an EWatchOS2.1-family app with ewsim). "
