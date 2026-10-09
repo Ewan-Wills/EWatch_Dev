@@ -26,7 +26,6 @@ static const int16_t VIEW_TOP  = 0;
 // through the library's unclipped bitmap path.
 void AuraListView::buildTileCache() {
   const int T = 44;
-  if (N <= 0) return;
   if (!tileCache) {
     tileCache = (uint16_t *)heap_caps_malloc(
         (size_t)N * T * T * 2, MALLOC_CAP_SPIRAM);
@@ -70,21 +69,6 @@ void AuraListView::layout() {
   }
   contentH = y + 8;
   phys.maxScroll = contentH > H ? (contentH - H) : 0;
-}
-
-void AuraListView::setEntries(const AuraEntry *e, int n) {
-  entries = e;
-  N = n > kMaxRows ? kMaxRows : (n < 0 ? 0 : n);
-  if (tileCache) { heap_caps_free(tileCache); tileCache = nullptr; }  // N changed
-  layout();
-  if (canvas) buildTileCache();
-  if (phys.pos > phys.maxScroll) phys.pos = phys.maxScroll;
-  if (phys.pos < 0) phys.pos = 0;
-  pressed = -1;
-}
-
-void AuraListView::activate(int row) {
-  switchToAnimated(entries[row].target, Trans::PushLeft);
 }
 
 void AuraListView::onEnter() {
@@ -167,24 +151,13 @@ void AuraListView::drawFrame() {
     int16_t ix = kGutter + 10, iy = y + (kRowH - ICON_BOX) / 2;
     blitTile(i, ix, iy);
 
-    // Label at size 2, or size 1 if it would run into the chevron; an
-    // optional sub line sits under it.
-    int16_t lx = ix + ICON_BOX + 12;
-    uint8_t ls = auraTextWidth(entries[i].label, 2) <= (W - kGutter - 26) - lx ? 2 : 1;
-    int16_t lh = 8 * ls;
-    int16_t ly = entries[i].sub ? y + kRowH / 2 - lh - 1 : y + kRowH / 2 - lh / 2;
+    int16_t ly = y + kRowH / 2 - 7;
     if (ly >= 0) {                 // same top-clip rule as the title
       canvas->setFont(nullptr);
-      canvas->setTextSize(ls);
+      canvas->setTextSize(2);
       canvas->setTextColor(th.text);
-      canvas->setCursor(lx, ly);
+      canvas->setCursor(ix + ICON_BOX + 12, ly);
       canvas->print(entries[i].label);
-      if (entries[i].sub) {
-        canvas->setTextSize(1);
-        canvas->setTextColor(th.textDim);
-        canvas->setCursor(lx, ly + lh + 4);
-        canvas->print(entries[i].sub);
-      }
     }
 
     // Trailing chevron affordance.
@@ -196,7 +169,6 @@ void AuraListView::drawFrame() {
   }
 
   auraScrollbar(canvas, phys.pos, phys.maxScroll, H);
-  drawOverlay(canvas);
 }
 
 bool AuraListView::paintTo(Arduino_Canvas *cv) {
@@ -259,7 +231,7 @@ void AuraListView::render() {
     if (launchAtMs && (int32_t)(millis() - launchAtMs) >= 0) {
       int r = launchRow;
       launchAtMs = 0; launchRow = -1;
-      if (r >= 0 && r < N) activate(r);
+      if (r >= 0 && r < N) switchToAnimated(entries[r].target, Trans::PushLeft);
       return;
     }
 
@@ -305,7 +277,6 @@ void AuraListView::handleEvent(const Event &e) {
   if (launchAtMs) return;                        // mid-launch: ignore input
 
   powerOnActivity();               // in-loop drains bypass taskRender's call
-  if (interceptEvent(e)) return;   // subclass modal (e.g. a confirm dialog)
 
   switch (e.type) {
     case EventType::TimerExpired:    // countdown due mid-scroll: don't eat it
@@ -322,7 +293,6 @@ void AuraListView::handleEvent(const Event &e) {
       // positions differ from rowY[] — suppress row-arming (scroll still ok).
       pressed = entrance.done() ? hitRow(e.x, e.y) : -1;
       pressedMs = millis();
-      longFired = false;
       phys.grab(e.y);
       break;
 
@@ -335,13 +305,6 @@ void AuraListView::handleEvent(const Event &e) {
         pressed = -1;                            // moving = not a tap anymore
       }
       if (dragMode) phys.drag(e.y);
-      if (!dragMode && pressed >= 0 && !longFired && millis() - pressedMs > 650) {
-        longFired = true;            // the release must not also launch
-        int r = pressed;
-        pressed = -1;
-        phys.release();
-        longPress(r);
-      }
       break;
     }
 
@@ -363,7 +326,7 @@ void AuraListView::handleEvent(const Event &e) {
         pressed = -1;
       }
       phys.release();
-      if (!dragMode && !travelled && pressed >= 0 && !longFired) {
+      if (!dragMode && !travelled && pressed >= 0) {
         hapticBuzz(24, 30);
         launchRow  = pressed;
         launchAtMs = millis() + 110;             // one press-flash frame first

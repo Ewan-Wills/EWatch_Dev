@@ -1,9 +1,0 @@
-# module test: build with EW_APPS=screenshare
-# screenshare smoke: boots, idle (no PC frames under ewt), no errors
-# app owns Serial: keep the ewt console alive (app PC-RX path is inert under test)
-raw keepcon 1
-goto Screenshare
-expect screen Screenshare
-wait 800
-expect noerr
-snap boot

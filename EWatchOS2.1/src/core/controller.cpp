@@ -5,20 +5,10 @@
 #include "power.h"
 #include "i2c_bus.h"
 #include "touch.h"
-#if EW_APP_WAKESOAK
-#include "wake_gest.h"
-#include "wake_soak.h"
-#endif  // EW_APP_WAKESOAK
-#if EW_APP_MOUSE
-#include "btmouse.h"
-#endif  // EW_APP_MOUSE
 #include "ewsim.h"
 #include "display.h"
 #include "haptic.h"
 #include "controller.h"
-#if EW_APP_MOTION
-#include "motion_engine.h"   // motion LM: sample feed + action hook
-#endif  // EW_APP_MOTION
 #include "view.h"
 #include "event.h"
 #include "apptimer.h"
@@ -119,54 +109,6 @@ static void mmaConfigureLowPowerMotion() {
   mmaWrite(0x2C, 0x02);   // CTRL_REG3: IPOL active-high
   mmaWrite(0x2E, 0x00);   // CTRL_REG5: TRANSIENT -> INT2
   mmaWrite(0x2A, 0x21);   // CTRL_REG1: DR=50 Hz + ACTIVE
-}
-
-// Raise check (power_mgr): 200 Hz while judging a motion wake, so the wrist
-// settling is seen in ~60 ms instead of ~100+ ms at the 50 Hz sleep rate.
-// Data-rate changes need STANDBY; the rest of the config is untouched.
-void mmaSetCheckRate(bool fast) {
-  if (!mmaAddr) return;
-  mmaWrite(0x2A, 0x00);                  // STANDBY
-  if (fast) mmaWrite(0x09, 0x00);        // FIFO off: OUT regs = live sample again
-  mmaWrite(0x2A, fast ? 0x11 : 0x21);    // DR=200 Hz | DR=50 Hz, ACTIVE
-}
-
-// Raise-to-wake (power_mgr): during screen-off the MMA8451's 32-sample FIFO
-// runs in circular mode, so at a motion trigger the last ~640 ms (50 Hz) of
-// wrist movement BEFORE it can be read back. Off while awake: with the
-// FIFO on, the OUT registers return the oldest FIFO entry, not live data.
-void mmaFifoArm(bool on) {
-  if (!mmaAddr) return;
-  mmaWrite(0x2A, 0x00);                  // STANDBY (F_SETUP needs it)
-  mmaWrite(0x09, on ? 0x40 : 0x00);      // F_MODE=01 circular | off
-  mmaWrite(0x2A, 0x21);                  // 50 Hz, ACTIVE
-}
-
-// Drain the FIFO, oldest first. Returns the count (0..32).
-int mmaFifoRead(int16_t (*out)[3], int max) {
-  if (!mmaAddr) return 0;
-  Wire.beginTransmission(mmaAddr);
-  Wire.write(0x00);                      // F_STATUS
-  if (Wire.endTransmission(false) != 0) return 0;
-  if (Wire.requestFrom((int)mmaAddr, 1) != 1) return 0;
-  int cnt = Wire.read() & 0x3F;
-  if (cnt > max) cnt = max;
-  int got = 0;
-  while (got < cnt) {                    // <= 20 samples per read (Wire buffer)
-    int k = cnt - got; if (k > 20) k = 20;
-    Wire.beginTransmission(mmaAddr);
-    Wire.write(0x01);                    // OUT_X_MSB; wraps 0x06 -> 0x01 in FIFO mode
-    if (Wire.endTransmission(false) != 0) break;
-    if (Wire.requestFrom((int)mmaAddr, k * 6) != k * 6) break;
-    for (int i = 0; i < k; i++, got++) {
-      uint8_t b[6];
-      for (int j = 0; j < 6; j++) b[j] = Wire.read();
-      out[got][0] = (int16_t)((b[0] << 8) | b[1]) >> 2;
-      out[got][1] = (int16_t)((b[2] << 8) | b[3]) >> 2;
-      out[got][2] = (int16_t)((b[4] << 8) | b[5]) >> 2;
-    }
-  }
-  return got;
 }
 
 // Settings pages can't touch the I2C bus (taskIO owns it) — they raise this
@@ -343,11 +285,7 @@ static void taskIO(void *) {
       // Its release must not become a ButtonShort (on the watch face that
       // means "sleep" — it would go straight back off). A 3 s hold still
       // powers off, timed from here.
-#if EW_APP_MOUSE
-      if ((digitalRead(PIN_BTN) || ewsimButton() || mouseButton()) && !lastBtn) {
-#else
       if ((digitalRead(PIN_BTN) || ewsimButton()) && !lastBtn) {
-#endif  // EW_APP_MOUSE
         lastBtn = true; wakePress = true;
         btnDownMs = millis(); veryLongFired = false;
         { ModelLock lk; model.button = true; model.revision++; }
@@ -388,9 +326,6 @@ static void taskIO(void *) {
     uint16_t hx = 0, hy = 0;
     bool live = readTouchHeld(hx, hy);
     ewsimTouch(live, hx, hy);            // host-simulated finger (ewsim)
-#if EW_APP_MOUSE
-    mouseTouch(live, hx, hy);            // BLE mouse left button (btmouse)
-#endif  // EW_APP_MOUSE
 
     if (live && !fingerDown) {
       fingerDown = true;
@@ -417,9 +352,6 @@ static void taskIO(void *) {
     // Drain ISR-reported gestures (only — Touch state already comes from poll).
     uint16_t simGx = 0, simGy = 0;
     Gesture simG = ewsimTakeGesture(simGx, simGy);   // host-simulated (ewsim)
-#if EW_APP_MOUSE
-    if (simG == Gesture::None) simG = mouseTakeGesture(simGx, simGy);   // BLE mouse
-#endif  // EW_APP_MOUSE
     if (touchPending || simG != Gesture::None) {
       touchPending = false;
       if (simG != Gesture::None) {
@@ -448,17 +380,7 @@ static void taskIO(void *) {
               // Suppressed in the 3D viewer (drag-to-rotate) and Starfox
               // (swipe-right = barrel roll — converting it ejected the player
               // mid-run).
-#if EW_APP_MOTION
-              // Motion LM: swipe-right is a motion token there (L-R-L, tap-tap-R).
-              if (scr == Screen::Motion) {
-                Event ge = makeEvent(EventType::Gesture);
-                ge.x = touchpad.data.x;
-                ge.y = touchpad.data.y;
-                ge.gesture = g;
-                postEvent(ge);
-              } else
-#endif  // EW_APP_MOTION
-              if (scr != Screen::Viewer3D && scr != Screen::Starfox) {
+              if (scr != Screen::Viewer3D && scr != Screen::Starfox && scr != Screen::Craft) {
                 Event back = makeEvent(EventType::ButtonShort);
                 postEvent(back);
               }
@@ -476,11 +398,7 @@ static void taskIO(void *) {
     }
 
     // ---- Button (GPIO, no Wire) ----
-#if EW_APP_MOUSE
-    bool btn = digitalRead(PIN_BTN) || ewsimButton() || mouseButton();
-#else
     bool btn = digitalRead(PIN_BTN) || ewsimButton();
-#endif  // EW_APP_MOUSE
     if (btn != lastBtn) {
       if (btn) {
         btnDownMs = millis();
@@ -509,12 +427,6 @@ static void taskIO(void *) {
     // ---- Accel + shake (Wire) ----
     int16_t ax = 0, ay = 0, az = 0;
     bool accOk = readAccel(ax, ay, az);
-#if EW_APP_MOTION
-    motionFeedSample(accOk, ax, ay, az); // motion LM engine (no-op unless running)
-#endif  // EW_APP_MOTION
-#if EW_APP_WAKESOAK
-    if (accOk) gestFeed(ax, ay, az);     // wake soak trace: ~1 s after a wake
-#endif  // EW_APP_WAKESOAK
     ewsimAccel(accOk, ax, ay, az);       // host tilt/shake override (ewsim)
     if (accOk) {
       uint32_t d = (uint32_t)abs(ax - pax) + abs(ay - pay) + abs(az - paz);
@@ -668,9 +580,6 @@ static void taskRender(void *) {
     // views are also the only thing that justifies 240 MHz.
     uint16_t frameMs = currentView ? currentView->desiredFrameMs() : 0;
     uint32_t waitMs  = frameMs > 0 ? (frameMs < 50 ? frameMs : 50) : 50;
-#if EW_APP_MOUSE
-    if (mouseCursorActive() && waitMs > 16) waitMs = 16;   // cursor at ~60 Hz
-#endif  // EW_APP_MOUSE
     powerPerfDemand(frameMs > 0 && frameMs <= 66);
 
     Event e;
@@ -695,18 +604,6 @@ static void taskRender(void *) {
     // Host-requested screen jump (ewsim `goto`), on the render task.
     int simGoto = ewsimTakeGoto();
     if (simGoto >= 0) { powerOnActivity(); switchTo((Screen)simGoto); }
-#if EW_APP_MOTION
-    motionServiceRender();               // motion LM: run a recognised gesture's action
-#endif  // EW_APP_MOTION
-#if EW_APP_WAKESOAK
-    if (soakTakeGoto()) { powerOnActivity(); switchTo(Screen::WakeSoak); }   // `soak test`
-    gestPoll();                          // write a finished wake trace (flash)
-#endif  // EW_APP_WAKESOAK
-#if EW_APP_MOUSE
-    int mouseGoto = mouseTakeGoto();       // middle click = home
-    if (mouseGoto >= 0) { powerOnActivity(); switchTo((Screen)mouseGoto); }
-    if (mouseTakeActivity()) powerOnActivity();   // pointer movement keeps the screen awake
-#endif  // EW_APP_MOUSE
 
     // Power manager owns the idle progression (ACTIVE -> IDLE dim ->
     // screensaver -> SCREEN_OFF light sleep -> DEEP). This call can block
@@ -723,9 +620,6 @@ static void taskRender(void *) {
       lastRender = millis();
       lastSeenRev = rev;
     }
-#if EW_APP_MOUSE
-    mouseCursorPaint();                    // overlay after the view drew (btmouse)
-#endif  // EW_APP_MOUSE
   }
 }
 
@@ -805,9 +699,7 @@ void enterDeepSleep() {
     wkTouch  = model.wakeOnTouch;
     wkBtn    = model.wakeOnButton;
     wkImu    = model.wakeOnImu;
-    // Deep sleep -> full LDO power-off after the power manager's T_DEEP
-    // minutes ("Sleep -> power off" now times screen-off -> deep sleep).
-    toOffSec = (uint16_t)(powerConfig().deepMin * 60u);
+    toOffSec = model.sleepToOffSec;
     rtcH = model.hour; rtcM = model.minute; rtcS = model.second;
     rtcDay = model.day; rtcMon = model.month; rtcYear = model.year;
     rtcOk = model.rtcOk; }
@@ -864,10 +756,6 @@ void enterDeepSleep() {
 
   // Settle: wait for the user's finger to lift and the INT lines to deassert.
   vTaskDelay(pdMS_TO_TICKS(300));
-
-  // Only the sources armed below may wake us: drop anything a caller left
-  // armed (the light-sleep GPIO wake set rebooted the watch every minute).
-  esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
 
   // CST816S touch INT is active-low -> ext0 with level=0.
   if (wkTouch) {

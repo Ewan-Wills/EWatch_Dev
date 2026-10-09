@@ -1,6 +1,0 @@
-# module test: build with EW_APPS=usbhost
-# usbhost: enter the scanner; host window opens 1.5 s later
-goto UsbHost
-expect screen UsbHost
-expect noerr
-snap enter

@@ -17,83 +17,31 @@
 #endif
 #include "stopwatch.h"
 #include "timer_app.h"
-#include "bluetooth.h"
-#if EW_APP_BOOKS
-#include "bookreader.h"
-#endif  // EW_APP_BOOKS
-#if EW_APP_MOUSE
-#include "btmouse.h"
-#endif  // EW_APP_MOUSE
-#if EW_APP_USBHOST
-#include "usbhost.h"
-#endif  // EW_APP_USBHOST
-#if EW_APP_MOTION
-#include "motion_view.h"
-#endif  // EW_APP_MOTION
-#if EW_APP_WRITE
-#include "write_view.h"
-#endif  // EW_APP_WRITE
-#if EW_APP_BLECONTROLS
-#include "blecontrols.h"
-#endif  // EW_APP_BLECONTROLS
-#if EW_APP_SCREENSHARE
-#include "screenshare.h"
-#endif  // EW_APP_SCREENSHARE
-#if EW_APP_HIDCTL
-#include "hidctl.h"
-#endif  // EW_APP_HIDCTL
-#if EW_APP_FLYPET
-#include "flypet.h"
-#endif  // EW_APP_FLYPET
-#if EW_APP_LLMTERM
-#include "llmterm.h"
-#endif  // EW_APP_LLMTERM
-#if EW_APP_MACROPAD
-#include "macropad.h"
-#endif  // EW_APP_MACROPAD
-#if EW_APP_PRINTSTREAM
-#include "printstream.h"
-#endif  // EW_APP_PRINTSTREAM
-#if EW_APP_HOMEASSISTANT
-#include "homeassistant.h"
-#endif  // EW_APP_HOMEASSISTANT
-#if EW_APP_STOCKS
-#include "stocks.h"
-#endif  // EW_APP_STOCKS
-#if EW_APP_WAKESOAK
-#include "wake_soak.h"
-#endif  // EW_APP_WAKESOAK
+#include "craft.h"
+#include "xbox_pad.h"
 #include "particles.h"
 #include "boids.h"
 #include "tunnel.h"
 #include "starfox_shooter.h"
-#if EW_APP_PET
 #include "petview.h"
-#endif  // EW_APP_PET
 #if defined(EWATCH_ENABLE_ISLAND) && EWATCH_ENABLE_ISLAND
   #include "island.h"
 #endif
-#if EW_APP_DOOM
 #include "doom.h"
-#endif  // EW_APP_DOOM
 #include "gallery.h"
-#if defined(EW_APP_SPOTIFY) && EW_APP_SPOTIFY && \
+#if defined(EWATCH_ENABLE_SPOTIFY) && EWATCH_ENABLE_SPOTIFY && \
     defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
   #include "spotify.h"
 #endif
 
-#if EW_APP_RACER
 View *racerViewPtr();   // games/racer_view.cpp
-#endif  // EW_APP_RACER
-#if EW_APP_DOOM
 View *doomViewPtr();    // games/doom_app.cpp
-#endif  // EW_APP_DOOM
 
 // ---------------------------------------------------------------------------
 // Launcher tables. Sections render as dim headers above their first row.
 // ---------------------------------------------------------------------------
 static const AuraEntry kTopApps[] = {
-#if defined(EW_APP_SPOTIFY) && EW_APP_SPOTIFY && \
+#if defined(EWATCH_ENABLE_SPOTIFY) && EWATCH_ENABLE_SPOTIFY && \
     defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
   { "Spotify",   Icon::Music,     aura::kGreen,  Screen::Spotify,     "APPS"  },
   { "Stopwatch", Icon::Stopwatch, aura::kOrange, Screen::Stopwatch,   nullptr },
@@ -101,52 +49,8 @@ static const AuraEntry kTopApps[] = {
   { "Stopwatch", Icon::Stopwatch, aura::kOrange, Screen::Stopwatch,   "APPS"  },
 #endif
   { "Timer",     Icon::Timer,     aura::kTeal,   Screen::Timer,       nullptr },
-  { "Bluetooth", Icon::Bluetooth, aura::kBlue,   Screen::Bluetooth,   nullptr },
-#if EW_APP_BOOKS
-  { "Books",     Icon::Book,      aura::kOrange, Screen::BookLibrary, nullptr },
-#endif  // EW_APP_BOOKS
-#if EW_APP_MOUSE
-  { "Mouse",     Icon::Bluetooth, aura::kPurple, Screen::Mouse,       nullptr },
-#endif  // EW_APP_MOUSE
-#if EW_APP_USBHOST
-  { "USB Host",  Icon::Bluetooth, aura::kOrange, Screen::UsbHost,     nullptr },
-#endif  // EW_APP_USBHOST
-#if EW_APP_MOTION
-  { "Motion LM", Icon::Memory,    aura::kPurple, Screen::Motion,      nullptr },
-#endif  // EW_APP_MOTION
-#if EW_APP_WRITE
-  { "Write",     Icon::Pen,       aura::kYellow, Screen::Write,       nullptr },
-#endif  // EW_APP_WRITE
-#if EW_APP_BLECONTROLS
-  { "Controls",  Icon::Bluetooth, aura::kTeal,   Screen::BleControls, nullptr },
-#endif  // EW_APP_BLECONTROLS
-#if EW_APP_SCREENSHARE
-  { "Screenshare", Icon::Photo,   aura::kTeal,   Screen::Screenshare, nullptr },
-#endif  // EW_APP_SCREENSHARE
-#if EW_APP_HIDCTL
-  { "Notes",     Icon::Memory,    aura::kBlue,   Screen::HidCtl,      nullptr },
-#endif  // EW_APP_HIDCTL
-#if EW_APP_FLYPET
-  { "FlyPet",    Icon::Bird,      aura::kPurple, Screen::FlyPet,      nullptr },
-#endif  // EW_APP_FLYPET
-#if EW_APP_LLMTERM
-  { "LLM Term",  Icon::Memory,    aura::kBlue,   Screen::LlmTerm,     nullptr },
-#endif  // EW_APP_LLMTERM
-#if EW_APP_MACROPAD
-  { "Macropad",  Icon::Memory,    aura::kPurple, Screen::Macropad,    nullptr },
-#endif  // EW_APP_MACROPAD
-#if EW_APP_PRINTSTREAM
-  { "Printer",   Icon::Cube,      aura::kOrange, Screen::PrintStream, nullptr },
-#endif  // EW_APP_PRINTSTREAM
-#if EW_APP_HOMEASSISTANT
-  { "Home",      Icon::Sun,       aura::kYellow, Screen::HomeAssistant, nullptr },
-#endif  // EW_APP_HOMEASSISTANT
-#if EW_APP_STOCKS
-  { "Stocks",    Icon::Sparkle,   aura::kGreen,  Screen::Stocks,      nullptr },
-#endif  // EW_APP_STOCKS
-#if EW_APP_WAKESOAK
-  { "Wake Soak", Icon::Info,      aura::kOrange, Screen::WakeSoak,    nullptr },
-#endif  // EW_APP_WAKESOAK
+  { "Craft",     Icon::Cube,      aura::kGreen,  Screen::Craft,       nullptr },
+  { "Xbox Pad",  Icon::Bluetooth, aura::kGreen,  Screen::Pad,         nullptr },
 #if defined(EWATCH_ENABLE_QR) && EWATCH_ENABLE_QR
   { "QR Share",  Icon::QR,        aura::kBlue,   Screen::QRCode,      nullptr },
 #endif
@@ -157,19 +61,11 @@ static const AuraEntry kTopApps[] = {
 #if defined(EWATCH_ENABLE_VIEWER3D) && EWATCH_ENABLE_VIEWER3D
   { "3D Viewer", Icon::Cube,      aura::kPurple, Screen::Viewer3D,    nullptr },
 #endif
-#if EW_APP_DOOM
   { "Doom",      Icon::Skull,     aura::kRed,    Screen::Doom,        "GAMES" },
   { "Tunnel",    Icon::Tunnel,    aura::kTeal,   Screen::TunnelRacer, nullptr },
-#else
-  { "Tunnel",    Icon::Tunnel,    aura::kTeal,   Screen::TunnelRacer, "GAMES" },
-#endif  // EW_APP_DOOM
   { "Starfox",   Icon::Ship,      aura::kBlue,   Screen::Starfox,     nullptr },
-#if EW_APP_RACER
   { "Racer",     Icon::Car,       aura::kOrange, Screen::Racer,       nullptr },
-#endif  // EW_APP_RACER
-#if EW_APP_PET
   { "Pet",       Icon::Paw,       aura::kPink,   Screen::Tamagotchi,  nullptr },
-#endif  // EW_APP_PET
 #if defined(EWATCH_ENABLE_ISLAND) && EWATCH_ENABLE_ISLAND
   { "Island",    Icon::Island,    aura::kGreen,  Screen::Island,      nullptr },
 #endif
@@ -221,62 +117,18 @@ static QRCodeView vQRCode;
 #endif
 static StopwatchView vStopwatch;
 static TimerView     vTimer;
-static BluetoothView vBluetooth;
-#if EW_APP_BOOKS
-static LibraryView        vBookLibrary;
-static ReaderView         vBookReader;
-#endif  // EW_APP_BOOKS
-#if EW_APP_MOUSE
-static MouseView vMouse;
-#endif  // EW_APP_MOUSE
-#if EW_APP_USBHOST
-static UsbHostView vUsbHost;
-#endif  // EW_APP_USBHOST
-#if EW_APP_WRITE
-static WriteView vWrite;
-#endif  // EW_APP_WRITE
-#if EW_APP_BLECONTROLS
-static BleControlsView vBleControls;
-#endif  // EW_APP_BLECONTROLS
-#if EW_APP_SCREENSHARE
-static ScreenshareView    vScreenshare;
-#endif  // EW_APP_SCREENSHARE
-#if EW_APP_HIDCTL
-static HidCtlView         vHidCtl;
-#endif  // EW_APP_HIDCTL
-#if EW_APP_FLYPET
-static FlyPetView         vFlyPet;
-#endif  // EW_APP_FLYPET
-#if EW_APP_LLMTERM
-static LlmTermView        vLlmTerm;
-#endif  // EW_APP_LLMTERM
-#if EW_APP_MACROPAD
-static MacropadView       vMacropad;
-#endif  // EW_APP_MACROPAD
-#if EW_APP_PRINTSTREAM
-static PrintStreamView    vPrintStream;
-#endif  // EW_APP_PRINTSTREAM
-#if EW_APP_HOMEASSISTANT
-static HomeAssistantView  vHomeAssistant;
-#endif  // EW_APP_HOMEASSISTANT
-#if EW_APP_STOCKS
-static StocksView         vStocks;
-#endif  // EW_APP_STOCKS
-#if EW_APP_WAKESOAK
-static WakeSoakView vWakeSoak;
-#endif  // EW_APP_WAKESOAK
+static CraftView vCraft;
+static PadView vPad;
 static ParticlesView vParticles;
 static BoidsView     vBoids;
 static TunnelRacerView    vTunnel;
 static StarfoxShooterView vStarfox;
-#if EW_APP_PET
 static PetView            vPet;
-#endif  // EW_APP_PET
 static GalleryView        vGallery;
 #if defined(EWATCH_ENABLE_ISLAND) && EWATCH_ENABLE_ISLAND
 static IslandView         vIsland;
 #endif
-#if defined(EW_APP_SPOTIFY) && EW_APP_SPOTIFY && \
+#if defined(EWATCH_ENABLE_SPOTIFY) && EWATCH_ENABLE_SPOTIFY && \
     defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
 static SpotifyView        vSpotify;
 #endif
@@ -318,71 +170,20 @@ View *viewFor(Screen s) {
 #endif
     case Screen::Stopwatch:       return &vStopwatch;
     case Screen::Timer:           return &vTimer;
-    case Screen::Bluetooth:       return &vBluetooth;
-#if EW_APP_BOOKS
-    case Screen::BookLibrary:     return &vBookLibrary;
-    case Screen::BookReader:      return &vBookReader;
-#endif  // EW_APP_BOOKS
-#if EW_APP_MOUSE
-    case Screen::Mouse:           return &vMouse;
-#endif  // EW_APP_MOUSE
-#if EW_APP_USBHOST
-    case Screen::UsbHost:         return &vUsbHost;
-#endif  // EW_APP_USBHOST
-#if EW_APP_MOTION
-    case Screen::Motion:          return motionViewPtr();
-#endif  // EW_APP_MOTION
-#if EW_APP_WRITE
-    case Screen::Write:           return &vWrite;
-#endif  // EW_APP_WRITE
-#if EW_APP_BLECONTROLS
-    case Screen::BleControls:     return &vBleControls;
-#endif  // EW_APP_BLECONTROLS
-#if EW_APP_SCREENSHARE
-    case Screen::Screenshare:     return &vScreenshare;
-#endif  // EW_APP_SCREENSHARE
-#if EW_APP_HIDCTL
-    case Screen::HidCtl:          return &vHidCtl;
-#endif  // EW_APP_HIDCTL
-#if EW_APP_FLYPET
-    case Screen::FlyPet:          return &vFlyPet;
-#endif  // EW_APP_FLYPET
-#if EW_APP_LLMTERM
-    case Screen::LlmTerm:         return &vLlmTerm;
-#endif  // EW_APP_LLMTERM
-#if EW_APP_MACROPAD
-    case Screen::Macropad:        return &vMacropad;
-#endif  // EW_APP_MACROPAD
-#if EW_APP_PRINTSTREAM
-    case Screen::PrintStream:     return &vPrintStream;
-#endif  // EW_APP_PRINTSTREAM
-#if EW_APP_HOMEASSISTANT
-    case Screen::HomeAssistant:   return &vHomeAssistant;
-#endif  // EW_APP_HOMEASSISTANT
-#if EW_APP_STOCKS
-    case Screen::Stocks:          return &vStocks;
-#endif  // EW_APP_STOCKS
-#if EW_APP_WAKESOAK
-    case Screen::WakeSoak:        return &vWakeSoak;
-#endif  // EW_APP_WAKESOAK
+    case Screen::Craft:           return &vCraft;
+    case Screen::Pad:             return &vPad;
     case Screen::Particles:       return &vParticles;
     case Screen::Boids:           return &vBoids;
     case Screen::TunnelRacer:     return &vTunnel;
     case Screen::Starfox:         return &vStarfox;
-#if EW_APP_PET
     case Screen::Tamagotchi:      return &vPet;
-#endif  // EW_APP_PET
     case Screen::Gallery:         return &vGallery;
 #if defined(EWATCH_ENABLE_ISLAND) && EWATCH_ENABLE_ISLAND
     case Screen::Island:          return &vIsland;
 #endif
-#if EW_APP_RACER
     case Screen::Racer:           return racerViewPtr();
-#endif  // EW_APP_RACER
-#if EW_APP_DOOM
     case Screen::Doom:            return doomViewPtr();
-#endif  // EW_APP_DOOM
-#if defined(EW_APP_SPOTIFY) && EW_APP_SPOTIFY && \
+#if defined(EWATCH_ENABLE_SPOTIFY) && EWATCH_ENABLE_SPOTIFY && \
     defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
     case Screen::Spotify:         return &vSpotify;
 #endif

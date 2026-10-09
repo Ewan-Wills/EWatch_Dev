@@ -52,7 +52,7 @@ static const int kW = 240, kH = 280, kRowOff = 20;
 static uint16_t *sShadow = nullptr;      // kW*kH RGB565, PSRAM
 static volatile uint32_t sPxCount = 0;   // pixels pushed to the panel
 static volatile int64_t  sLastBusUs = 0; // last pixel write (recorder waits for a quiet bus)
-static volatile bool     sTapPaused = false;   // overlay (cursor) pixels skip the shadow
+static volatile bool     sTapPaused = false;
 
 class TapSPI : public Arduino_ESP32SPI {
 public:
@@ -101,6 +101,8 @@ public:
     Arduino_ESP32SPI::writePixels(data, len);
   }
   void writeBytes(uint8_t *data, uint32_t len) override {
+    if (sTapPaused) { if (streaming) { sPxCount += len >> 1; sLastBusUs = esp_timer_get_time(); } Arduino_ESP32SPI::writeBytes(data, len); return; }
+    if (streaming && !half && !(len & 1)) { pushBytesBE(data, len >> 1); Arduino_ESP32SPI::writeBytes(data, len); return; }
     if (streaming) for (uint32_t i = 0; i < len; i++) {
       if (half) { push((uint16_t)((hi << 8) | data[i])); half = false; }
       else { hi = data[i]; half = true; }
@@ -127,7 +129,6 @@ private:
     if (cx > x1) { cx = x0; cy++; }
   }
   inline void push(uint16_t p) {
-    if (sTapPaused) { advance(1); return; }
     sPxCount++;
     int sy = (int)cy - kRowOff;
     if (sShadow && cx < kW && sy >= 0 && sy < kH) sShadow[sy * kW + cx] = p;
@@ -135,7 +136,6 @@ private:
   }
   // Row-run fast paths: fill/copy up to the end of the current window row.
   void pushRepeat(uint16_t p, uint32_t len) {
-    if (sTapPaused) { while (len) { uint32_t run = (uint32_t)(x1 - cx + 1); if (run > len) run = len; len -= run; advance(run); } return; }
     sPxCount += len;
     sLastBusUs = esp_timer_get_time();
     while (len) {
@@ -152,8 +152,26 @@ private:
       advance(run);
     }
   }
+  // Wire-order (big-endian) pixel stream, e.g. draw16bitBeRGBBitmap: row runs
+  // with a byte swap instead of one push() per byte.
+  void pushBytesBE(const uint8_t *d, uint32_t len) {
+    sPxCount += len;
+    sLastBusUs = esp_timer_get_time();
+    while (len) {
+      uint32_t run = (uint32_t)(x1 - cx + 1);
+      if (run > len) run = len;
+      int sy = (int)cy - kRowOff;
+      if (sShadow && sy >= 0 && sy < kH && cx < kW) {
+        uint32_t n = run;
+        if (cx + n > (uint32_t)kW) n = kW - cx;
+        uint16_t *dst = &sShadow[sy * kW + cx];
+        for (uint32_t i = 0; i < n; i++) dst[i] = (uint16_t)((d[2 * i] << 8) | d[2 * i + 1]);
+      }
+      d += run * 2; len -= run;
+      advance(run);
+    }
+  }
   void pushPixels(const uint16_t *d, uint32_t len) {
-    if (sTapPaused) { while (len) { uint32_t run = (uint32_t)(x1 - cx + 1); if (run > len) run = len; len -= run; advance(run); } return; }
     sPxCount += len;
     sLastBusUs = esp_timer_get_time();
     while (len) {
@@ -171,9 +189,7 @@ private:
   }
 };
 
-const uint16_t *ewsimShadow() { return sShadow; }
-uint32_t ewsimPxCount() { return sPxCount; }
-void ewsimTapPause(bool paused) { sTapPaused = paused; }
+void ewsimTapPause(bool p) { sTapPaused = p; }
 
 Arduino_DataBus *ewsimMakeBus(int8_t dc, int8_t cs, int8_t sck, int8_t mosi,
                               int8_t miso, uint8_t spiNum) {
@@ -308,8 +324,14 @@ static const char *pwrName() {
 
 // ---- snapshot: binary chunks, each one Serial.write (atomic vs log lines) --
 //   A5 5A <len u16 LE> <len bytes> <sum16 LE of the bytes>
+static volatile bool sStreaming = false;   // snap in progress (heavy views pause)
+bool ewsimStreaming() { return sStreaming; }
+
+struct StreamFlag { StreamFlag() { sStreaming = true; delay(60); } ~StreamFlag() { sStreaming = false; } };
+
 static void cmdSnap(const char *seq) {
   if (!sShadow) { Serial.printf("S:%s ERR no shadow (psram)\n", seq); return; }
+  StreamFlag busy;                               // lets a busy view (Craft) go quiet first
   const size_t total = kW * kH * 2;
   uint8_t *copy = (uint8_t *)ps_malloc(total);   // consistent frame
   if (!copy) { Serial.printf("S:%s ERR no mem\n", seq); return; }

@@ -2,9 +2,8 @@
 //
 // A sheet of quick controls, Apple-style:
 //   * brightness slider (live, persists on release)
-//   * WiFi toggle   * Bluetooth (media remote) toggle
-//   * silent-mode toggle (haptics off)   * torch tile   * settings shortcut
-//   * while Bluetooth is on: prev / play-pause / next row at the top
+//   * WiFi toggle   * silent-mode toggle (haptics off)
+//   * torch tile    * settings shortcut
 //   * battery readout across the top
 // The sheet is taller than the screen: drag or fling to scroll (same
 // physics as the menu lists). Swipe up dismisses when the swipe starts with
@@ -25,7 +24,6 @@
 #include "wifi_svc.h"
 #include "power_mgr.h"
 #include "system_views.h"
-#include "bluetooth.h"
 
 using namespace aura;
 
@@ -42,7 +40,7 @@ public:
     // begins with a fresh Touch, which re-arms).
     swiped = true;
     phys.pos = 0; phys.velocity = 0; phys.release();
-    relayout();
+    phys.maxScroll = CONTENT_H > H ? (float)(CONTENT_H - H) : 0.0f;
     entrance.start(18, 0, 220, easeOutCubic);
   }
 
@@ -100,26 +98,12 @@ private:
   float    posAtDown = 0;           // scroll offset when the finger landed
   uint32_t downMs = 0;
 
-  // Layout (content coordinates). `off` pushes everything below the header
-  // down while the Bluetooth media row is showing.
+  // Layout (content coordinates).
   static const int16_t SLIDER_X = 24, SLIDER_Y = 96, SLIDER_W = W - 48;
   static const int16_t TILE = 92, TGAP = 16;
-  static const int16_t ROW1 = 136;
-  static const int     NROWS = 3;                    // 5 tiles: 2 + 2 + 1
-  static const int16_t MEDIA_Y = 70, MEDIA_H = 54, MEDIA_W = 64, MEDIA_GAP = 10;
-  static const int16_t MEDIA_OFF = MEDIA_H + 14;
-  int16_t off = 0;
-
-  int16_t rowY(int row) const { return ROW1 + off + row * (TILE + TGAP); }
-  int16_t contentH() const { return rowY(NROWS - 1) + TILE + 16; }
-  void relayout() {
-    off = btRemoteOn() ? MEDIA_OFF : 0;
-    phys.maxScroll = contentH() > H ? (float)(contentH() - H) : 0.0f;
-    if (phys.pos > phys.maxScroll) phys.pos = phys.maxScroll;
-  }
-  int16_t mediaX(int i) const { return (W - 3 * MEDIA_W - 2 * MEDIA_GAP) / 2 + i * (MEDIA_W + MEDIA_GAP); }
-  static uint8_t mediaKey(int i) { return i == 0 ? BT_KEY_PREV : i == 1 ? BT_KEY_PLAYPAUSE : BT_KEY_NEXT; }
-  int8_t pressedMedia = -1;         // flash the tapped media button for one frame
+  static const int16_t ROW1 = 136, ROW2 = ROW1 + TILE + TGAP;
+  // The second tile row ends at 336 px, past the 280 px screen: scroll.
+  static const int16_t CONTENT_H = ROW2 + TILE + 16;
 
   int16_t scrollY() const { return (int16_t)phys.pos; }
 
@@ -135,7 +119,7 @@ private:
   void drawTile(int col, int row, Icon ic, const char *label, bool active,
                 uint16_t activeColor, const AuraTheme &th) {
     int16_t x = (W - 2 * TILE - TGAP) / 2 + col * (TILE + TGAP);
-    int16_t y = rowY(row) - scrollY();
+    int16_t y = (row == 0 ? ROW1 : ROW2) - scrollY();
     auraCard(canvas, x, y, TILE, TILE, kRadius, active ? activeColor : th.card);
     drawIcon(canvas, ic, x + TILE / 2, y + TILE / 2 - 10, 34,
              active ? kText : th.textDim, active ? activeColor : th.card);
@@ -169,55 +153,31 @@ private:
     }
     canvas->setTextSize(1);
     canvas->setTextColor(th.textDim);
-    bool btOn = btRemoteOn();
-    if (btOn) {
-      bool conn = btRemoteConnected();
-      canvas->fillCircle(W - 92, 43 + (int16_t)rise, 4, conn ? kGreen : kOrange);
-      canvas->setCursor(W - 84, 40 + (int16_t)rise);
-      canvas->print(conn ? "Connected" : "Not paired");
-    } else {
-      canvas->setCursor(W - 84, 40 + (int16_t)rise);
-      canvas->print("Control");
-    }
-
-    // Media row (Bluetooth remote): prev / play-pause / next.
-    if (btOn) {
-      bool conn = btRemoteConnected();
-      for (int i = 0; i < 3; i++) {
-        int16_t x = mediaX(i), y = MEDIA_Y - sy + (int16_t)rise;
-        uint16_t fill = pressedMedia == i ? th.accent : th.card;
-        auraCard(canvas, x, y, MEDIA_W, MEDIA_H, kRadius, fill);
-        btDrawMediaGlyph(canvas, mediaKey(i), x + MEDIA_W / 2, y + MEDIA_H / 2,
-                         conn || pressedMedia == i ? kText : th.textDim);
-      }
-      pressedMedia = -1;
-    }
+    canvas->setCursor(W - 84, 40 + (int16_t)rise);
+    canvas->print("Control");
 
     // Brightness slider with sun icons.
-    drawIcon(canvas, Icon::Sun, SLIDER_X - 6, SLIDER_Y + off + 3 - sy, 14, th.textDim, th.bg);
-    auraSlider(canvas, SLIDER_X + 12, SLIDER_Y + off - sy, SLIDER_W - 24,
+    drawIcon(canvas, Icon::Sun, SLIDER_X - 6, SLIDER_Y + 3 - sy, 14, th.textDim, th.bg);
+    auraSlider(canvas, SLIDER_X + 12, SLIDER_Y - sy, SLIDER_W - 24,
                bright / 255.0f, th.accent);
-    drawIcon(canvas, Icon::Sun, SLIDER_X + SLIDER_W + 4, SLIDER_Y + off + 3 - sy, 22, th.text, th.bg);
+    drawIcon(canvas, Icon::Sun, SLIDER_X + SLIDER_W + 4, SLIDER_Y + 3 - sy, 22, th.text, th.bg);
 
     // Tiles.
     drawTile(0, 0, Icon::Wifi,  wifiOn ? "WiFi on" : "WiFi",
              wifiOn, kBlue, th);
-    drawTile(1, 0, Icon::Bluetooth, btOn ? "BT on" : "Bluetooth",
-             btOn, kBlue, th);
-    drawTile(0, 1, Icon::Vibrate, hstr ? "Haptics" : "Silent",
+    drawTile(1, 0, Icon::Vibrate, hstr ? "Haptics" : "Silent",
              hstr == 0, kPurple, th);
-    drawTile(1, 1, Icon::Torch, "Torch", false, th.card, th);
-    drawTile(0, 2, Icon::Gear,  "Settings", false, th.card, th);
+    drawTile(0, 1, Icon::Torch, "Torch", false, th.card, th);
+    drawTile(1, 1, Icon::Gear,  "Settings", false, th.card, th);
     auraScrollbar(canvas, phys.pos, phys.maxScroll, H);
   }
 
   int tileAt(int16_t x, int16_t y) {
     y += scrollY();                          // screen -> content
-    for (int row = 0; row < NROWS; row++)
+    for (int row = 0; row < 2; row++)
       for (int col = 0; col < 2; col++) {
-        if (row * 2 + col > 4) continue;           // 5 tiles
         int16_t tx = (W - 2 * TILE - TGAP) / 2 + col * (TILE + TGAP);
-        int16_t ty = rowY(row);
+        int16_t ty = (row == 0 ? ROW1 : ROW2);
         if (x >= tx && x < tx + TILE && y >= ty && y < ty + TILE)
           return row * 2 + col;
       }
@@ -250,7 +210,7 @@ private:
         // Only NOMINATE the slider here — a synthetic wake-tap Touch has no
         // TouchUp and must not rewrite brightness from its x coordinate.
         { int16_t cy = e.y + scrollY();
-          brightCandidate = (cy > SLIDER_Y + off - 22 && cy < SLIDER_Y + off + 28); }
+          brightCandidate = (cy > SLIDER_Y - 22 && cy < SLIDER_Y + 28); }
         break;
       case EventType::TouchHold: {
         lastFingerMs = millis();
@@ -300,22 +260,7 @@ private:
     }
   }
 
-  int mediaAt(int16_t x, int16_t y) {
-    if (!off) return -1;
-    y += scrollY();
-    for (int i = 0; i < 3; i++)
-      if (x >= mediaX(i) && x < mediaX(i) + MEDIA_W && y >= MEDIA_Y && y < MEDIA_Y + MEDIA_H) return i;
-    return -1;
-  }
-
   void handleTap(int16_t x, int16_t y) {
-    int m = mediaAt(x, y);
-    if (m >= 0) {
-      pressedMedia = m;
-      bool ok = btRemoteSend(mediaKey(m));
-      hapticBuzz(ok ? 40 : 120, ok ? 30 : 80);     // long buzz = not paired
-      return;
-    }
     int t = tileAt(x, y);
     if (t < 0) return;
     hapticBuzz(24, 30);
@@ -328,13 +273,7 @@ private:
         if (on) wifiSvcKickWindow();     // connect now, skip scheduler backoff
         break;
       }
-      case 1: {                                        // Bluetooth remote toggle (saved)
-        bool want = !btRemoteOn();
-        if (!btRemoteSetOn(want)) hapticBuzz(150, 120);  // stack failed to start
-        relayout();
-        break;
-      }
-      case 2: {                                        // silent toggle
+      case 1: {                                        // silent toggle
         uint8_t hs;
         { ModelLock lk;
           model.hapticStrength = model.hapticStrength ? 0 : 100;
@@ -344,10 +283,10 @@ private:
         if (hs) hapticBuzz(40, 45);                    // audible "back on" cue
         break;
       }
-      case 3:
+      case 2:
         switchTo(Screen::Torch);
         break;
-      case 4:
+      case 3:
         switchToAnimated(Screen::Settings, Trans::PushLeft);
         break;
     }

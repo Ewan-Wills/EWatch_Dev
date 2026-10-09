@@ -43,7 +43,6 @@ void Storage::load() {
   model.imuWakeThreshold = prefs.getUChar ("imuThresh", model.imuWakeThreshold);
   model.touchWakeHoldMs  = prefs.getUShort("tchHold",   model.touchWakeHoldMs);
   model.touchWakeSense   = prefs.getUChar ("tchSense",  model.touchWakeSense);
-  model.touchSleepHoldMs = prefs.getUShort("tchSlpHold2", model.touchSleepHoldMs);
   model.motionWakeThreshold = prefs.getUChar("raiseThr", model.motionWakeThreshold);
   model.brightness       = prefs.getUChar ("bright",    model.brightness);
   model.bgColor          = prefs.getUShort("bgColor",   model.bgColor);
@@ -75,7 +74,6 @@ void Storage::save() {
   bool t, b, i, wEn;
   uint16_t to, off, sav, bg, fg, ac, ln, tch;
   uint8_t  th, br, mot, sen;
-  uint16_t slpHold;
   int16_t  tz;
   uint8_t  wfs, hap;
   WifiMode wMode;
@@ -89,7 +87,6 @@ void Storage::save() {
     th  = model.imuWakeThreshold;
     tch = model.touchWakeHoldMs;
     sen = model.touchWakeSense;
-    slpHold = model.touchSleepHoldMs;
     mot = model.motionWakeThreshold;
     br  = model.brightness;
     bg  = model.bgColor;
@@ -110,7 +107,6 @@ void Storage::save() {
   prefs.putUChar ("imuThresh", th);
   prefs.putUShort("tchHold",   tch);
   prefs.putUChar ("tchSense",  sen);
-  prefs.putUShort("tchSlpHold2", slpHold);
   prefs.putUChar ("raiseThr",  mot);
   prefs.putUChar ("bright",    br);
   prefs.putUShort("bgColor",   bg);

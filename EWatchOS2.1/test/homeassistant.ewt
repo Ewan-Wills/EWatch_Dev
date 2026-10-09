@@ -1,7 +1,0 @@
-# module test: build with EW_APPS=homeassistant
-# homeassistant smoke: no WiFi/token in test -> connecting/unavailable, must not crash
-goto HomeAssistant
-expect screen HomeAssistant
-wait 1200
-expect noerr
-snap boot

@@ -39,10 +39,8 @@ Arduino_DataBus *ewsimMakeBus(int8_t dc, int8_t cs, int8_t sck, int8_t mosi,
 bool ewsimHandleLine(char *line);
 
 #if EW_SIM
-// ---- display shadow (bus tap) for overlays (btmouse cursor) ----
-const uint16_t *ewsimShadow();          // 240x280 RGB565 of what the panel shows
-uint32_t ewsimPxCount();                // pixels pushed so far (changes = redraw)
-void ewsimTapPause(bool paused);        // overlay pixels bypass the shadow
+void ewsimTapPause(bool paused);   // count pixels but skip the shadow copy (fast blits)
+bool ewsimStreaming();             // a snapshot is streaming: heavy views should idle + not log
 // ---- controller.cpp taskIO hooks (called every 20 ms I/O cycle) ----
 // Overrides the polled finger state while a simulated finger is down.
 void ewsimTouch(bool &live, uint16_t &x, uint16_t &y);
@@ -57,9 +55,8 @@ int  ewsimTakeGoto();
 // ---- power_mgr.cpp screen-off wait: host asked the watch to wake ----
 bool ewsimTakeWake();
 #else
-static inline const uint16_t *ewsimShadow() { return nullptr; }
-static inline uint32_t ewsimPxCount() { return 0; }
 static inline void    ewsimTapPause(bool) {}
+static inline bool    ewsimStreaming() { return false; }
 static inline void    ewsimTouch(bool &, uint16_t &, uint16_t &) {}
 static inline Gesture ewsimTakeGesture(uint16_t &, uint16_t &) { return Gesture::None; }
 static inline bool    ewsimButton() { return false; }

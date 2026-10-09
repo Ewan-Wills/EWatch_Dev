@@ -6,9 +6,6 @@
 // Dismiss needs a *deliberate* input — a sustained finger press or the
 // button; stray CST816S touch frames and IMU jolts are ignored so it doesn't
 // wake on its own.
-#if EW_APP_WAKESOAK
-#include "wake_soak.h"
-#endif  // EW_APP_WAKESOAK
 #include <Arduino_GFX_Library.h>
 #include "display.h"
 #include "ui_kit.h"
@@ -77,28 +74,21 @@ public:
     switch (e.type) {
       // The physical button is reliable — a press is always intentional.
       case EventType::ButtonDown:
-      case EventType::ButtonShort: {
-#if EW_APP_WAKESOAK
-        SoakWake r = { "saver_button", millis() - entryMs, 0, 0, 0, 0, 0, 0, 0, 0 };
+      case EventType::ButtonShort:
         switchTo(Screen::Watch);
-        soakOnWake(r, false);
-#else
-        switchTo(Screen::Watch);
-#endif  // EW_APP_WAKESOAK
         return;
-      }
 
       // Touch must be *sustained*. A stray frame lands as a lone Touch with
       // no follow-up holds; a real finger keeps generating TouchHold at ~30 Hz.
       // With protection set to 0, the first Touch frame wakes immediately.
       case EventType::Touch:
-        if (saverHoldMs() == 0) { dismissByTouch(e, 0); return; }
+        if (saverHoldMs() == 0) { switchTo(Screen::Watch); return; }
         pressActive  = true;
         pressStartMs = millis();
         return;
       case EventType::TouchHold:
         if (pressActive && (millis() - pressStartMs) >= saverHoldMs()) {
-          dismissByTouch(e, (uint16_t)(millis() - pressStartMs));
+          switchTo(Screen::Watch);
         }
         return;
       case EventType::TouchUp:
@@ -114,16 +104,6 @@ public:
   }
 
 private:
-  void dismissByTouch(const Event &e, uint16_t heldMs) {
-#if EW_APP_WAKESOAK
-    SoakWake r = { "saver_touch", millis() - entryMs, 0, 1, e.x, e.y, heldMs, 0, 0, 0 };
-    switchTo(Screen::Watch);
-    soakOnWake(r, true);               // wake soak: ask whether it was intended
-#else
-    (void)e; (void)heldMs;
-    switchTo(Screen::Watch);
-#endif  // EW_APP_WAKESOAK
-  }
   bool     drawn        = false;   // static image — paint once per entry
   uint32_t entryMs      = 0;       // for the post-entry input grace window
   bool     pressActive  = false;   // a finger is currently down

@@ -7,16 +7,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
-#if EW_APP_WAKESOAK
-#include "wake_soak.h"
-#endif  // EW_APP_WAKESOAK
 #include "ewlog.h"
-#if EW_APP_MOUSE
-#include "btmouse.h"
-#endif  // EW_APP_MOUSE
-#if EW_APP_MOTION
-#include "motion_engine.h"   // `motion ...` console commands
-#endif  // EW_APP_MOTION
 #include "power_mgr.h"     // powerStatsPrint / powerSelfTest for the console
 #include "ewsim.h"         // `sim ...` host test commands
 
@@ -239,14 +230,10 @@ static void cmdLogDump() {
   const char *older = sActiveRing ? kRing0 : kRing1;
   const char *newer = sActiveRing ? kRing1 : kRing0;
   if (sLogMutex) xSemaphoreGive(sLogMutex);
-  // HWCDC drops the rest of a write after tx_timeout (100 ms) of full ring;
-  // a dump outruns the host often enough to lose whole chunks. Allow 1 s.
-  Serial.setTxTimeoutMs(1000);
   Serial.println("=== ewlog ring dump (oldest first) ===");
   dumpFile(older);
   dumpFile(newer);
   Serial.println("=== end dump ===");
-  Serial.setTxTimeoutMs(100);
 }
 
 static void cmdLogClear() {
@@ -298,12 +285,6 @@ static void handleLine(char *line) {
   } else if (strcmp(line, "pwr selftest") == 0) {
     powerRequestSelfTest();
     Serial.println("selftest queued (runs on the render task; watch WAKE logs)");
-  } else if (strcmp(line, "pwr fifotest") == 0) {
-    powerRequestFifoTest();
-    Serial.println("fifotest queued (render task)");
-  } else if (strncmp(line, "pwr raisetest", 13) == 0) {
-    powerRequestRaiseTest(strstr(line, "fresh") != nullptr);
-    Serial.println("raisetest queued (render task)");
   } else if (strncmp(line, "pwr set ", 8) == 0) {
     char key[8] = "";
     int  val = -1;
@@ -311,24 +292,12 @@ static void handleLine(char *line) {
         val <= 65535 && powerSetConfig(key, (uint16_t)val)) {
       Serial.printf("pwr %s = %d\n", key, val);
     } else {
-      Serial.println("usage: pwr set <dim|off|deep|sync|dtest|rchk> <n> | keepcon <0|1>");
+      Serial.println("usage: pwr set <dim|off|deep|sync> <n> | keepcon <0|1>");
     }
   } else if (strncmp(line, "keepcon ", 8) == 0) {
     sKeepConsole = atoi(line + 8) != 0;
     sConsolePaused = sAppWantsPause && !sKeepConsole;
     Serial.printf("keepcon=%d\n", sKeepConsole ? 1 : 0);
-#if EW_APP_WAKESOAK
-  } else if (soakHandleLine(line)) {
-    // wake soak test (apps/wake_soak.cpp)
-#endif  // EW_APP_WAKESOAK
-#if EW_APP_MOTION
-  } else if (motionConsole(line)) {
-    // motion LM commands (modules/motion/motion_engine.cpp)
-#endif  // EW_APP_MOTION
-#if EW_APP_MOUSE
-  } else if (mouseHandleLine(line)) {
-    // BLE mouse test report (modules/mouse/btmouse.cpp)
-#endif  // EW_APP_MOUSE
   } else if (ewsimHandleLine(line)) {
     // host test command (ewsim.cpp)
   } else {

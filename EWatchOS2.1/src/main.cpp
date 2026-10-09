@@ -1,13 +1,7 @@
 // EWatch v2 — boot only. Hardware bring-up + FreeRTOS task launch. All
 // runtime logic lives in controller.cpp (I/O + tasks) and view.cpp (UI).
 
-#if EW_APP_WAKESOAK
-#include "wake_soak.h"
-#endif  // EW_APP_WAKESOAK
-#include "bluetooth.h"
-#if EW_APP_MOUSE
-#include "btmouse.h"
-#endif  // EW_APP_MOUSE
+#include "xbox_pad.h"
 #include <Arduino.h>
 #include <Wire.h>
 #include <Preferences.h>
@@ -32,7 +26,7 @@
 #include "apptimer.h"
 #include "wifi_svc.h"
 #include "photo_store.h"
-#if defined(EW_APP_SPOTIFY) && EW_APP_SPOTIFY && \
+#if defined(EWATCH_ENABLE_SPOTIFY) && EWATCH_ENABLE_SPOTIFY && \
     defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
   #include "spotify.h"
 #endif
@@ -259,9 +253,7 @@ static void reArmFromSpuriousWakeAndSleep() {
   bool     wkT   = p.getBool  ("wkTouch",  true);
   bool     wkB   = p.getBool  ("wkButton", true);
   bool     wkI   = p.getBool  ("wkImu",    false);
-  // Deep sleep -> full power-off after T_DEEP minutes, as enterDeepSleep()
-  // arms it ("sleepOff" now times screen-off -> deep sleep, not this).
-  uint32_t toOff = (uint32_t)p.getUShort("pDeepMin", 45) * 60u;
+  uint16_t toOff = p.getUShort("sleepOff", 30);
   p.end();
 
   // Drain CST816S touch buffer so the INT line de-asserts before we re-arm.
@@ -273,7 +265,6 @@ static void reArmFromSpuriousWakeAndSleep() {
   }
   delay(80);
 
-  esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
   if (wkT) {
     rtc_gpio_pullup_en((gpio_num_t)PIN_TOUCH_INT);
     esp_sleep_enable_ext0_wakeup((gpio_num_t)PIN_TOUCH_INT, 0);
@@ -444,24 +435,18 @@ void setup() {
   installTaskWatchdog();
 
   if (!gSafeMode) wifiSvcInit();
-#if defined(EW_APP_SPOTIFY) && EW_APP_SPOTIFY && \
+#if defined(EWATCH_ENABLE_SPOTIFY) && EWATCH_ENABLE_SPOTIFY && \
     defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
   if (!gSafeMode) spotifyInit();       // load Client ID + refresh token (NVS)
 #endif
   controllerStartTasks();
   if (!gSafeMode) wifiSvcStartTask();
-#if defined(EW_APP_SPOTIFY) && EW_APP_SPOTIFY && \
+#if defined(EWATCH_ENABLE_SPOTIFY) && EWATCH_ENABLE_SPOTIFY && \
     defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
   if (!gSafeMode) spotifySvcStartTask();  // background auth/poll/art task
 #endif
   ewlogStartConsole();
-  btBegin();                    // Bluetooth remote: restore the saved on/off state
-#if EW_APP_MOUSE
-  mouseBegin();                 // BLE mouse: reconnects the paired mouse if Mouse is on
-#endif  // EW_APP_MOUSE
-#if EW_APP_WAKESOAK
-  soakBegin();                  // wake soak test: enabled flag          // `log ...` / `pwr ...` commands over USB
-#endif  // EW_APP_WAKESOAK
+  padBegin();                   // Xbox controller service (radio stays off until enabled)          // `log ...` / `pwr ...` commands over USB
 
   // Give the render task a brief window to paint the first complete frame
   // (time, date, icons), then bring the backlight up at the user's level.

@@ -56,11 +56,6 @@ void powerNoteWifiAssoc(uint32_t assocMs);
 // `pwr stats` / `pwr selftest` / `pwr set <key> <n>` (ewlog console).
 void powerStatsPrint(Stream &out);
 void powerRequestSelfTest();
-// Bench: run the raise-to-wake check once on the live accelerometer and print
-// the verdict. fresh = no baseline (any settled face-up pose passes); else the
-// current pose is the baseline, so a still watch must report no_turn.
-void powerRequestRaiseTest(bool fresh);
-void powerRequestFifoTest();     // bench: MMA FIFO pre-trigger history read-back
 bool powerSetConfig(const char *key, uint16_t val);   // dim|off|deep|sync
 
 bool powerDevMode();                   // USB connected or EW_DEV_MODE build

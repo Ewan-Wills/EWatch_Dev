@@ -363,7 +363,7 @@ private:
   static int classifyOrientation(const Model &m) {
     int16_t ax = -m.ax, ay = m.ay, az = m.az;
     int absx = abs(ax), absy = abs(ay), absz = abs(az);
-    if (absz >= absx && absz >= absy) return az < 0 ? 0 : 1;   // face up = az < 0 (checked on a desk)
+    if (absz >= absx && absz >= absy) return az > 0 ? 0 : 1;
     if (absy >= absx)                  return ay > 0 ? 2 : 3;
     return ax > 0 ? 4 : 5;
   }

@@ -38,7 +38,7 @@
 #include "view.h"             // watchFaceStyleCount / watchFaceStyleName
 #include "ewlog.h"
 #include "power_mgr.h"
-#if defined(EW_APP_SPOTIFY) && EW_APP_SPOTIFY
+#if defined(EWATCH_ENABLE_SPOTIFY) && EWATCH_ENABLE_SPOTIFY
   #include "spotify.h"        // Spotify Client ID + sign-in code entry (web form)
 #endif        // syncSec config + wifi duty accounting
 
@@ -299,7 +299,7 @@ static String htmlPage() {
   h += "<form method=POST action=/known/scan style='margin-top:.4em'><button class=warn style='background:#456'>Rescan</button></form>";
   h += "</fieldset>";
 
-#if defined(EW_APP_SPOTIFY) && EW_APP_SPOTIFY
+#if defined(EWATCH_ENABLE_SPOTIFY) && EWATCH_ENABLE_SPOTIFY
   // ===== Spotify (Client ID + one-time sign-in) =====
   h += F("<fieldset><legend>Spotify</legend>");
   {
@@ -610,7 +610,7 @@ static void handleKnownScan() {
   server.send(303);
 }
 
-#if defined(EW_APP_SPOTIFY) && EW_APP_SPOTIFY
+#if defined(EWATCH_ENABLE_SPOTIFY) && EWATCH_ENABLE_SPOTIFY
 // ---------- Spotify config ----------
 static void handleSpotifyId() {
   lastHttpMs = millis();
@@ -814,7 +814,7 @@ static void startServer() {
   server.on("/media/img",   HTTP_GET,  handleMediaImg);
   server.on("/media/del",   HTTP_POST, handleMediaDel);
   server.on("/media/bg",    HTTP_POST, handleMediaBg);
-#if defined(EW_APP_SPOTIFY) && EW_APP_SPOTIFY
+#if defined(EWATCH_ENABLE_SPOTIFY) && EWATCH_ENABLE_SPOTIFY
   server.on("/spotify/id",     HTTP_POST, handleSpotifyId);
   server.on("/spotify/code",   HTTP_POST, handleSpotifyCode);
   server.on("/spotify/logout", HTTP_POST, handleSpotifyLogout);

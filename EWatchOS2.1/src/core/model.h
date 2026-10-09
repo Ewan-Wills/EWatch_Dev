@@ -6,9 +6,6 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
-// Every screen id exists in every build, whether or not its module is
-// compiled in (src/apps/modules): ids never shift between builds, and ewt
-// maps names -> ids by reading this list.
 enum class Screen : uint8_t {
   Watch, AppList,
   ScreenSaver,      // dimmed default-painting idle screen (shown before deep sleep)
@@ -30,35 +27,26 @@ enum class Screen : uint8_t {
   QRCode,           // user app: phone / email / website share QR
   Stopwatch,        // user app: count-up stopwatch
   Timer,            // user app: countdown timer (wakes from sleep)
-  Bluetooth,        // user app: BLE media remote (HID) + scanner
-  WakeSoak,         // module: wake soak test: intentional-wake prompt + stats
+  Bluetooth,        // (not built in ewcraft: NimBLE owns the radio here)
+  Craft,            // user app: voxel block game (Xbox controller / touch)
+  Pad,              // user app: Xbox controller pairing + live input view
   Particles,        // user app: particle sandbox demo (tilt + touch)
   Boids,            // user app: flocking / starfield demo
   QuickSettings,    // control-centre sheet (swipe down from watch face)
   Torch,            // full-brightness white screen; blocks sleep while up
   Gallery,          // Photos: LittleFS image gallery (web-uploaded)
-  Doom,             // module: game: raycaster FPS (owns I2C while running)
+  Doom,             // game: raycaster FPS (owns I2C while running)
   TunnelRacer,      // game: wireframe tunnel runner
   Starfox,          // game: on-rails wireframe space shooter
-  Racer,            // module: game: pseudo-3D OutRun-style racer
-  Tamagotchi,       // module (pet): game: virtual pet
-  Island,           // 3D floating-island diorama face (compiled out by default)
-  Spotify,          // module: Spotify Connect remote + now-playing
-  BookLibrary,      // module (books): list of .txt books in flash
-  BookReader,       // module (books): word-wrapped reader with smooth scroll
-  Mouse,            // module: BLE mouse pairing + settings (cursor is global)
-  UsbHost,          // module: USB-C host-mode device scanner
-  Motion,           // module: on-device motion language model
-  Write,            // module: type by drawing letters
-  BleControls,      // module: user app: ewatch.cloud control panel over BLE
-  Screenshare,      // module: user app: mirror a Mac window to the watch over USB CDC
-  HidCtl,           // module: user app: Notes editor + mouse cursor, fed over serial
-  FlyPet,           // module: user app: virtual-fly tamagotchi (serial-driven brain)
-  LlmTerm,          // module: user app: terminal for a Mac-hosted LLM (USB-serial stream)
-  Macropad,         // module: user app: touch macro grid -> MACRO <id> over USB serial
-  PrintStream,      // module: user app: Creality K2 Plus camera + stats + control (WiFi)
-  HomeAssistant,    // module: user app: toggle a Home Assistant light over WiFi/REST
-  Stocks,           // module: user app: live stock tracker (PC pushes tickers via USB)
+  Racer,            // game: pseudo-3D OutRun-style racer
+  Tamagotchi,       // game: virtual pet
+#if defined(EWATCH_ENABLE_ISLAND) && EWATCH_ENABLE_ISLAND
+  Island,           // 3D floating-island diorama face (launchable app)
+#endif
+#if defined(EWATCH_ENABLE_SPOTIFY) && EWATCH_ENABLE_SPOTIFY && \
+    defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
+  Spotify,          // Spotify Connect remote + now-playing
+#endif
   PowerOff
 };
 
@@ -94,8 +82,7 @@ struct Model {
   // Bumped by the controller on any field change to nudge the renderer.
   uint32_t revision = 0;
 
-  // Wake sources (Settings -> Sleep "Wake on"): honoured by BOTH screen-off
-  // (light sleep) and deep sleep. Button always wakes from screen-off.
+  // Wake sources from deep sleep — toggleable in Settings, used by Sleep app.
   bool wakeOnTouch  = true;
   bool wakeOnButton = true;
   bool wakeOnImu    = false;
@@ -110,10 +97,8 @@ struct Model {
   // follows separately after the power manager's T_DEEP minutes.
   uint16_t sleepTimeoutSec = 15;
 
-  // "Sleep -> power off": after this many seconds of screen-off the watch
-  // goes to deep sleep (radio off; wakes on the Wake-on sources, via reboot).
-  // 0 = never. Full LDO power-off follows after the power manager's T_DEEP
-  // minutes in deep sleep.
+  // After this many seconds in deep sleep with no wake event, drop the LDO
+  // latch and fully power off. 0 disables (sleep forever until wake source).
   uint16_t sleepToOffSec = 30;
 
   // MMA8451 TRANSIENT_THS register value used for IMU wake-on-jolt. Each LSB
@@ -131,16 +116,11 @@ struct Model {
   //   2 = the finger must still be down at validation (firm).
   uint8_t  touchWakeSense = 0;
 
-  // Waking the DARK screen (screen-off) by touch also needs the finger held
-  // this long (0 = no hold). Screensaver dismissal uses touchWakeHoldMs
-  // instead. Settings -> Wake, "Sleep touch (ms)".
-  uint16_t touchSleepHoldMs = 0;
-
   // MMA8451 TRANSIENT threshold for raise-to-wake out of light sleep (INT2).
   // High-pass filtered, so static gravity never counts — only acceleration
   // *changes*. 0.063 g/LSB; 0 disables raise-to-wake entirely. Default
   // ~0.5 g = a deliberate wrist lift, not desk vibration.
-  uint8_t  motionWakeThreshold = 0x06;   // 0.38 g trigger; the raise check filters
+  uint8_t  motionWakeThreshold = 0x08;
 
   // Display preferences.
   uint8_t  brightness  = 200;       // backlight PWM duty 0..255 (16 = ~6%)
