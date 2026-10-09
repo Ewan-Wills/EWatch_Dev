@@ -18,6 +18,9 @@
 #include "display.h"
 #include "haptic.h"
 #include "ewlog.h"
+#if EW_APP_USBHOST
+#include "usb_kbd_host.h"
+#endif  // EW_APP_USBHOST
 #include "power_mgr.h"
 #include "wifi_svc.h"
 #include <esp_heap_caps.h>
@@ -446,6 +449,9 @@ static const Btn kBtns[] = {
   { 125, 200, 105, 62, KEY_VOLUP,    "volup"     },
 };
 static const int16_t SCAN_X = 180, SCAN_Y = 6, SCAN_W = 56, SCAN_H = 32;
+#if EW_APP_USBHOST
+static const int16_t KBD_X = 166, KBD_Y = 58, KBD_W = 68, KBD_H = 36;   // USB keyboard toggle
+#endif  // EW_APP_USBHOST
 
 static bool inBox(const Event &e, int16_t x, int16_t y, int16_t w, int16_t h) {
   return (int16_t)e.x >= x && (int16_t)e.x < x + w &&
@@ -517,10 +523,68 @@ void BluetoothView::drawRemoteStatus() {
   } else {
     gfx->fillCircle(16, 66, 5, ORANGE);
     gfx->setTextColor(t.fg, t.bg);
+#if EW_APP_USBHOST
+    gfx->setCursor(28, 58); gfx->print("Pair \"" REMOTE_NAME "\"");   // room for the Kbd pill
+    gfx->setCursor(28, 72); gfx->print("in Bluetooth settings");
+#else
     gfx->setCursor(28, 58); gfx->print("Pair \"" REMOTE_NAME "\" in your");
     gfx->setCursor(28, 72); gfx->print("phone's Bluetooth settings");
+#endif  // EW_APP_USBHOST
+  }
+#if EW_APP_USBHOST
+  drawKbdPill();
+#endif  // EW_APP_USBHOST
+}
+
+#if EW_APP_USBHOST
+// USB keyboard toggle: accent when the USB host is on, green dot once a
+// keyboard has enumerated.
+void BluetoothView::drawKbdPill() {
+  ThemeColors t = theme();
+  bool on = usbhRunning();
+  uint16_t fill = on ? t.accent : t.line;
+  gfx->fillRoundRect(KBD_X, KBD_Y, KBD_W, KBD_H, 10, fill);
+  gfx->setTextSize(2);
+  gfx->setTextColor(contrastFor(fill), fill);
+  gfx->setCursor(KBD_X + 10, KBD_Y + 11);
+  gfx->print("Kbd");
+  gfx->fillCircle(KBD_X + KBD_W - 12, KBD_Y + KBD_H / 2, 5,
+                  usbhKbdUp() ? GREEN : (on ? ORANGE : fill));
+  shownUsbGen = usbhGen();
+}
+
+uint16_t BluetoothView::desiredFrameMs() const { return usbhRunning() ? 40 : 200; }
+
+// USB keyboard -> media key. Only new presses arrive (no auto-repeat).
+static uint8_t usbKeyToMedia(uint8_t usage) {
+  switch (usage) {
+    case 0x2C: case 0x28: return KEY_PLAYPAUSE;   // Space, Enter
+    case 0x4F: case 0x11: return KEY_NEXT;        // Right, N
+    case 0x50: case 0x13: return KEY_PREV;        // Left, P
+    case 0x52: return KEY_VOLUP;                  // Up
+    case 0x51: return KEY_VOLDOWN;                // Down
+    case 0x10: return KEY_MUTE;                   // M
+    default:   return 0;
   }
 }
+
+void BluetoothView::serviceUsbKeys() {
+  UsbKey k;
+  while (usbhGetKey(k)) {
+    uint8_t key = usbKeyToMedia(k.usage);
+    EWLOGI("BLE", "usb key 0x%02x -> media 0x%02x", k.usage, key);
+    if (!key || mode != Mode::Remote) continue;
+    const Btn *btn = nullptr;
+    for (const Btn &b : kBtns) if (b.key == key) btn = &b;
+    if (btn) drawRemoteButton(*btn, true);
+    bool ok = remoteSend(key, btn ? btn->name : "mute");
+    hapticBuzz(ok ? 50 : 120, ok ? 20 : 80);
+    if (btn) drawRemoteButton(*btn, false);
+  }
+  if (mode == Mode::Remote && shownUsbGen != usbhGen()) drawKbdPill();
+}
+
+#endif  // EW_APP_USBHOST
 
 void BluetoothView::onEnter() {
   if (gfx) { ThemeColors t = theme(); gfx->fillScreen(t.bg); }
@@ -530,6 +594,9 @@ void BluetoothView::onEnter() {
 }
 
 void BluetoothView::onExit() {
+#if EW_APP_USBHOST
+  usbhStop();
+#endif  // EW_APP_USBHOST
   if (mode == Mode::Scan) { scanStop(); remoteResume(); }
 }
 
@@ -543,6 +610,9 @@ void BluetoothView::setMode(Mode m) {
 
 void BluetoothView::render() {
   if (!gfx) return;
+#if EW_APP_USBHOST
+  if (usbhRunning() || shownUsbGen != usbhGen()) serviceUsbKeys();
+#endif  // EW_APP_USBHOST
   if (mode == Mode::Remote) {
     if (firstDraw) { drawRemote(); firstDraw = false; shownConn = gConnected; }
     if (shownConn != (int)gConnected) { shownConn = gConnected; drawRemoteStatus(); }
@@ -674,6 +744,15 @@ void BluetoothView::onEvent(const Event &e) {
 
   if (mode == Mode::Remote) {
     if (inBox(e, SCAN_X, SCAN_Y, SCAN_W, SCAN_H)) { setMode(Mode::Scan); return; }
+#if EW_APP_USBHOST
+    if (inBox(e, KBD_X, KBD_Y, KBD_W, KBD_H)) {
+      hapticBuzz(90, 30);
+      if (usbhRunning()) { usbhStop(); EWLOGI("BLE", "usb keyboard off"); }
+      else { EWLOGI("BLE", "usb keyboard on: serial goes away"); delay(100); usbhStart(0); }
+      drawKbdPill();
+      return;
+    }
+#endif  // EW_APP_USBHOST
     for (const Btn &b : kBtns) {
       if (!inBox(e, b.x, b.y, b.w, b.h)) continue;
       drawRemoteButton(b, true);

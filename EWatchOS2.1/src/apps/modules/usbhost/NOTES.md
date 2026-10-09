@@ -1,3 +1,10 @@
+# usbhost module notes
+
+Carried over from the stand-alone `usbhost/` folder (before 2026-10-09).
+OS-wide parts may be out of date (its Bluetooth/Control Centre work is already in the OS).
+
+---
+
 # usbhost — USB Host scanner (step 1 towards a USB keyboard on the watch)
 
 Copy of EWatchOS2.1 plus `src/apps/usbhost.{h,cpp}`, `Screen::UsbHost`, launcher

@@ -27,7 +27,11 @@ public:
   void onExit()  override;
   void render()  override;
   void onEvent(const Event &e) override;
+#if EW_APP_USBHOST
+  uint16_t desiredFrameMs() const override;   // 40 ms while the USB keyboard is on
+#else
   uint16_t desiredFrameMs() const override { return 200; }
+#endif  // EW_APP_USBHOST
 
 private:
   enum class Mode : uint8_t { Remote, Scan };
@@ -42,6 +46,11 @@ private:
   void goBack();
   void drawRemote();
   void drawRemoteStatus();
+#if EW_APP_USBHOST
+  uint32_t shownUsbGen = 0xFFFFFFFF;   // USB keyboard state last drawn
+  void drawKbdPill();
+  void serviceUsbKeys();
+#endif  // EW_APP_USBHOST
   void drawList();
   void drawDetail();
 };

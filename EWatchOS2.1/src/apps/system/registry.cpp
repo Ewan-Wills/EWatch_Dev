@@ -18,6 +18,9 @@
 #include "stopwatch.h"
 #include "timer_app.h"
 #include "bluetooth.h"
+#if EW_APP_USBHOST
+#include "usbhost.h"
+#endif  // EW_APP_USBHOST
 #if EW_APP_MOTION
 #include "motion_view.h"
 #endif  // EW_APP_MOTION
@@ -93,6 +96,9 @@ static const AuraEntry kTopApps[] = {
 #endif
   { "Timer",     Icon::Timer,     aura::kTeal,   Screen::Timer,       nullptr },
   { "Bluetooth", Icon::Bluetooth, aura::kBlue,   Screen::Bluetooth,   nullptr },
+#if EW_APP_USBHOST
+  { "USB Host",  Icon::Bluetooth, aura::kOrange, Screen::UsbHost,     nullptr },
+#endif  // EW_APP_USBHOST
 #if EW_APP_MOTION
   { "Motion LM", Icon::Memory,    aura::kPurple, Screen::Motion,      nullptr },
 #endif  // EW_APP_MOTION
@@ -204,6 +210,9 @@ static QRCodeView vQRCode;
 static StopwatchView vStopwatch;
 static TimerView     vTimer;
 static BluetoothView vBluetooth;
+#if EW_APP_USBHOST
+static UsbHostView vUsbHost;
+#endif  // EW_APP_USBHOST
 #if EW_APP_WRITE
 static WriteView vWrite;
 #endif  // EW_APP_WRITE
@@ -291,6 +300,9 @@ View *viewFor(Screen s) {
     case Screen::Stopwatch:       return &vStopwatch;
     case Screen::Timer:           return &vTimer;
     case Screen::Bluetooth:       return &vBluetooth;
+#if EW_APP_USBHOST
+    case Screen::UsbHost:         return &vUsbHost;
+#endif  // EW_APP_USBHOST
 #if EW_APP_MOTION
     case Screen::Motion:          return motionViewPtr();
 #endif  // EW_APP_MOTION
