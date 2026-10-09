@@ -5,6 +5,9 @@
 #include "wake_soak.h"
 #endif  // EW_APP_WAKESOAK
 #include "bluetooth.h"
+#if EW_APP_CLAUDEFACE
+#include "claude_face_view.h"
+#endif  // EW_APP_CLAUDEFACE
 #if EW_APP_MOUSE
 #include "btmouse.h"
 #endif  // EW_APP_MOUSE
@@ -456,6 +459,9 @@ void setup() {
 #endif
   ewlogStartConsole();
   btBegin();                    // Bluetooth remote: restore the saved on/off state
+#if EW_APP_CLAUDEFACE
+  claudeFaceModuleBegin();      // Claude face: settings + link (frames arrive on the console)
+#endif  // EW_APP_CLAUDEFACE
 #if EW_APP_MOUSE
   mouseBegin();                 // BLE mouse: reconnects the paired mouse if Mouse is on
 #endif  // EW_APP_MOUSE

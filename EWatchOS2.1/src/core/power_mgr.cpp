@@ -180,6 +180,9 @@ static bool screenBlocksSleep(Screen s) {
 #endif
     case Screen::Torch:
     case Screen::Bluetooth:    // light sleep would stop the BLE scan
+#if EW_APP_CLAUDEFACE
+    case Screen::ClaudeFace:   // desk face: never sleeps while shown
+#endif  // EW_APP_CLAUDEFACE
 #if EW_APP_LIVESTREAM
     case Screen::Stream:       // live frames over WiFi: no auto-sleep while open
 #endif  // EW_APP_LIVESTREAM

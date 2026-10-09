@@ -14,7 +14,7 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"             # ClaudeFace/firmware/
-SRC="$ROOT/src"
+SRC="$(cd "$HERE/../../../../src/apps/modules/claudeface" && pwd)"   # the module's face code
 W="${TMPDIR:-/tmp}/cf_host_tests.$$"
 mkdir -p "$W"
 trap 'rm -rf "$W"' EXIT

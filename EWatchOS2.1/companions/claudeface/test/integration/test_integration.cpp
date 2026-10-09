@@ -18,9 +18,9 @@
 #include <mutex>
 #include <thread>
 
-#include "../../src/cf_policy.h"
-#include "../../src/cf_logic.h"
-#include "../../src/cf_util.h"
+#include "cf_policy.h"
+#include "cf_logic.h"
+#include "cf_util.h"
 
 static int gFails = 0, gChecks = 0;
 #define CHECK(c) do { gChecks++; if (!(c)) { gFails++; \

@@ -11,15 +11,16 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"                    # ClaudeFace/firmware/
-G="$ROOT/.pio/libdeps/ewatch/GFX Library for Arduino/src"
+SRC="$(cd "$HERE/../../../../src/apps/modules/claudeface" && pwd)"   # the module's face code
+G="$(ls -d "$HERE"/../../../../.pio/libdeps/*/"GFX Library for Arduino"/src | head -1)"
 [ -d "$G" ] || { echo "missing $G (run pio run / pio pkg install once to fetch libdeps)"; exit 2; }
 BIN="${TMPDIR:-/tmp}/cf_render_claude"
 OUTDIR="${CF_RENDER_OUT:-$HERE/out}"
-DRAW="${CF_DRAW_SRC:-$ROOT/src/claude_face_draw.cpp}"
+DRAW="${CF_DRAW_SRC:-$SRC/claude_face_draw.cpp}"
 mkdir -p "$OUTDIR"
 rm -f "$OUTDIR/"*.png
 xcrun clang++ -std=c++14 -O1 -Wall -Wno-unused-function ${CF_EXTRA_FLAGS:-} \
-  -I"$HERE/stub" -I"$G" -I"$ROOT/src" \
+  -I"$HERE/stub" -I"$G" -I"$SRC" \
   "$G/Arduino_GFX.cpp" "$G/Arduino_G.cpp" "$G/canvas/Arduino_Canvas.cpp" "$HERE/png.cpp" \
   "$DRAW" "$HERE/render_claude.cpp" \
   -lz -o "$BIN"

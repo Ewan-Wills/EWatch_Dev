@@ -45,8 +45,8 @@
 #include "cf_logic.h"
 #include "cf_policy.h"
 #include "cf_util.h"
-#include "board.h"
-#include "settings.h"
+#include "cf_board.h"
+#include "cf_settings.h"
 
 // ---------------------------------------------------------------------------
 // UI-loop state

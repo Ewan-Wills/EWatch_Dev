@@ -44,6 +44,7 @@ enum class Screen : uint8_t {
   Tamagotchi,       // module (pet): game: virtual pet
   Island,           // 3D floating-island diorama face (compiled out by default)
   Spotify,          // module: Spotify Connect remote + now-playing
+  ClaudeFace,       // module: Claude Code face fed over USB by the Mac bridge
   Stream,           // module (livestream): live RGB565 frames from a Mac over WiFi
   BookLibrary,      // module (books): list of .txt books in flash
   BookReader,       // module (books): word-wrapped reader with smooth scroll

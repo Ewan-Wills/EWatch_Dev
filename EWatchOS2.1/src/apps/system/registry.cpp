@@ -18,6 +18,9 @@
 #include "stopwatch.h"
 #include "timer_app.h"
 #include "bluetooth.h"
+#if EW_APP_CLAUDEFACE
+#include "claude_face_view.h"
+#endif  // EW_APP_CLAUDEFACE
 #if EW_APP_LIVESTREAM
 #include "livestream.h"
 #endif  // EW_APP_LIVESTREAM
@@ -105,6 +108,9 @@ static const AuraEntry kTopApps[] = {
 #endif
   { "Timer",     Icon::Timer,     aura::kTeal,   Screen::Timer,       nullptr },
   { "Bluetooth", Icon::Bluetooth, aura::kBlue,   Screen::Bluetooth,   nullptr },
+#if EW_APP_CLAUDEFACE
+  { "Claude",    Icon::Sparkle,   aura::kOrange, Screen::ClaudeFace,  nullptr },
+#endif  // EW_APP_CLAUDEFACE
 #if EW_APP_LIVESTREAM
   { "Stream",    Icon::Photo,     aura::kTeal,   Screen::Stream,      nullptr },
 #endif  // EW_APP_LIVESTREAM
@@ -228,6 +234,9 @@ static QRCodeView vQRCode;
 static StopwatchView vStopwatch;
 static TimerView     vTimer;
 static BluetoothView vBluetooth;
+#if EW_APP_CLAUDEFACE
+static ClaudeFaceView vClaudeFace;
+#endif  // EW_APP_CLAUDEFACE
 #if EW_APP_LIVESTREAM
 static StreamView vStream;
 #endif  // EW_APP_LIVESTREAM
@@ -328,6 +337,9 @@ View *viewFor(Screen s) {
     case Screen::Stopwatch:       return &vStopwatch;
     case Screen::Timer:           return &vTimer;
     case Screen::Bluetooth:       return &vBluetooth;
+#if EW_APP_CLAUDEFACE
+    case Screen::ClaudeFace:      return &vClaudeFace;
+#endif  // EW_APP_CLAUDEFACE
 #if EW_APP_LIVESTREAM
     case Screen::Stream:          return &vStream;
 #endif  // EW_APP_LIVESTREAM

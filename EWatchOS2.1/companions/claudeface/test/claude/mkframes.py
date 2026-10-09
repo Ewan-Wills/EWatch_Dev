@@ -14,7 +14,7 @@ literal "\\r" / "\\n" escape where the test needs trailing CR/LF.
 import base64, json, os, struct, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-PROTO = os.path.join(HERE, "..", "..", "..", "protocol", "protocol.json")
+PROTO = os.path.join(HERE, "..", "..", "protocol", "protocol.json")   # companions/claudeface/protocol
 P = json.load(open(PROTO))
 MSG = P["messages"]
 FMT = {"u8": "B", "i8": "b", "u16": "H", "i16": "h", "u32": "I", "i32": "i"}

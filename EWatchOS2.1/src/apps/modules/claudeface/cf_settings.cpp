@@ -1,7 +1,7 @@
 // NVS settings. See settings.h.
 #include <Arduino.h>
 #include <Preferences.h>
-#include "settings.h"
+#include "cf_settings.h"
 
 static portMUX_TYPE sMux = portMUX_INITIALIZER_UNLOCKED;
 static CFSettings   sCur = { 23, 8, 15, true, 0 };

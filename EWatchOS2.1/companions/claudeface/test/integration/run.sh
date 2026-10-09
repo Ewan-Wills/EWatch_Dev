@@ -6,8 +6,9 @@ set -u
 cd "$(dirname "$0")"
 OUT=${TMPDIR:-/tmp}/cf_integration_tests
 mkdir -p "$OUT"
-SRC="test_integration.cpp ../../src/cf_logic.cpp"
-FLAGS="-std=c++11 -Wall -Wextra -Werror -O1 -pthread -I../../src"
+M=../../../../src/apps/modules/claudeface
+SRC="test_integration.cpp $M/cf_logic.cpp"
+FLAGS="-std=c++11 -Wall -Wextra -Werror -O1 -pthread -I$M"
 
 clang++ $FLAGS $SRC -o "$OUT/t_ok" || { echo "BUILD FAILED"; exit 1; }
 "$OUT/t_ok" || { echo "SUITE FAILED"; exit 1; }

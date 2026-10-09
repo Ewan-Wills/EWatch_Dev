@@ -4,7 +4,8 @@ from protocol.json (the single source of truth). Run: python3 gen.py"""
 import json, os, re
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
+ROOT = os.path.abspath(os.path.join(HERE, ".."))                     # companions/claudeface
+OS = os.path.abspath(os.path.join(ROOT, "..", ".."))                 # EWatchOS2.1
 P = json.load(open(os.path.join(HERE, "protocol.json")))
 MSGS = P["messages"]
 
@@ -206,10 +207,10 @@ def gen_md():
 
 def write(path, s):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    open(path, "w").write(s); print("wrote", os.path.relpath(path, ROOT))
+    open(path, "w").write(s); print("wrote", os.path.relpath(path, OS))
 
 
-write(os.path.join(ROOT, "ClaudeFace/firmware/src/cf_protocol.h"), gen_c())
-write(os.path.join(ROOT, "ClaudeFace/bridge/src/protocol.gen.ts"), gen_ts())
-write(os.path.join(ROOT, "ClaudeFace/docs/protocol-layout.md"), gen_md())
+write(os.path.join(OS, "src/apps/modules/claudeface/cf_protocol.h"), gen_c())
+write(os.path.join(ROOT, "bridge/src/protocol.gen.ts"), gen_ts())
+write(os.path.join(ROOT, "docs/protocol-layout.md"), gen_md())
 for n in MSGS: print(f"  {n}: {msg_size(n)} bytes")

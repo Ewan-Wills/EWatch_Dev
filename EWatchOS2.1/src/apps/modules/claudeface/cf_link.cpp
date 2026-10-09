@@ -11,9 +11,9 @@
 #include "cf_util.h"
 #include "cf_policy.h"
 #include "claude_face.h"
-#include "board.h"          // rtcRequestSet (the UI loop owns Wire)
-#include "settings.h"
-#include "serial_io.h"
+#include "cf_board.h"          // rtcRequestSet (the UI loop owns Wire)
+#include "cf_settings.h"
+#include "cf_serial.h"
 
 // ---------------------------------------------------------------------------
 // Snapshot: single writer (link task) / UI-loop reader.

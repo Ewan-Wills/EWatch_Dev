@@ -1,3 +1,21 @@
+# Claude Code face (claudeface module)
+
+This is now an EWatchOS app module, not a stand-alone firmware: build the OS with
+`EW_APPS=claudeface` and open **Claude** in the app list (swipe down to leave;
+the watch doesn't sleep while it is on screen). The face code is in
+`src/apps/modules/claudeface/` (cf_board.h / cf_serial.h / cf_os.cpp adapt it to
+the OS; `#CF` frames and `cf ...` commands arrive through the OS console).
+Mac side here: `bridge/` (daemon), `claude-config/` (hooks + statusline),
+`protocol/` (gen.py writes the C header into the module + the TS + docs),
+`test/` (host tests: `test/claude/run.sh`, `test/integration/run.sh`).
+The stand-alone landscape firmware (own main/board, LDO latch held, no
+launcher) is on the archive/claudeface-standalone branch.
+
+Below: the stand-alone firmware's README (behaviour of the face itself is
+unchanged; its Power section describes the stand-alone build).
+
+---
+
 # ClaudeFace firmware
 
 Stand-alone EWatch v2 firmware that is only the **Claude Code face**: agent

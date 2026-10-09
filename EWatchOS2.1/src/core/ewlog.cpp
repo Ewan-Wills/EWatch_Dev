@@ -11,6 +11,9 @@
 #include "wake_soak.h"
 #endif  // EW_APP_WAKESOAK
 #include "ewlog.h"
+#if EW_APP_CLAUDEFACE
+#include "cf_link.h"
+#endif  // EW_APP_CLAUDEFACE
 #if EW_APP_MOUSE
 #include "btmouse.h"
 #endif  // EW_APP_MOUSE
@@ -329,6 +332,12 @@ static void handleLine(char *line) {
   } else if (mouseHandleLine(line)) {
     // BLE mouse test report (modules/mouse/btmouse.cpp)
 #endif  // EW_APP_MOUSE
+#if EW_APP_CLAUDEFACE
+  } else if (strncmp(line, "#CF", 3) == 0) {
+    cfLinkFeedLine(line);         // Claude face frame from the Mac bridge
+  } else if (cfLinkConsole(line)) {
+    // `cf ...` commands (modules/claudeface/cf_link.cpp)
+#endif  // EW_APP_CLAUDEFACE
   } else if (ewsimHandleLine(line)) {
     // host test command (ewsim.cpp)
   } else {

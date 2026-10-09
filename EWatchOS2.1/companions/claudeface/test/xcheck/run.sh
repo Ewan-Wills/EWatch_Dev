@@ -14,7 +14,8 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"                 # ClaudeFace/firmware/
-BRIDGE="$(cd "$ROOT/../bridge" && pwd)"
+SRC="$(cd "$HERE/../../../../src/apps/modules/claudeface" && pwd)"   # the module's face code
+BRIDGE="$(cd "$HERE/../../bridge" && pwd)"
 W="${TMPDIR:-/tmp}/cf_xcheck.$$"
 mkdir -p "$W"
 trap 'rm -rf "$W"' EXIT
@@ -24,8 +25,8 @@ FAILS=0
 (cd "$BRIDGE" && node_modules/.bin/tsc --target ES2022 --module commonjs --skipLibCheck \
    --outDir "$W/js" src/protocol.gen.ts) || { echo "FAIL: tsc"; exit 1; }
 node "$HERE/gen_frames.js" "$W/js/protocol.gen.js" "$W/frames.txt" "$W/expect.txt" || { echo "FAIL: gen_frames"; exit 1; }
-xcrun clang++ -std=c++11 -Wall -Wextra -Werror -O1 -I"$ROOT/src" \
-  "$HERE/xcheck.cpp" "$ROOT/src/cf_logic.cpp" -o "$W/xcheck" || { echo "FAIL: build"; exit 1; }
+xcrun clang++ -std=c++11 -Wall -Wextra -Werror -O1 -I"$SRC" \
+  "$HERE/xcheck.cpp" "$SRC/cf_logic.cpp" -o "$W/xcheck" || { echo "FAIL: build"; exit 1; }
 
 "$W/xcheck" < "$W/frames.txt" > "$W/got.txt"; RC=$?
 N=$(wc -l < "$W/expect.txt" | tr -d ' ')
