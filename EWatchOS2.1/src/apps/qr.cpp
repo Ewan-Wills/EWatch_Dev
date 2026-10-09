@@ -24,9 +24,17 @@ struct QRPayload {
   const char *name;
   const char *url;
 };
+// The phone number is personal: it lives in the git-ignored
+// secrets/qr.local.h (`#define QR_PHONE "tel:07..."`), copied from
+// secrets/qr.example.h. Without it the Phone card is left out.
+#if __has_include("qr.local.h")
+#  include "qr.local.h"
+#endif
 static const QRPayload kPayloads[] = {
+#ifdef QR_PHONE
   { "Phone",
-    "tel:00000000000" },
+    QR_PHONE },
+#endif
   { "Email",
     "mailto:contact@ewanwills.co.uk"
     "?subject=Hello"
