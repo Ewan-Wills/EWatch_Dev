@@ -347,7 +347,7 @@ static void handleLine(char *line) {
 
 
 static void consoleTask(void *) {
-  static char line[96];
+  static char line[320];   // Claude face #CF STATE frames are ~170 chars (96 cut them)
   size_t pos = 0;
   for (;;) {
     if (sConsolePaused) pos = 0;  // drop any half-typed line
