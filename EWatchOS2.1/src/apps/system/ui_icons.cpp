@@ -254,6 +254,17 @@ void drawIcon(Arduino_GFX *d, Icon ic, int16_t cx, int16_t cy, int16_t s,
       thickLine(d, cx + sc(s, 3, 12), y0, cx + sc(s, 5, 12), y0 - sc(s, 1, 12), t, color);
       break;
     }
+    case Icon::Book: {                 // open book: two pages + text lines
+      int16_t q = sc(s, 4, 12), ph = sc(s, 5, 12), lg = sc(s, 2, 12);
+      d->fillRoundRect(cx - q - 1, cy - ph, q, ph * 2, 2, color);
+      d->fillRoundRect(cx + 1,     cy - ph, q, ph * 2, 2, color);
+      for (int i = 0; i < 3; i++) {
+        int16_t y = cy - ph + lg + i * lg;
+        d->drawFastHLine(cx - q + 1, y, q - 4, bg);
+        d->drawFastHLine(cx + 3,     y, q - 4, bg);
+      }
+      break;
+    }
     case Icon::Bluetooth: {
       // Rune: spine + two closed arrowheads to the right, two open tails left.
       int16_t q = h / 2, x0 = cx - q / 2 - 1;

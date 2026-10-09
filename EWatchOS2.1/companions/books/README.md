@@ -6,7 +6,7 @@ LittleFS and it appears in the on-watch **Books** library.
 ## Setup (once)
 
 ```sh
-cd ShortsApps/bookreader/pc
+cd EWatchOS2.1/companions/books
 python3 -m venv .venv && source .venv/bin/activate   # optional but tidy
 pip install -r requirements.txt
 ```

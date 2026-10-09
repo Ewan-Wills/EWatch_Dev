@@ -16,6 +16,7 @@ struct AuraEntry {
   uint16_t    tileColor;     // squircle fill behind the glyph
   Screen      target;
   const char *section;       // non-null starts a new section header above row
+  const char *sub;           // optional second line (size 1); omit = nullptr
 };
 
 class AuraListView : public View {
@@ -32,9 +33,19 @@ public:
   bool paintTo(Arduino_Canvas *cv) override;
   uint16_t desiredFrameMs() const override;
 
+protected:
+  // Hooks for data-driven lists (e.g. the Books library). Defaults give the
+  // plain launcher behaviour.
+  virtual void activate(int row);                  // tap: open the row
+  virtual void longPress(int row) { (void)row; }   // held ~0.65 s without moving
+  virtual void drawOverlay(Arduino_Canvas *cv) { (void)cv; }  // over the list
+  virtual bool interceptEvent(const Event &e) { (void)e; return false; }
+  void setEntries(const AuraEntry *e, int n);      // swap rows at runtime
+  int  rowCount() const { return N; }
+
 private:
   const AuraEntry *entries;
-  const int        N;
+  int              N;
   const char      *title;
   const Screen     backScreen;
   const Trans      backTrans;
@@ -49,6 +60,7 @@ private:
   uint32_t pressedMs = 0;
   uint32_t lastFingerMs = 0;   // last Touch/TouchHold seen (drag watchdog)
   bool     dragMode  = false;
+  bool     longFired = false;        // long-press already handled this touch
   uint16_t downX = 0, downY = 0;
   uint32_t launchAtMs = 0;           // deferred launch (post press-flash)
   int      launchRow  = -1;

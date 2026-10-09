@@ -1,3 +1,11 @@
+# books module notes
+
+Carried over from the stand-alone `bookreader/` folder (before 2026-10-09), which was built on
+an older OS; its launcher extensions (row subtitles, data-driven list hooks) and the Book icon
+are OS core now. OS-wide parts of these notes may be out of date.
+
+---
+
 # bookreader — build notes & hardware-verify guide
 
 Read plain-text books on the EWatch. Upload a `.txt` over USB; it's stored in

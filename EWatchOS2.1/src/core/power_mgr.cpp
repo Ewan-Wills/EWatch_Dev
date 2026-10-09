@@ -180,6 +180,10 @@ static bool screenBlocksSleep(Screen s) {
 #endif
     case Screen::Torch:
     case Screen::Bluetooth:    // light sleep would stop the BLE scan
+#if EW_APP_BOOKS
+    case Screen::BookLibrary:  // user is browsing books
+    case Screen::BookReader:   // user is reading
+#endif  // EW_APP_BOOKS
 #if EW_APP_USBHOST
     case Screen::UsbHost:      // ...and the USB host stack (no serial to wake us)
 #endif  // EW_APP_USBHOST

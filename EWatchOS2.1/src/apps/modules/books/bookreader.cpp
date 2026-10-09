@@ -280,6 +280,12 @@ static uint32_t lineForByte(uint32_t byteOff) {
 
 // Open a book file and index it with the current global font. Returns false
 // on any failure (file missing, empty, OOM).
+// Bumped only when the book set changes (upload finished / file deleted). The
+// library used to rescan on any model.revision change, but the list itself
+// bumps revision while animating, so a rescan landed between press and
+// release (setEntries clears the pressed row) and every tap was cancelled.
+static volatile uint32_t gBooksGen = 0;
+
 static bool bookOpen(const char *path) {
   fsInit();
   FsLock lk;
@@ -487,6 +493,7 @@ static void doUpload() {
   if (ok) {
     Serial.printf(">>BOOK OK %s %lu\n", name, (unsigned long)dataLen);
     Serial.flush();
+    gBooksGen++;
     { ModelLock mlk; model.revision++; }     // nudge the library to refresh
   } else {
     Serial.printf(">>BOOK ERR %s\n", !wrote ? "write" : remaining ? "short" : "crc");
@@ -525,7 +532,7 @@ static void doDelete() {
   fsInit();
   bool ok; { FsLock lk; ok = gFsOk && LittleFS.remove(path); }
   Serial.printf(">>BOOK %s %s\n", ok ? "DEL" : "ERR", name);
-  if (ok) { ModelLock mlk; model.revision++; }
+  if (ok) { gBooksGen++; ModelLock mlk; model.revision++; }
 }
 
 static void bookUploadTask(void *) {
@@ -591,7 +598,7 @@ void LibraryView::onEnter() {
   bookUploadStart();
   delRow = -1;
   lastInteract = millis();
-  { ModelLock lk; lastSeenUploads = model.revision; }
+  lastSeenUploads = gBooksGen;
   rescan();
   AuraListView::onEnter();
 }
@@ -602,7 +609,7 @@ void LibraryView::onExit() {
 }
 
 void LibraryView::render() {
-  uint32_t rev; { ModelLock lk; rev = model.revision; }
+  uint32_t rev = gBooksGen;
   // No rescan mid-upload: the list can't change until the upload finishes
   // (which bumps the revision again), and it would contend for the FS lock.
   if (rev != lastSeenUploads && !gUploadBusy && delRow < 0) { rescan(); lastSeenUploads = rev; }
