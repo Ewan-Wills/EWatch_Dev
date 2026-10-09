@@ -11,6 +11,9 @@
 #include "wake_soak.h"
 #endif  // EW_APP_WAKESOAK
 #include "ewlog.h"
+#if EW_APP_MOTION
+#include "motion_engine.h"   // `motion ...` console commands
+#endif  // EW_APP_MOTION
 #include "power_mgr.h"     // powerStatsPrint / powerSelfTest for the console
 #include "ewsim.h"         // `sim ...` host test commands
 
@@ -315,6 +318,10 @@ static void handleLine(char *line) {
   } else if (soakHandleLine(line)) {
     // wake soak test (apps/wake_soak.cpp)
 #endif  // EW_APP_WAKESOAK
+#if EW_APP_MOTION
+  } else if (motionConsole(line)) {
+    // motion LM commands (modules/motion/motion_engine.cpp)
+#endif  // EW_APP_MOTION
   } else if (ewsimHandleLine(line)) {
     // host test command (ewsim.cpp)
   } else {

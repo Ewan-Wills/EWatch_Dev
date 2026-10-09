@@ -44,6 +44,8 @@ enum class Screen : uint8_t {
   Tamagotchi,       // module (pet): game: virtual pet
   Island,           // 3D floating-island diorama face (compiled out by default)
   Spotify,          // module: Spotify Connect remote + now-playing
+  Motion,           // module: on-device motion language model
+  Write,            // module: type by drawing letters
   BleControls,      // module: user app: ewatch.cloud control panel over BLE
   Screenshare,      // module: user app: mirror a Mac window to the watch over USB CDC
   HidCtl,           // module: user app: Notes editor + mouse cursor, fed over serial

@@ -234,6 +234,26 @@ void drawIcon(Arduino_GFX *d, Icon ic, int16_t cx, int16_t cy, int16_t s,
       d->fillCircle(cx, cy + sc(s, 3, 12), 2, color);
       break;
     }
+    case Icon::Pen: {     // pencil at 45 deg (tip lower-left) over a short scribble
+      float a = s * 0.40f, hw = s * 0.085f + 1;           // half-length, half-width
+      float dx = 0.7071f, dy = -0.7071f;                  // body direction (to upper-right)
+      float nx = 0.7071f * hw, ny = 0.7071f * hw;         // body normal * half-width
+      float bx = cx - a * 0.35f, by = cy + a * 0.35f - s * 0.08f;   // tip end of the body
+      float ex = cx + a * 0.75f, ey = cy - a * 0.75f - s * 0.08f;   // eraser end
+      d->fillTriangle(bx + nx, by + ny, bx - nx, by - ny, ex + nx, ey + ny, color);
+      d->fillTriangle(bx - nx, by - ny, ex - nx, ey - ny, ex + nx, ey + ny, color);
+      float tx = bx - dx * hw * 2.2f, ty = by - dy * hw * 2.2f;    // tip apex
+      d->fillTriangle(bx + nx, by + ny, bx - nx, by - ny, tx, ty, color);
+      // band between body and eraser
+      float kx = ex - dx * hw * 1.2f, ky = ey - dy * hw * 1.2f;
+      thickLine(d, kx + nx, ky + ny, kx - nx, ky - ny, 1, bg);
+      // scribble under the tip
+      int16_t y0 = cy + sc(s, 5, 12);
+      thickLine(d, cx - sc(s, 1, 12), y0, cx + sc(s, 1, 12), y0 - sc(s, 1, 12), t, color);
+      thickLine(d, cx + sc(s, 1, 12), y0 - sc(s, 1, 12), cx + sc(s, 3, 12), y0, t, color);
+      thickLine(d, cx + sc(s, 3, 12), y0, cx + sc(s, 5, 12), y0 - sc(s, 1, 12), t, color);
+      break;
+    }
     case Icon::Bluetooth: {
       // Rune: spine + two closed arrowheads to the right, two open tails left.
       int16_t q = h / 2, x0 = cx - q / 2 - 1;

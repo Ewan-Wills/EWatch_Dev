@@ -18,6 +18,12 @@
 #include "stopwatch.h"
 #include "timer_app.h"
 #include "bluetooth.h"
+#if EW_APP_MOTION
+#include "motion_view.h"
+#endif  // EW_APP_MOTION
+#if EW_APP_WRITE
+#include "write_view.h"
+#endif  // EW_APP_WRITE
 #if EW_APP_BLECONTROLS
 #include "blecontrols.h"
 #endif  // EW_APP_BLECONTROLS
@@ -87,6 +93,12 @@ static const AuraEntry kTopApps[] = {
 #endif
   { "Timer",     Icon::Timer,     aura::kTeal,   Screen::Timer,       nullptr },
   { "Bluetooth", Icon::Bluetooth, aura::kBlue,   Screen::Bluetooth,   nullptr },
+#if EW_APP_MOTION
+  { "Motion LM", Icon::Memory,    aura::kPurple, Screen::Motion,      nullptr },
+#endif  // EW_APP_MOTION
+#if EW_APP_WRITE
+  { "Write",     Icon::Pen,       aura::kYellow, Screen::Write,       nullptr },
+#endif  // EW_APP_WRITE
 #if EW_APP_BLECONTROLS
   { "Controls",  Icon::Bluetooth, aura::kTeal,   Screen::BleControls, nullptr },
 #endif  // EW_APP_BLECONTROLS
@@ -192,6 +204,9 @@ static QRCodeView vQRCode;
 static StopwatchView vStopwatch;
 static TimerView     vTimer;
 static BluetoothView vBluetooth;
+#if EW_APP_WRITE
+static WriteView vWrite;
+#endif  // EW_APP_WRITE
 #if EW_APP_BLECONTROLS
 static BleControlsView vBleControls;
 #endif  // EW_APP_BLECONTROLS
@@ -276,6 +291,12 @@ View *viewFor(Screen s) {
     case Screen::Stopwatch:       return &vStopwatch;
     case Screen::Timer:           return &vTimer;
     case Screen::Bluetooth:       return &vBluetooth;
+#if EW_APP_MOTION
+    case Screen::Motion:          return motionViewPtr();
+#endif  // EW_APP_MOTION
+#if EW_APP_WRITE
+    case Screen::Write:           return &vWrite;
+#endif  // EW_APP_WRITE
 #if EW_APP_BLECONTROLS
     case Screen::BleControls:     return &vBleControls;
 #endif  // EW_APP_BLECONTROLS

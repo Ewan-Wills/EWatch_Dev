@@ -1,0 +1,10 @@
+# module test: build with EW_APPS=motion
+# Motion LM speed on the device: 480 forward passes of the motion LM on the
+# engine task (core 0). The log line carries us_per_fwd and tok_s.
+# In ewsimrec the number is meaningless (host CPU time is free): run on the watch.
+goto Motion
+raw motion bench 480
+expect log MOTION:.bench.n=480 15000
+show bench
+raw motion
+show motion:

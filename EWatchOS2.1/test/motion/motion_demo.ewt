@@ -1,0 +1,30 @@
+# module test: build with EW_APPS=motion
+# Demo footage for ewsimrec (offline) or `ewt record` (watch).
+goto Motion
+tilt 0 0 1
+wait 1200
+shake 700
+wait 1500
+tilt 0 -0.5 0.87
+tilt 0 -0.87 0.5
+tilt 0 -1 0
+tilt 0 -0.87 0.5
+tilt 0 -0.5 0.87
+tilt 0 0 1
+wait 1500
+raw motion inject flick_out
+wait 2000
+raw motion inject circle 1
+wait 2800
+swipe u
+wait 250
+swipe u
+wait 1500
+swipe l
+swipe r
+swipe l
+wait 1500
+tap 120 20
+wait 2500
+tap 120 20
+wait 800

@@ -13,6 +13,9 @@
 #include "display.h"
 #include "haptic.h"
 #include "controller.h"
+#if EW_APP_MOTION
+#include "motion_engine.h"   // motion LM: sample feed + action hook
+#endif  // EW_APP_MOTION
 #include "view.h"
 #include "event.h"
 #include "apptimer.h"
@@ -432,6 +435,16 @@ static void taskIO(void *) {
               // Suppressed in the 3D viewer (drag-to-rotate) and Starfox
               // (swipe-right = barrel roll — converting it ejected the player
               // mid-run).
+#if EW_APP_MOTION
+              // Motion LM: swipe-right is a motion token there (L-R-L, tap-tap-R).
+              if (scr == Screen::Motion) {
+                Event ge = makeEvent(EventType::Gesture);
+                ge.x = touchpad.data.x;
+                ge.y = touchpad.data.y;
+                ge.gesture = g;
+                postEvent(ge);
+              } else
+#endif  // EW_APP_MOTION
               if (scr != Screen::Viewer3D && scr != Screen::Starfox) {
                 Event back = makeEvent(EventType::ButtonShort);
                 postEvent(back);
@@ -479,6 +492,9 @@ static void taskIO(void *) {
     // ---- Accel + shake (Wire) ----
     int16_t ax = 0, ay = 0, az = 0;
     bool accOk = readAccel(ax, ay, az);
+#if EW_APP_MOTION
+    motionFeedSample(accOk, ax, ay, az); // motion LM engine (no-op unless running)
+#endif  // EW_APP_MOTION
 #if EW_APP_WAKESOAK
     if (accOk) gestFeed(ax, ay, az);     // wake soak trace: ~1 s after a wake
 #endif  // EW_APP_WAKESOAK
@@ -659,6 +675,9 @@ static void taskRender(void *) {
     // Host-requested screen jump (ewsim `goto`), on the render task.
     int simGoto = ewsimTakeGoto();
     if (simGoto >= 0) { powerOnActivity(); switchTo((Screen)simGoto); }
+#if EW_APP_MOTION
+    motionServiceRender();               // motion LM: run a recognised gesture's action
+#endif  // EW_APP_MOTION
 #if EW_APP_WAKESOAK
     if (soakTakeGoto()) { powerOnActivity(); switchTo(Screen::WakeSoak); }   // `soak test`
     gestPoll();                          // write a finished wake trace (flash)

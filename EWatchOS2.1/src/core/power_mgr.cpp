@@ -20,6 +20,9 @@
 #include "wake_gest.h"
 #endif  // EW_APP_WAKESOAK
 #include "power_mgr.h"
+#if EW_APP_WRITE
+#include "write_text.h"
+#endif  // EW_APP_WRITE
 #include "ewsim.h"
 
 // ---------------------------------------------------------------------------
@@ -174,6 +177,9 @@ static bool screenBlocksSleep(Screen s) {
 #endif
     case Screen::Torch:
     case Screen::Bluetooth:    // light sleep would stop the BLE scan
+#if EW_APP_MOTION
+    case Screen::Motion:       // live motion-LM view: user is watching it
+#endif  // EW_APP_MOTION
 #if EW_APP_BLECONTROLS
     case Screen::BleControls:  // ...and drop the cloud panel's link
 #endif  // EW_APP_BLECONTROLS
@@ -207,6 +213,10 @@ static bool screenBlocksSleep(Screen s) {
     case Screen::Island:
 #endif
       return true;
+#if EW_APP_WRITE
+    case Screen::Write:        // awake while someone is writing (< 60 s idle)
+      return writeKeepAwake();
+#endif  // EW_APP_WRITE
     default:
       return false;
   }
