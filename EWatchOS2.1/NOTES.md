@@ -1,15 +1,17 @@
 # EWatchOS2.1 notes
 
 
-## Split-out features (2026-10-09)
-Doom, Racer, Pet, the Spotify integration (app, web sign-in, secrets env) and
-the wake soak test (+ wake gesture traces, soak_pull.py, soak_logs) were
-removed from this tree. Each lives in its own project folder = this OS as of
-that day + that one feature: ../ewdoom ../ewracer ../ewpet ../ewspotify
-../ewwakesoak (all built clean). Base flash 73.1% -> 66.3%. The raise check
-keeps the MMA FIFO pre-trigger history (it is the turn reference); only the
-soak/trace parts went. Sections below that describe the soak/traces now refer
-to ../ewwakesoak.
+## App modules (2026-10-09)
+Doom, Racer, Pet, Spotify and the wake soak test (+ gesture traces) are
+optional modules: src/apps/modules/<name>/, hooks guarded by EW_APP_<NAME>,
+picked with EW_APPS / custom_apps (tools/ew_apps.py; see README). The
+standard build has none (flash 66.3% vs 73.1% with all). Verified: each
+single-module build is within 8-24 bytes of the same app built as its own
+full folder (file-path strings only), all = the original 73.1%, and an
+unknown module name fails the build. Screen ids are unguarded in model.h so
+ids never shift (also fixes ewt's Island misnumbering). Sections below on the
+soak/traces refer to the wakesoak module; soak_pull.py and the soak data are
+in companions/wakesoak/.
 
 ## 2026-10-05 - serial/render trap audit (traps A-E from bookreader)
 

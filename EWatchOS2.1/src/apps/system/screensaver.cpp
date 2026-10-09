@@ -6,6 +6,9 @@
 // Dismiss needs a *deliberate* input — a sustained finger press or the
 // button; stray CST816S touch frames and IMU jolts are ignored so it doesn't
 // wake on its own.
+#if EW_APP_WAKESOAK
+#include "wake_soak.h"
+#endif  // EW_APP_WAKESOAK
 #include <Arduino_GFX_Library.h>
 #include "display.h"
 #include "ui_kit.h"
@@ -75,7 +78,13 @@ public:
       // The physical button is reliable — a press is always intentional.
       case EventType::ButtonDown:
       case EventType::ButtonShort: {
+#if EW_APP_WAKESOAK
+        SoakWake r = { "saver_button", millis() - entryMs, 0, 0, 0, 0, 0, 0, 0, 0 };
         switchTo(Screen::Watch);
+        soakOnWake(r, false);
+#else
+        switchTo(Screen::Watch);
+#endif  // EW_APP_WAKESOAK
         return;
       }
 
@@ -106,8 +115,14 @@ public:
 
 private:
   void dismissByTouch(const Event &e, uint16_t heldMs) {
+#if EW_APP_WAKESOAK
+    SoakWake r = { "saver_touch", millis() - entryMs, 0, 1, e.x, e.y, heldMs, 0, 0, 0 };
+    switchTo(Screen::Watch);
+    soakOnWake(r, true);               // wake soak: ask whether it was intended
+#else
     (void)e; (void)heldMs;
     switchTo(Screen::Watch);
+#endif  // EW_APP_WAKESOAK
   }
   bool     drawn        = false;   // static image — paint once per entry
   uint32_t entryMs      = 0;       // for the post-entry input grace window

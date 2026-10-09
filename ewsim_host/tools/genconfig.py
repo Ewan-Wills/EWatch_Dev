@@ -14,7 +14,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FW_ROOT = os.path.dirname(HERE)
 
 # Firmware sources replaced by host stubs (radio / BLE stacks the host can't run).
-STUBBED = ["core/wifi_svc.cpp", "apps/spotify/spotify.cpp", "apps/bluetooth.cpp",
+STUBBED = ["core/wifi_svc.cpp", "apps/spotify/spotify.cpp", "apps/modules/spotify/spotify.cpp", "apps/bluetooth.cpp",
            "apps/xbox_pad.cpp", "apps/btmouse.cpp", "core/ble_stack.cpp"]
 RADIO_RE = re.compile(r'#include\s*<((?:WiFi|WiFiClient|WiFiClientSecure|HTTPClient|WebServer|AsyncTCP|ESPAsyncWebServer|BLE\w*|NimBLE\w*|esp_bt\w*|esp_gap\w*|esp_gatt\w*)\.h)>')
 LIBS = {  # build-dir name -> (libdeps folder, source globs relative to it, include dir)
@@ -67,6 +67,18 @@ def ini_env(proj, env):
         elif f.startswith("-I"):
             incs.append(os.path.normpath(os.path.join(proj, f[2:])))
     excl = re.findall(r"-<([^>]+)>", get(sec, "build_src_filter"))
+    # optional app modules (EWatchOS tools/ew_apps.py): custom_apps + EW_APPS
+    mods = os.path.join(proj, "src", "apps", "modules")
+    have = sorted(os.listdir(mods)) if os.path.isdir(mods) else []
+    apps = (get(sec, "custom_apps") + " " + os.environ.get("EW_APPS", "")).replace(",", " ").split()
+    apps = have if "all" in apps else apps
+    for a in dict.fromkeys(x.lower() for x in apps):
+        if a not in have:
+            sys.exit(f"ewsim: unknown module {a!r} (have: {' '.join(have)})")
+        defs[f"EW_APP_{a.upper()}"] = "1"
+        incs.append(os.path.join(mods, a))
+        excl = [e for e in excl if e.rstrip("/") != "apps/modules"] + \
+               [f"apps/modules/{m}" for m in have if m not in apps]
     return defs, incs, excl
 
 

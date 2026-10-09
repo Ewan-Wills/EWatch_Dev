@@ -16,7 +16,7 @@ transitions, vector icons, a control centre, and five watch faces.
 ```
 
 - **Swipe right** (or the side button) = back, everywhere.
-- Games have on-screen exits.
+- Games have on-screen exits (Doom, a module: hold the side button ~2 s).
 - Long-press the side button 3 s = power off (global, unchanged).
 
 ## What's aboard
@@ -24,9 +24,38 @@ transitions, vector icons, a control centre, and five watch faces.
 | Section | Apps |
 |---|---|
 | Apps  | Stopwatch, Timer, Bluetooth (media remote), QR Share, Photos, Media, 3D Viewer |
-| Games | Tunnel Racer, Starfox, Island (compiled out) |
+| Games | Tunnel Racer, Starfox (Island: compiled out) |
 | Toys  | Particles, Flock |
 | System| Settings, diagnostics, Power Off |
+
+### Optional app modules
+
+Bigger or niche apps are **modules**: one folder each in `src/apps/modules/`,
+compiled only when a build asks for them. The standard build has none.
+
+| Module | What |
+|---|---|
+| `doom` | Doom raycaster (owns the I2C bus while running) |
+| `racer` | pseudo-3D OutRun-style racer (best run in NVS `racer`) |
+| `pet` | virtual pet (tamagotchi) |
+| `spotify` | Spotify Connect remote + web-page sign-in (also `env:ewatch_secrets`) |
+| `wakesoak` | wake soak test + wake gesture traces; Mac side in `companions/wakesoak/` |
+
+```
+EW_APPS="doom pet" pio run -t upload      # any modules, either board env
+EW_APPS="doom" ewt flash                  # same, via the ewt test tool
+EW_APPS=all pio run                       # everything (CI / size check)
+```
+or put `custom_apps = doom pet` in an env that `extends = env:ewatch`.
+
+**Adding a module:** put its sources in `src/apps/modules/<name>/`, guard its
+hooks into the OS with `#if EW_APP_<NAME>` (registry entry + view, any
+power-manager / console / init hooks), and add its `Screen` id to `model.h`
+**unguarded** (ids are identical in every build; ewt reads that list).
+Host-side tools for a module go in `companions/<name>/`. `tools/ew_apps.py`
+does the rest. A module that has to change or remove OS core in a way this
+tree shouldn't take is a fork instead: a long-lived `fork/<name>` branch that
+merges `main` regularly.
 
 Faces: **Aurora** (rounded-segment digits + complications), **Analog**,
 **Orbit**, **Photo** (your photo, or a Claire Wills painting by default), **Mono**.
@@ -38,11 +67,11 @@ Faces: **Aurora** (rounded-segment digits + complications), **Analog**,
 - `src/core/ui_transition.cpp` — snapshot slide transitions (2 PSRAM frames);
   views opt in via `View::paintTo()`. Non-participating views get a clean cut.
 - `src/apps/system/launcher.*` — one list view drives Apps/System/Settings.
-- Ported apps live in `src/apps/games/` and `src/apps/island/`.
-- Moved out to their own projects (2026-10-09), each = this OS + that one
-  feature: `../ewdoom` (Doom), `../ewracer` (Racer), `../ewpet` (Pet),
-  `../ewspotify` (Spotify remote + web sign-in + secrets env),
-  `../ewwakesoak` (wake soak test + gesture traces + tools/soak_pull.py).
+- Built-in ported apps live in `src/apps/games/` and `src/apps/island/`;
+  optional ones in `src/apps/modules/` (above).
+- Doom owns the I2C bus while running (`controllerSuspendIo()` — the same
+  cooperative pause light sleep uses).
+- Spotify pins a WiFi sync-window open while on screen (`wifiSvcHold`).
 
 ## Build & flash
 

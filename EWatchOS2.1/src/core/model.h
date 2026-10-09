@@ -6,6 +6,9 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
+// Every screen id exists in every build, whether or not its module is
+// compiled in (src/apps/modules): ids never shift between builds, and ewt
+// maps names -> ids by reading this list.
 enum class Screen : uint8_t {
   Watch, AppList,
   ScreenSaver,      // dimmed default-painting idle screen (shown before deep sleep)
@@ -28,16 +31,19 @@ enum class Screen : uint8_t {
   Stopwatch,        // user app: count-up stopwatch
   Timer,            // user app: countdown timer (wakes from sleep)
   Bluetooth,        // user app: BLE media remote (HID) + scanner
+  WakeSoak,         // module: wake soak test: intentional-wake prompt + stats
   Particles,        // user app: particle sandbox demo (tilt + touch)
   Boids,            // user app: flocking / starfield demo
   QuickSettings,    // control-centre sheet (swipe down from watch face)
   Torch,            // full-brightness white screen; blocks sleep while up
   Gallery,          // Photos: LittleFS image gallery (web-uploaded)
+  Doom,             // module: game: raycaster FPS (owns I2C while running)
   TunnelRacer,      // game: wireframe tunnel runner
   Starfox,          // game: on-rails wireframe space shooter
-#if defined(EWATCH_ENABLE_ISLAND) && EWATCH_ENABLE_ISLAND
-  Island,           // 3D floating-island diorama face (launchable app)
-#endif
+  Racer,            // module: game: pseudo-3D OutRun-style racer
+  Tamagotchi,       // module (pet): game: virtual pet
+  Island,           // 3D floating-island diorama face (compiled out by default)
+  Spotify,          // module: Spotify Connect remote + now-playing
   PowerOff
 };
 

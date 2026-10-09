@@ -1,6 +1,9 @@
 // EWatch v2 — boot only. Hardware bring-up + FreeRTOS task launch. All
 // runtime logic lives in controller.cpp (I/O + tasks) and view.cpp (UI).
 
+#if EW_APP_WAKESOAK
+#include "wake_soak.h"
+#endif  // EW_APP_WAKESOAK
 #include "bluetooth.h"
 #include <Arduino.h>
 #include <Wire.h>
@@ -26,6 +29,10 @@
 #include "apptimer.h"
 #include "wifi_svc.h"
 #include "photo_store.h"
+#if defined(EW_APP_SPOTIFY) && EW_APP_SPOTIFY && \
+    defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
+  #include "spotify.h"
+#endif
 #include "ewlog.h"
 #include "power_mgr.h"
 
@@ -434,10 +441,21 @@ void setup() {
   installTaskWatchdog();
 
   if (!gSafeMode) wifiSvcInit();
+#if defined(EW_APP_SPOTIFY) && EW_APP_SPOTIFY && \
+    defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
+  if (!gSafeMode) spotifyInit();       // load Client ID + refresh token (NVS)
+#endif
   controllerStartTasks();
   if (!gSafeMode) wifiSvcStartTask();
+#if defined(EW_APP_SPOTIFY) && EW_APP_SPOTIFY && \
+    defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
+  if (!gSafeMode) spotifySvcStartTask();  // background auth/poll/art task
+#endif
   ewlogStartConsole();
   btBegin();                    // Bluetooth remote: restore the saved on/off state
+#if EW_APP_WAKESOAK
+  soakBegin();                  // wake soak test: enabled flag          // `log ...` / `pwr ...` commands over USB
+#endif  // EW_APP_WAKESOAK
 
   // Give the render task a brief window to paint the first complete frame
   // (time, date, icons), then bring the backlight up at the user's level.

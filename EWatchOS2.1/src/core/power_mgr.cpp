@@ -15,6 +15,10 @@
 #include "wifi_svc.h"
 #include "ewlog.h"
 #include "bluetooth.h"   // btRemoteOn(): no real light sleep while BLE is up
+#if EW_APP_WAKESOAK
+#include "wake_soak.h"
+#include "wake_gest.h"
+#endif  // EW_APP_WAKESOAK
 #include "power_mgr.h"
 #include "ewsim.h"
 
@@ -159,12 +163,25 @@ void powerOnActivity() {
 static bool screenBlocksSleep(Screen s) {
   switch (s) {
     case Screen::PowerOff:
+#if EW_APP_WAKESOAK
+    case Screen::WakeSoak:     // soak prompt / stats: the wearer is answering
+#endif  // EW_APP_WAKESOAK
     case Screen::QRCode:
     case Screen::Media:
+#if defined(EW_APP_SPOTIFY) && EW_APP_SPOTIFY && \
+    defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
+    case Screen::Spotify:      // now-playing remote: user is watching it
+#endif
     case Screen::Torch:
     case Screen::Bluetooth:    // light sleep would stop the BLE scan
+#if EW_APP_DOOM
+    case Screen::Doom:
+#endif  // EW_APP_DOOM
     case Screen::TunnelRacer:
     case Screen::Starfox:
+#if EW_APP_RACER
+    case Screen::Racer:
+#endif  // EW_APP_RACER
 #if defined(EWATCH_ENABLE_ISLAND) && EWATCH_ENABLE_ISLAND
     case Screen::Island:
 #endif
@@ -409,6 +426,9 @@ static RaiseResult raiseCheckLoop(uint32_t t0) {
     // the soak traces showed it repeating a sample from up to 640 ms back).
     if (sRaiseReads++ == 0) { vTaskDelay(pdMS_TO_TICKS(kRaiseSampleMs)); continue; }
     r.ax = x; r.ay = y; r.az = z;
+#if EW_APP_WAKESOAK
+    gestCheckSample(x, y, z);               // wake soak trace (100 Hz kept)
+#endif  // EW_APP_WAKESOAK
     if (!have || x != px || y != py || z != pz) sRaiseNew++;
     if (have) {
       int d = abs(x - px) + abs(y - py) + abs(z - pz);
@@ -520,15 +540,31 @@ static void enterScreenOff() {
   int64_t tWakeUs = 0;
   bool     touchValid = false;
   uint16_t touchWX = 0, touchWY = 0;
+#if EW_APP_WAKESOAK
+  int16_t  soakAx = 0, soakAy = 0, soakAz = 0;   // wake soak record
+  uint16_t soakHeldMs = 0; uint8_t soakG = 0, soakPts = 0;
+  RaiseResult wakeRaise = { false, 0, 0, 0, 0, 0 }; bool haveRaise = false;
+  uint32_t soakTraceId = 0;
+  uint8_t wakeSense = 0;
+#else
   uint16_t wakeHeldMs = 0; uint8_t wakeG = 0, wakePts = 0;   // touch wake, logged after DISPON
   RaiseResult wakeRaise = { false, 0, 0, 0, 0, 0 }; bool haveRaise = false;
   uint8_t wakeSense = 0;
+#endif  // EW_APP_WAKESOAK
 
   raiseSetBaseline();                 // raise check: where the wrist is now
+#if EW_APP_WAKESOAK
+  // Wake soak: keep the last ~640 ms of wrist motion in the MMA FIFO so each
+  // wake's trace starts BEFORE its trigger (after the baseline read: with the
+  // FIFO on, OUT regs return FIFO entries).
+  const bool soakFifo = soakEnabled();
+  const bool fifoOn = soakFifo || (raiseWake && sRaiseCheck);   // raise check needs the history
+#else
   // Raise check: keep the last ~640 ms of wrist motion in the MMA FIFO, the
   // turn reference (after the baseline read: with the FIFO on, OUT regs
   // return FIFO entries).
   const bool fifoOn = raiseWake && sRaiseCheck;
+#endif  // EW_APP_WAKESOAK
   if (fifoOn) fifoArmQuiet();
 
   for (;;) {
@@ -606,6 +642,9 @@ static void enterScreenOff() {
     if (wake == WK_MOTION) {
       if (sRaiseCheck) {
         uint32_t t0 = millis();
+#if EW_APP_WAKESOAK
+        uint32_t gid = gestBegin(GEST_SRC_MOTION);
+#endif  // EW_APP_WAKESOAK
         if (fifoOn) {                      // pre-trigger history, before the rate switch
           int16_t pre[32][3];
           int n = mmaFifoRead(pre, 32);
@@ -614,19 +653,46 @@ static void enterScreenOff() {
             for (int i = 0; i < 5; i++) { sx += pre[i][0]; sy += pre[i][1]; sz += pre[i][2]; }
             sBaseX = sx / 5; sBaseY = sy / 5; sBaseZ = sz / 5; sBaseOk = true;
           }
+#if EW_APP_WAKESOAK
+          gestPre(pre, n);
+          if (sBaseOk) gestBase(sBaseX, sBaseY, sBaseZ);
+#endif  // EW_APP_WAKESOAK
         }
         preRenderRtc();
         RaiseResult rr = raiseCheckOverlapped(t0, preRenderFace);   // FIFO off from here
+#if EW_APP_WAKESOAK
+        gestVerdict(rr.why, rr.ok, rr.ms);
+#endif  // EW_APP_WAKESOAK
         wakeRaise = rr; haveRaise = true;  // logged after the screen is on
+#if EW_APP_WAKESOAK
+        soakTraceId = gid;
+        // Label mode: wake and ask even when the check said no, so every
+        // trigger gets a ground-truth answer (the verdict is in the row).
+        if (!rr.ok && !soakLabelMode()) {
+#else
         if (!rr.ok) {
+#endif  // EW_APP_WAKESOAK
           EWLOGD("PWR", "raise %s ms=%u a=%d,%d,%d", kRaiseWhy[rr.why], rr.ms, rr.ax, rr.ay, rr.az);
           sPreRenderMin = -1;
           sSpuriousWakes++;
+#if EW_APP_WAKESOAK
+          SoakWake r = { "sleep_motion_rejected", millis() - offStartMs, rr.why, 0, 0, 0,
+                         rr.ms, rr.ax, rr.ay, rr.az, gid };
+          soakLogRejected(r);              // writes the trace too (answer known)
+#endif  // EW_APP_WAKESOAK
           if (fifoOn) fifoArmQuiet();      // history for the next trigger
           else { vTaskDelay(pdMS_TO_TICKS(150)); mmaClearMotionLatch(); }   // rate switch = HPF step
           continue;
         }
+#if EW_APP_WAKESOAK
+        soakAx = rr.ax; soakAy = rr.ay; soakAz = rr.az;
+        soakG = rr.why; soakHeldMs = rr.ms;
+      } else {
+        readAccel(soakAx, soakAy, soakAz);   // for the wake soak log
       }
+#else
+      }
+#endif  // EW_APP_WAKESOAK
       mmaClearMotionLatch();
       break;                          // raise-to-wake -> fast wake path
     }
@@ -673,11 +739,20 @@ static void enterScreenOff() {
         if (!down || heldMs < needMs) {
           sSpuriousWakes++;
           EWLOGD("PWR", "short_touch held_ms=%lu need=%u", (unsigned long)heldMs, needMs);
+#if EW_APP_WAKESOAK
+          SoakWake r = { "sleep_touch_rejected", millis() - offStartMs, g, pts, touchWX, touchWY,
+                         (uint16_t)heldMs, 0, 0, 0 };
+          soakLogRejected(r);
+#endif  // EW_APP_WAKESOAK
           vTaskDelay(pdMS_TO_TICKS(30));
           continue;
         }
       }
+#if EW_APP_WAKESOAK
+      soakHeldMs = (uint16_t)heldMs; soakG = g; soakPts = pts;
+#else
       wakeHeldMs = (uint16_t)heldMs; wakeG = g; wakePts = pts;
+#endif  // EW_APP_WAKESOAK
       wakeSense = sense;                   // wake_read is logged after DISPON
       touchValid = pts > 0;
       break;
@@ -708,16 +783,42 @@ static void enterScreenOff() {
   const char *cause = (wake == WK_BUTTON) ? "button"
                     : (wake == WK_TOUCH)  ? "touch"
                     : "motion";
+#if EW_APP_WAKESOAK
+  uint32_t offMs = millis() - offStartMs;
+#endif  // EW_APP_WAKESOAK
   fastWake(cause, tWakeUs, !dev, touchValid, touchWX, touchWY);
   // Every log line is a synchronous LittleFS append (tens of ms), so the
   // wake path's own logs wait until the screen is already on.
   if (haveRaise && wake == WK_MOTION)
     EWLOGD("PWR", "raise %s ms=%u a=%d,%d,%d", kRaiseWhy[wakeRaise.why], wakeRaise.ms,
            wakeRaise.ax, wakeRaise.ay, wakeRaise.az);
+#if EW_APP_WAKESOAK
+  // Wake soak trace. Touch/button: start it now and take the FIFO history
+  // (the trigger was moments ago; done after DISPON so it costs no latency).
+  if (soakFifo && wake != WK_MOTION) {
+    soakTraceId = gestBegin(wake == WK_TOUCH ? GEST_SRC_TOUCH : GEST_SRC_BUTTON);
+    if (soakTraceId) { int16_t pre[32][3]; gestPre(pre, mmaFifoRead(pre, 32)); }
+  }
+#endif  // EW_APP_WAKESOAK
   if (fifoOn) mmaFifoArm(false);           // awake: OUT regs must be live again
+#if EW_APP_WAKESOAK
+  if (soakFifo) gestPostStart();           // the I/O task feeds ~1 s of post-wake motion
+#endif  // EW_APP_WAKESOAK
   if (wake == WK_TOUCH)
     EWLOGD("TOUCH", "wake_read sense=%u gesture=%u pts=%u x=%u y=%u held=%u",
+#if EW_APP_WAKESOAK
+           wakeSense, soakG, soakPts, touchWX, touchWY, soakHeldMs);
+#else
            wakeSense, wakeG, wakePts, touchWX, touchWY, wakeHeldMs);
+#endif  // EW_APP_WAKESOAK
+#if EW_APP_WAKESOAK
+  {
+    SoakWake r = { wake == WK_BUTTON ? "sleep_button" : wake == WK_TOUCH ? "sleep_touch" : "sleep_motion",
+                   offMs, soakG, soakPts, touchWX, touchWY, soakHeldMs, soakAx, soakAy, soakAz,
+                   soakTraceId };
+    soakOnWake(r, wake != WK_BUTTON);  // button = always intentional: logged, no prompt
+  }
+#endif  // EW_APP_WAKESOAK
 
   if (!touchAwake) {
     EWLOGW("TOUCH", "wake_reinit=1 (chip slept during screen-off)");

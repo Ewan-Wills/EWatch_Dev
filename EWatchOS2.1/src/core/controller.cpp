@@ -5,6 +5,10 @@
 #include "power.h"
 #include "i2c_bus.h"
 #include "touch.h"
+#if EW_APP_WAKESOAK
+#include "wake_gest.h"
+#include "wake_soak.h"
+#endif  // EW_APP_WAKESOAK
 #include "ewsim.h"
 #include "display.h"
 #include "haptic.h"
@@ -475,6 +479,9 @@ static void taskIO(void *) {
     // ---- Accel + shake (Wire) ----
     int16_t ax = 0, ay = 0, az = 0;
     bool accOk = readAccel(ax, ay, az);
+#if EW_APP_WAKESOAK
+    if (accOk) gestFeed(ax, ay, az);     // wake soak trace: ~1 s after a wake
+#endif  // EW_APP_WAKESOAK
     ewsimAccel(accOk, ax, ay, az);       // host tilt/shake override (ewsim)
     if (accOk) {
       uint32_t d = (uint32_t)abs(ax - pax) + abs(ay - pay) + abs(az - paz);
@@ -652,6 +659,10 @@ static void taskRender(void *) {
     // Host-requested screen jump (ewsim `goto`), on the render task.
     int simGoto = ewsimTakeGoto();
     if (simGoto >= 0) { powerOnActivity(); switchTo((Screen)simGoto); }
+#if EW_APP_WAKESOAK
+    if (soakTakeGoto()) { powerOnActivity(); switchTo(Screen::WakeSoak); }   // `soak test`
+    gestPoll();                          // write a finished wake trace (flash)
+#endif  // EW_APP_WAKESOAK
 
     // Power manager owns the idle progression (ACTIVE -> IDLE dim ->
     // screensaver -> SCREEN_OFF light sleep -> DEEP). This call can block

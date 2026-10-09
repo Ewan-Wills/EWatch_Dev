@@ -18,23 +18,51 @@
 #include "stopwatch.h"
 #include "timer_app.h"
 #include "bluetooth.h"
+#if EW_APP_WAKESOAK
+#include "wake_soak.h"
+#endif  // EW_APP_WAKESOAK
 #include "particles.h"
 #include "boids.h"
 #include "tunnel.h"
 #include "starfox_shooter.h"
+#if EW_APP_PET
+#include "petview.h"
+#endif  // EW_APP_PET
 #if defined(EWATCH_ENABLE_ISLAND) && EWATCH_ENABLE_ISLAND
   #include "island.h"
 #endif
+#if EW_APP_DOOM
+#include "doom.h"
+#endif  // EW_APP_DOOM
 #include "gallery.h"
+#if defined(EW_APP_SPOTIFY) && EW_APP_SPOTIFY && \
+    defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
+  #include "spotify.h"
+#endif
 
+#if EW_APP_RACER
+View *racerViewPtr();   // games/racer_view.cpp
+#endif  // EW_APP_RACER
+#if EW_APP_DOOM
+View *doomViewPtr();    // games/doom_app.cpp
+#endif  // EW_APP_DOOM
 
 // ---------------------------------------------------------------------------
 // Launcher tables. Sections render as dim headers above their first row.
 // ---------------------------------------------------------------------------
 static const AuraEntry kTopApps[] = {
+#if defined(EW_APP_SPOTIFY) && EW_APP_SPOTIFY && \
+    defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
+  { "Spotify",   Icon::Music,     aura::kGreen,  Screen::Spotify,     "APPS"  },
+  { "Stopwatch", Icon::Stopwatch, aura::kOrange, Screen::Stopwatch,   nullptr },
+#else
   { "Stopwatch", Icon::Stopwatch, aura::kOrange, Screen::Stopwatch,   "APPS"  },
+#endif
   { "Timer",     Icon::Timer,     aura::kTeal,   Screen::Timer,       nullptr },
   { "Bluetooth", Icon::Bluetooth, aura::kBlue,   Screen::Bluetooth,   nullptr },
+#if EW_APP_WAKESOAK
+  { "Wake Soak", Icon::Info,      aura::kOrange, Screen::WakeSoak,    nullptr },
+#endif  // EW_APP_WAKESOAK
 #if defined(EWATCH_ENABLE_QR) && EWATCH_ENABLE_QR
   { "QR Share",  Icon::QR,        aura::kBlue,   Screen::QRCode,      nullptr },
 #endif
@@ -45,8 +73,19 @@ static const AuraEntry kTopApps[] = {
 #if defined(EWATCH_ENABLE_VIEWER3D) && EWATCH_ENABLE_VIEWER3D
   { "3D Viewer", Icon::Cube,      aura::kPurple, Screen::Viewer3D,    nullptr },
 #endif
+#if EW_APP_DOOM
+  { "Doom",      Icon::Skull,     aura::kRed,    Screen::Doom,        "GAMES" },
+  { "Tunnel",    Icon::Tunnel,    aura::kTeal,   Screen::TunnelRacer, nullptr },
+#else
   { "Tunnel",    Icon::Tunnel,    aura::kTeal,   Screen::TunnelRacer, "GAMES" },
+#endif  // EW_APP_DOOM
   { "Starfox",   Icon::Ship,      aura::kBlue,   Screen::Starfox,     nullptr },
+#if EW_APP_RACER
+  { "Racer",     Icon::Car,       aura::kOrange, Screen::Racer,       nullptr },
+#endif  // EW_APP_RACER
+#if EW_APP_PET
+  { "Pet",       Icon::Paw,       aura::kPink,   Screen::Tamagotchi,  nullptr },
+#endif  // EW_APP_PET
 #if defined(EWATCH_ENABLE_ISLAND) && EWATCH_ENABLE_ISLAND
   { "Island",    Icon::Island,    aura::kGreen,  Screen::Island,      nullptr },
 #endif
@@ -99,13 +138,23 @@ static QRCodeView vQRCode;
 static StopwatchView vStopwatch;
 static TimerView     vTimer;
 static BluetoothView vBluetooth;
+#if EW_APP_WAKESOAK
+static WakeSoakView vWakeSoak;
+#endif  // EW_APP_WAKESOAK
 static ParticlesView vParticles;
 static BoidsView     vBoids;
 static TunnelRacerView    vTunnel;
 static StarfoxShooterView vStarfox;
+#if EW_APP_PET
+static PetView            vPet;
+#endif  // EW_APP_PET
 static GalleryView        vGallery;
 #if defined(EWATCH_ENABLE_ISLAND) && EWATCH_ENABLE_ISLAND
 static IslandView         vIsland;
+#endif
+#if defined(EW_APP_SPOTIFY) && EW_APP_SPOTIFY && \
+    defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
+static SpotifyView        vSpotify;
 #endif
 
 View *currentView = nullptr;
@@ -146,13 +195,29 @@ View *viewFor(Screen s) {
     case Screen::Stopwatch:       return &vStopwatch;
     case Screen::Timer:           return &vTimer;
     case Screen::Bluetooth:       return &vBluetooth;
+#if EW_APP_WAKESOAK
+    case Screen::WakeSoak:        return &vWakeSoak;
+#endif  // EW_APP_WAKESOAK
     case Screen::Particles:       return &vParticles;
     case Screen::Boids:           return &vBoids;
     case Screen::TunnelRacer:     return &vTunnel;
     case Screen::Starfox:         return &vStarfox;
+#if EW_APP_PET
+    case Screen::Tamagotchi:      return &vPet;
+#endif  // EW_APP_PET
     case Screen::Gallery:         return &vGallery;
 #if defined(EWATCH_ENABLE_ISLAND) && EWATCH_ENABLE_ISLAND
     case Screen::Island:          return &vIsland;
+#endif
+#if EW_APP_RACER
+    case Screen::Racer:           return racerViewPtr();
+#endif  // EW_APP_RACER
+#if EW_APP_DOOM
+    case Screen::Doom:            return doomViewPtr();
+#endif  // EW_APP_DOOM
+#if defined(EW_APP_SPOTIFY) && EW_APP_SPOTIFY && \
+    defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
+    case Screen::Spotify:         return &vSpotify;
 #endif
     case Screen::PowerOff:        return powerOffViewPtr();
     default:                      break;

@@ -7,6 +7,9 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
+#if EW_APP_WAKESOAK
+#include "wake_soak.h"
+#endif  // EW_APP_WAKESOAK
 #include "ewlog.h"
 #include "power_mgr.h"     // powerStatsPrint / powerSelfTest for the console
 #include "ewsim.h"         // `sim ...` host test commands
@@ -308,6 +311,10 @@ static void handleLine(char *line) {
     sKeepConsole = atoi(line + 8) != 0;
     sConsolePaused = sAppWantsPause && !sKeepConsole;
     Serial.printf("keepcon=%d\n", sKeepConsole ? 1 : 0);
+#if EW_APP_WAKESOAK
+  } else if (soakHandleLine(line)) {
+    // wake soak test (apps/wake_soak.cpp)
+#endif  // EW_APP_WAKESOAK
   } else if (ewsimHandleLine(line)) {
     // host test command (ewsim.cpp)
   } else {
