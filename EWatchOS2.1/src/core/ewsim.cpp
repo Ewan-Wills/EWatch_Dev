@@ -52,6 +52,7 @@ static const int kW = 240, kH = 280, kRowOff = 20;
 static uint16_t *sShadow = nullptr;      // kW*kH RGB565, PSRAM
 static volatile uint32_t sPxCount = 0;   // pixels pushed to the panel
 static volatile int64_t  sLastBusUs = 0; // last pixel write (recorder waits for a quiet bus)
+static volatile bool     sTapPaused = false;   // overlay (cursor) pixels skip the shadow
 
 class TapSPI : public Arduino_ESP32SPI {
 public:
@@ -126,6 +127,7 @@ private:
     if (cx > x1) { cx = x0; cy++; }
   }
   inline void push(uint16_t p) {
+    if (sTapPaused) { advance(1); return; }
     sPxCount++;
     int sy = (int)cy - kRowOff;
     if (sShadow && cx < kW && sy >= 0 && sy < kH) sShadow[sy * kW + cx] = p;
@@ -133,6 +135,7 @@ private:
   }
   // Row-run fast paths: fill/copy up to the end of the current window row.
   void pushRepeat(uint16_t p, uint32_t len) {
+    if (sTapPaused) { while (len) { uint32_t run = (uint32_t)(x1 - cx + 1); if (run > len) run = len; len -= run; advance(run); } return; }
     sPxCount += len;
     sLastBusUs = esp_timer_get_time();
     while (len) {
@@ -150,6 +153,7 @@ private:
     }
   }
   void pushPixels(const uint16_t *d, uint32_t len) {
+    if (sTapPaused) { while (len) { uint32_t run = (uint32_t)(x1 - cx + 1); if (run > len) run = len; len -= run; advance(run); } return; }
     sPxCount += len;
     sLastBusUs = esp_timer_get_time();
     while (len) {
@@ -166,6 +170,10 @@ private:
     }
   }
 };
+
+const uint16_t *ewsimShadow() { return sShadow; }
+uint32_t ewsimPxCount() { return sPxCount; }
+void ewsimTapPause(bool paused) { sTapPaused = paused; }
 
 Arduino_DataBus *ewsimMakeBus(int8_t dc, int8_t cs, int8_t sck, int8_t mosi,
                               int8_t miso, uint8_t spiNum) {

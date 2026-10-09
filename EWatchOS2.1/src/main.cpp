@@ -5,6 +5,9 @@
 #include "wake_soak.h"
 #endif  // EW_APP_WAKESOAK
 #include "bluetooth.h"
+#if EW_APP_MOUSE
+#include "btmouse.h"
+#endif  // EW_APP_MOUSE
 #include <Arduino.h>
 #include <Wire.h>
 #include <Preferences.h>
@@ -453,6 +456,9 @@ void setup() {
 #endif
   ewlogStartConsole();
   btBegin();                    // Bluetooth remote: restore the saved on/off state
+#if EW_APP_MOUSE
+  mouseBegin();                 // BLE mouse: reconnects the paired mouse if Mouse is on
+#endif  // EW_APP_MOUSE
 #if EW_APP_WAKESOAK
   soakBegin();                  // wake soak test: enabled flag          // `log ...` / `pwr ...` commands over USB
 #endif  // EW_APP_WAKESOAK

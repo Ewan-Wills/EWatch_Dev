@@ -15,6 +15,9 @@
 #include "wifi_svc.h"
 #include "ewlog.h"
 #include "bluetooth.h"   // btRemoteOn(): no real light sleep while BLE is up
+#if EW_APP_MOUSE
+#include "btmouse.h"      // mouseConnected(): same, while a BLE mouse is linked
+#endif  // EW_APP_MOUSE
 #if EW_APP_WAKESOAK
 #include "wake_soak.h"
 #include "wake_gest.h"
@@ -332,6 +335,9 @@ static bool sTouchWakeEnabled = true;
 static int classifyGpioWake() {
   if (digitalRead(PIN_BTN))               return WK_BUTTON;
   if (ewsimTakeWake())                    return WK_BUTTON;   // host (ewsim)
+#if EW_APP_MOUSE
+  if (mouseTakeWake())                    return WK_BUTTON;   // BLE mouse moved
+#endif  // EW_APP_MOUSE
   if (touchPending || digitalRead(PIN_TOUCH_INT) == LOW) {
     touchPending = false;
     if (sTouchWakeEnabled) return WK_TOUCH;
@@ -621,7 +627,13 @@ static void enterScreenOff() {
     // screen stays dark either way and the radio finishes its work.
     // Same for the BLE remote: bluedroid isn't set up for light-sleep modem
     // timing, so it would drop the phone's link.
+#if EW_APP_MOUSE
+    // ...and a connected BLE mouse: bluedroid isn't set up for light-sleep
+    // modem timing and would drop the link.
+    if (dev || wifiSvcRadioActive() || btRemoteOn() || mouseConnected()) {
+#else
     if (dev || wifiSvcRadioActive() || btRemoteOn()) {
+#endif  // EW_APP_MOUSE
       wake = fakeSleepWait(horizon);
       tWakeUs = esp_timer_get_time();
     } else {

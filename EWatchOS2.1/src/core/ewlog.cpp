@@ -11,6 +11,9 @@
 #include "wake_soak.h"
 #endif  // EW_APP_WAKESOAK
 #include "ewlog.h"
+#if EW_APP_MOUSE
+#include "btmouse.h"
+#endif  // EW_APP_MOUSE
 #if EW_APP_MOTION
 #include "motion_engine.h"   // `motion ...` console commands
 #endif  // EW_APP_MOTION
@@ -322,6 +325,10 @@ static void handleLine(char *line) {
   } else if (motionConsole(line)) {
     // motion LM commands (modules/motion/motion_engine.cpp)
 #endif  // EW_APP_MOTION
+#if EW_APP_MOUSE
+  } else if (mouseHandleLine(line)) {
+    // BLE mouse test report (modules/mouse/btmouse.cpp)
+#endif  // EW_APP_MOUSE
   } else if (ewsimHandleLine(line)) {
     // host test command (ewsim.cpp)
   } else {

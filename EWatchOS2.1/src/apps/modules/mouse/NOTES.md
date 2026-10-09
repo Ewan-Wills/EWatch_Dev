@@ -1,3 +1,10 @@
+# mouse module notes
+
+Carried over from the stand-alone `ewmouse/` folder (before 2026-10-09). The shared BLE
+stack (src/core/ble_stack.*) it introduced is now OS core.
+
+---
+
 # ewmouse — EWatchOS2.1 + Bluetooth LE mouse
 
 Mouse app (launcher "Mouse") pairs a BLE mouse; the cursor then works on every

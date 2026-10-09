@@ -10,14 +10,14 @@ static SemaphoreHandle_t sMux = nullptr;
 static int  sUsers = 0;
 static bool sUp = false;
 
-bool bleStackAcquire(const char *who) {
+bool bleStackAcquire(const char *who, const char *devName) {
   if (!sMux) sMux = xSemaphoreCreateMutex();
   xSemaphoreTake(sMux, portMAX_DELAY);
   if (!sUp) {
     wifiSvcSuspend(true, 3000);
     powerPerfPin(true);
     size_t h0 = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
-    BLEDevice::init("EWatch");
+    BLEDevice::init(devName);
     // BLEDevice::init flags itself initialised even when a step fails.
     sUp = esp_bluedroid_get_status() == ESP_BLUEDROID_STATUS_ENABLED;
     size_t h1 = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);

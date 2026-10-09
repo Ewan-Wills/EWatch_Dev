@@ -18,6 +18,9 @@
 #include "stopwatch.h"
 #include "timer_app.h"
 #include "bluetooth.h"
+#if EW_APP_MOUSE
+#include "btmouse.h"
+#endif  // EW_APP_MOUSE
 #if EW_APP_USBHOST
 #include "usbhost.h"
 #endif  // EW_APP_USBHOST
@@ -96,6 +99,9 @@ static const AuraEntry kTopApps[] = {
 #endif
   { "Timer",     Icon::Timer,     aura::kTeal,   Screen::Timer,       nullptr },
   { "Bluetooth", Icon::Bluetooth, aura::kBlue,   Screen::Bluetooth,   nullptr },
+#if EW_APP_MOUSE
+  { "Mouse",     Icon::Bluetooth, aura::kPurple, Screen::Mouse,       nullptr },
+#endif  // EW_APP_MOUSE
 #if EW_APP_USBHOST
   { "USB Host",  Icon::Bluetooth, aura::kOrange, Screen::UsbHost,     nullptr },
 #endif  // EW_APP_USBHOST
@@ -210,6 +216,9 @@ static QRCodeView vQRCode;
 static StopwatchView vStopwatch;
 static TimerView     vTimer;
 static BluetoothView vBluetooth;
+#if EW_APP_MOUSE
+static MouseView vMouse;
+#endif  // EW_APP_MOUSE
 #if EW_APP_USBHOST
 static UsbHostView vUsbHost;
 #endif  // EW_APP_USBHOST
@@ -300,6 +309,9 @@ View *viewFor(Screen s) {
     case Screen::Stopwatch:       return &vStopwatch;
     case Screen::Timer:           return &vTimer;
     case Screen::Bluetooth:       return &vBluetooth;
+#if EW_APP_MOUSE
+    case Screen::Mouse:           return &vMouse;
+#endif  // EW_APP_MOUSE
 #if EW_APP_USBHOST
     case Screen::UsbHost:         return &vUsbHost;
 #endif  // EW_APP_USBHOST

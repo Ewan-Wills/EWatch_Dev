@@ -15,6 +15,7 @@
 #include <stdio.h>
 
 #include "bluetooth.h"
+#include "ble_stack.h"
 #include "display.h"
 #include "haptic.h"
 #include "ewlog.h"
@@ -215,20 +216,10 @@ static bool bleInit() {
   if (!sDev) sDev = (BleDev *)ps_calloc(MAX_DEV, sizeof(BleDev));
   if (!gAdvQ) gAdvQ = xQueueCreate(24, sizeof(BleDev));
   if (gInited) return true;
-  bool wifiWasUp = wifiSvcRadioActive();
-  wifiSvcSuspend(true, 3000);          // WiFi driver RAM -> BLE controller
-  powerPerfPin(true);
-  size_t h0 = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
-  EWLOGI("BLE", "pre-init wifi_was_up=%d int_free=%u int_largest=%u", wifiWasUp,
-         (unsigned)h0, (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
-  BLEDevice::init(REMOTE_NAME);
-  // BLEDevice::init flags itself initialised even when a step fails, so ask
-  // bluedroid directly; scanning on a half-started stack panics.
-  gInited = esp_bluedroid_get_status() == ESP_BLUEDROID_STATUS_ENABLED;
-  size_t h1 = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+  // Shared stack (ble_stack.cpp): the mouse service may already hold it.
+  gInited = bleStackAcquire("bt-app", REMOTE_NAME);
   gFailed = !gInited;
-  if (!gInited) { gGen++; EWLOGE("BLE", "init failed int_free=%u", (unsigned)h1); return false; }
-  EWLOGI("BLE", "init ok int_used=%d int_free=%u", (int)(h0 - h1), (unsigned)h1);
+  if (!gInited) { gGen++; return false; }
   return true;
 }
 
@@ -341,16 +332,18 @@ static bool remoteSend(uint8_t key, const char *name) {
 // Full shutdown on leaving: the radio stays off outside the app and the CPU
 // governor gets the clock back. The HID objects die with the stack.
 static void bleStop() {
-  if (!gInited) { powerPerfPin(false); wifiSvcSuspend(false, 0); return; }
+  if (!gInited) return;
   scanStop();
   if (gRemoteUp) BLEDevice::getAdvertising()->stop();
-  BLEDevice::deinit(false);            // keep memory so a re-entry can init
+  // If another user (the mouse) keeps the stack up, the HID server survives
+  // and is re-advertised on re-entry instead of being created twice.
+  bool last = bleStackUsers() <= 1;
+  bleStackRelease("bt-app");
   gInited = false;
-  gRemoteUp = false; gConnected = false;
-  gServer = nullptr; gHid = nullptr; gInput = nullptr;   // owned by the old stack
-  powerPerfPin(false);
-  wifiSvcSuspend(false, 0);
-  EWLOGI("BLE", "deinit heap=%u", (unsigned)ESP.getFreeHeap());
+  if (last) {
+    gRemoteUp = false; gConnected = false;
+    gServer = nullptr; gHid = nullptr; gInput = nullptr;   // owned by the old stack
+  }
 }
 
 // --------------------------------------------------------------------------
@@ -391,6 +384,7 @@ bool btRemoteSetOn(bool on) {
   if (on) {
     if (!bleInit()) { bleStop(); return false; }
     remoteStart();
+    remoteResume();   // another user (BLE mouse) kept the stack up: server survived, re-advertise
     gRemoteOn = true;
     gSvcRun = true;
     xTaskCreatePinnedToCore(svcTask, "btsvc", 3072, nullptr, 1, &gSvcTask, 0);

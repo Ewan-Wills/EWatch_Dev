@@ -44,6 +44,7 @@ enum class Screen : uint8_t {
   Tamagotchi,       // module (pet): game: virtual pet
   Island,           // 3D floating-island diorama face (compiled out by default)
   Spotify,          // module: Spotify Connect remote + now-playing
+  Mouse,            // module: BLE mouse pairing + settings (cursor is global)
   UsbHost,          // module: USB-C host-mode device scanner
   Motion,           // module: on-device motion language model
   Write,            // module: type by drawing letters

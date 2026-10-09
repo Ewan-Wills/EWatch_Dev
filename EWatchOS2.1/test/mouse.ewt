@@ -1,3 +1,4 @@
+# module test: build with EW_APPS=mouse
 # BLE mouse integration via the msim test hook (same decode/cursor/finger path
 # as a real mouse; no radio). Snaps don't contain the cursor (it bypasses the
 # shadow by design): cursor drawing is checked through paints/drawn/at.

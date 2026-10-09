@@ -9,6 +9,9 @@
 #include "wake_gest.h"
 #include "wake_soak.h"
 #endif  // EW_APP_WAKESOAK
+#if EW_APP_MOUSE
+#include "btmouse.h"
+#endif  // EW_APP_MOUSE
 #include "ewsim.h"
 #include "display.h"
 #include "haptic.h"
@@ -340,7 +343,11 @@ static void taskIO(void *) {
       // Its release must not become a ButtonShort (on the watch face that
       // means "sleep" — it would go straight back off). A 3 s hold still
       // powers off, timed from here.
+#if EW_APP_MOUSE
+      if ((digitalRead(PIN_BTN) || ewsimButton() || mouseButton()) && !lastBtn) {
+#else
       if ((digitalRead(PIN_BTN) || ewsimButton()) && !lastBtn) {
+#endif  // EW_APP_MOUSE
         lastBtn = true; wakePress = true;
         btnDownMs = millis(); veryLongFired = false;
         { ModelLock lk; model.button = true; model.revision++; }
@@ -381,6 +388,9 @@ static void taskIO(void *) {
     uint16_t hx = 0, hy = 0;
     bool live = readTouchHeld(hx, hy);
     ewsimTouch(live, hx, hy);            // host-simulated finger (ewsim)
+#if EW_APP_MOUSE
+    mouseTouch(live, hx, hy);            // BLE mouse left button (btmouse)
+#endif  // EW_APP_MOUSE
 
     if (live && !fingerDown) {
       fingerDown = true;
@@ -407,6 +417,9 @@ static void taskIO(void *) {
     // Drain ISR-reported gestures (only — Touch state already comes from poll).
     uint16_t simGx = 0, simGy = 0;
     Gesture simG = ewsimTakeGesture(simGx, simGy);   // host-simulated (ewsim)
+#if EW_APP_MOUSE
+    if (simG == Gesture::None) simG = mouseTakeGesture(simGx, simGy);   // BLE mouse
+#endif  // EW_APP_MOUSE
     if (touchPending || simG != Gesture::None) {
       touchPending = false;
       if (simG != Gesture::None) {
@@ -463,7 +476,11 @@ static void taskIO(void *) {
     }
 
     // ---- Button (GPIO, no Wire) ----
+#if EW_APP_MOUSE
+    bool btn = digitalRead(PIN_BTN) || ewsimButton() || mouseButton();
+#else
     bool btn = digitalRead(PIN_BTN) || ewsimButton();
+#endif  // EW_APP_MOUSE
     if (btn != lastBtn) {
       if (btn) {
         btnDownMs = millis();
@@ -651,6 +668,9 @@ static void taskRender(void *) {
     // views are also the only thing that justifies 240 MHz.
     uint16_t frameMs = currentView ? currentView->desiredFrameMs() : 0;
     uint32_t waitMs  = frameMs > 0 ? (frameMs < 50 ? frameMs : 50) : 50;
+#if EW_APP_MOUSE
+    if (mouseCursorActive() && waitMs > 16) waitMs = 16;   // cursor at ~60 Hz
+#endif  // EW_APP_MOUSE
     powerPerfDemand(frameMs > 0 && frameMs <= 66);
 
     Event e;
@@ -682,6 +702,11 @@ static void taskRender(void *) {
     if (soakTakeGoto()) { powerOnActivity(); switchTo(Screen::WakeSoak); }   // `soak test`
     gestPoll();                          // write a finished wake trace (flash)
 #endif  // EW_APP_WAKESOAK
+#if EW_APP_MOUSE
+    int mouseGoto = mouseTakeGoto();       // middle click = home
+    if (mouseGoto >= 0) { powerOnActivity(); switchTo((Screen)mouseGoto); }
+    if (mouseTakeActivity()) powerOnActivity();   // pointer movement keeps the screen awake
+#endif  // EW_APP_MOUSE
 
     // Power manager owns the idle progression (ACTIVE -> IDLE dim ->
     // screensaver -> SCREEN_OFF light sleep -> DEEP). This call can block
@@ -698,6 +723,9 @@ static void taskRender(void *) {
       lastRender = millis();
       lastSeenRev = rev;
     }
+#if EW_APP_MOUSE
+    mouseCursorPaint();                    // overlay after the view drew (btmouse)
+#endif  // EW_APP_MOUSE
   }
 }
 

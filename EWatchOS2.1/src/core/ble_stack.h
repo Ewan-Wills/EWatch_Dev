@@ -6,6 +6,8 @@
 #pragma once
 #include <Arduino.h>
 
-bool bleStackAcquire(const char *who);   // false if bluedroid failed to start
+// devName: the GAP device name if this acquire brings the stack up. Default =
+// the BT remote's name, which phones pair with, whoever starts the stack.
+bool bleStackAcquire(const char *who, const char *devName = "EWatch Remote");   // false if bluedroid failed to start
 void bleStackRelease(const char *who);
 int  bleStackUsers();
