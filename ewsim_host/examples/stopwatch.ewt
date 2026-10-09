@@ -1,8 +1,0 @@
-# Stopwatch: start, run 3 s, stop.  ./ewsimrec EWatchOS2.1 out/sw.mp4 examples/stopwatch.ewt --short
-goto Stopwatch
-wait 600
-tap 66 228       # Start (left button, 16..116 x 198..258)
-wait 3000
-tap 66 228       # Stop
-wait 800
-snap stopwatch
