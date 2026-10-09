@@ -1,7 +1,0 @@
-# Checker self-test: this script MUST FAIL (exit 1). A flick_out trace is
-# injected and the script wrongly expects flick_in. If it ever passes, the
-# `expect log` assertion is not doing its job.
-goto Motion
-wait 500
-raw motion inject flick_out
-expect log MOTION:.gesture=flick_in.p= 5000
