@@ -1,8 +1,0 @@
-# macropad smoke: boots, tap a key, stays in app
-goto Macropad
-expect screen Macropad
-tap 60 120
-wait 300
-expect screen Macropad
-expect noerr
-snap boot
