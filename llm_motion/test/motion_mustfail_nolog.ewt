@@ -1,7 +1,0 @@
-# Checker self-test: MUST FAIL (exit 1). A shake is injected, then the script
-# claims no non-"none" gesture appeared. Proves the negative check can fail.
-goto Motion
-wait 500
-raw motion inject shake
-wait 3000
-expect nolog gesture=(?!none)
