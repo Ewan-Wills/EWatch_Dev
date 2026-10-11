@@ -1,5 +1,7 @@
 pyserial>=3.5
 mss>=9.0.1
 Pillow>=10.0.0
-# Optional — only needed for --window "Name" (capture a window by title) on macOS:
-# pyobjc-framework-Quartz>=10.0
+numpy>=1.26
+# --window capture (macOS):
+pyobjc-framework-Quartz>=10.0
+pyobjc-framework-libdispatch>=10.0   # --monitor

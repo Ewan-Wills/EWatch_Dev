@@ -1,24 +1,13 @@
-// StreamView — live frame receiver. A Mac script (tools/stream_to_watch.py)
-// resolves `ewatch.local`, opens a TCP connection to port 7878, and streams
-// 240×280 RGB565 frames wrapped in an 8-byte header. Frames may be raw or
-// LZ4-compressed; the watch decompresses and blits straight to the panel.
+// StreamView — mirror a Mac window/region to the watch over WiFi.
 //
-// Wire protocol (little-endian):
+// The Mac companion (companions/screenshare/screenshare.py --wifi, or the
+// companions/livestream/stream_to_watch.py wrapper) connects to TCP port 7878
+// on ewatch.local and sends the same packets as the USB Screenshare app:
+// changed rectangles as JPEG, one packet in flight. Format, replies and flow
+// control: core/ewstream.h. A core-0 task owns the socket; the render task
+// only decodes and pushes ready frames, so back/goto/power keep working.
 //
-//   FrameHeader {
-//     uint8_t  magic    = 0xE1;        // sanity / re-sync marker
-//     uint8_t  flags;                  // bit 0 = payload is LZ4-compressed
-//     uint16_t reserved = 0;           // future use
-//     uint32_t len;                    // payload length in bytes (≤ ~140 KB)
-//   }
-//   uint8_t payload[len];              // raw RGB565 (134400 B) or LZ4 block
-//
-// render() blocks and drains its own events, same shape as MediaView. The
-// watch stays awake for the entire session — there is no auto-sleep while
-// the app is open. Exit: physical button OR tap on the top-left back chip.
-//
-// Whole file gated on EW_APP_LIVESTREAM AND EWATCH_ENABLE_WIFI: without
-// either, the class and its TCP / mDNS dependencies drop from the build.
+// Whole file gated on EW_APP_LIVESTREAM AND EWATCH_ENABLE_WIFI.
 #pragma once
 #if defined(EW_APP_LIVESTREAM) && EW_APP_LIVESTREAM && \
     defined(EWATCH_ENABLE_WIFI)   && EWATCH_ENABLE_WIFI
@@ -29,7 +18,16 @@ public:
   void onEnter() override;
   void onExit() override;
   void render()  override;
-  void onEvent(const Event &) override {}   // render() drains its own events
+  void onEvent(const Event &e) override;
+  uint16_t desiredFrameMs() const override { return 1; }   // see ScreenshareView
+
+private:
+  enum class St : uint8_t { NoWifi, NoMem, Live };
+  St       st = St::NoWifi;
+  bool     showing = false, drawn = false;
+  uint32_t lastStatMs = 0, statFrames = 0;
+  void drawWaiting();
+  void drawError(const char *msg, const char *hint);
 };
 
 #endif
