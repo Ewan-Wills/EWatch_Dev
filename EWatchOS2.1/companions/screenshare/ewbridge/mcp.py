@@ -81,17 +81,13 @@ def call(name, a):
     if name == "ewatch_apps":
         return api("GET", "/api/apps")
     if name == "ewatch_show":
+        from .cli import wait_switch
         spec = {k: v for k, v in a.items() if v is not None}
-        if spec["kind"] == "app":
-            st = api("GET", "/api/status")
-            if spec.get("name") not in [c["name"] for c in st["apps"]["connected"]]:
-                import time
-                api("POST", "/api/apps/launch", {"name": spec["name"], "watch": a.get("watch")})
-                for _ in range(80):
-                    if spec["name"] in [c["name"] for c in api("GET", "/api/status")["apps"]["connected"]]:
-                        break
-                    time.sleep(0.1)
-        return api("POST", "/api/source", spec)
+        api("POST", "/api/source", spec)
+        ok, text = wait_switch(a.get("watch"))
+        if not ok:
+            raise ValueError(text)
+        return {"shows": text}
     if name == "ewatch_orientation":
         return api("POST", "/api/orientation", a)
     if name == "ewatch_stop_app":

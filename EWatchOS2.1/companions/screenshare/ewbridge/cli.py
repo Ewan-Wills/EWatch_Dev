@@ -71,9 +71,12 @@ def q(watch):
 
 # ---------------------------------------------------------------------------
 def cmd_serve(a):
+    import faulthandler
     from .core import Bridge
     from .server import serve
     os.makedirs(os.path.join(ROOT, "runs"), exist_ok=True)
+    # `kill -USR1 <pid>` writes every thread's stack to the log (stuck-thread debugging).
+    faulthandler.register(signal.SIGUSR1, all_threads=True)
     with open(PIDFILE, "w") as f:
         f.write(str(os.getpid()))
     b = Bridge(orientation=a.orientation, quality=a.quality,
@@ -150,20 +153,36 @@ def cmd_windows(a):
         print(f"{w['id']:>7}  {w['owner'][:24]:24s} {w['title'][:50]:50s} {w['w']}x{w['h']}")
 
 
+def wait_switch(watch, timeout=40):
+    """Poll status until the source change finishes; return (ok, text)."""
+    end = time.time() + timeout
+    last_msg = None
+    while time.time() < end:
+        st = api("GET", "/api/status")
+        ws = [w for w in st["watches"] if not watch or watch in (w["id"], w["mac"], w["port"])]
+        if not ws:
+            return False, "no watch"
+        w = ws[0]
+        sw = w.get("switch")
+        if sw is None or sw["phase"] == "done":
+            return True, w["source"]["desc"] or w["source"]["spec"].get("kind")
+        if sw["phase"] == "error":
+            return False, sw["error"]
+        if sw.get("msg") and sw["msg"] != last_msg:
+            print(f"  {sw['msg']}...", file=sys.stderr)
+            last_msg = sw["msg"]
+        if sw["phase"] == "first_frame" and not w["app_open"]:
+            return True, (w["source"]["desc"] or "") + " (open Screenshare on the watch to see it)"
+        time.sleep(0.15)
+    return False, "timed out waiting for the switch"
+
+
 def cmd_show(a):
     k = a.kind
     if k == "app":
         if not a.target:
             sys.exit("show app NAME")
-        st = api("GET", "/api/status")
-        if a.target not in [c["name"] for c in st["apps"]["connected"]]:
-            api("POST", "/api/apps/launch", {"name": a.target, "watch": a.watch})
-            for _ in range(80):                       # wait for its window to connect
-                st = api("GET", "/api/status")
-                if a.target in [c["name"] for c in st["apps"]["connected"]]:
-                    break
-                time.sleep(0.1)
-        spec = {"kind": "app", "name": a.target}
+        spec = {"kind": "app", "name": a.target}           # the bridge launches it if needed
     elif k == "window":
         if not a.target:
             sys.exit("show window ID|NAME (see: windows)")
@@ -181,8 +200,17 @@ def cmd_show(a):
     else:
         spec = {"kind": k}
     spec["watch"] = a.watch
-    r = api("POST", "/api/source", spec)
-    print(json.dumps(r) if a.json else f"watch shows: {r['desc'] or r['spec'].get('kind')}")
+    api("POST", "/api/source", spec)
+    ok, text = wait_switch(a.watch)
+    if a.json:
+        return print(json.dumps({"ok": ok, "shows" if ok else "error": text}))
+    if not ok:
+        sys.exit(f"ewbridge: couldn't switch: {text}")
+    print(f"watch shows: {text}")
+
+
+def cmd_monitor_off(a):
+    print(json.dumps(api("POST", "/api/monitor/close", {"watch": a.watch})))
 
 
 def cmd_orient(a):
@@ -292,6 +320,7 @@ def main(argv=None):
                    help="app name | window id or name | monitor view (fit|follow) | display | MJPEG/JPEG URL")
     p.add_argument("--zoom", type=float, help="monitor follow: magnification")
     p.set_defaults(fn=cmd_show)
+    sp.add_parser("monitor-off", help="remove the virtual second monitor").set_defaults(fn=cmd_monitor_off)
     p = sp.add_parser("orient", help="portrait | landscape-left | landscape-right")
     p.add_argument("orientation", choices=["portrait", "landscape-left", "landscape-right"])
     p.set_defaults(fn=cmd_orient)

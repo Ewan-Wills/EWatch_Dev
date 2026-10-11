@@ -23,7 +23,10 @@ HELP = {
                         '{"kind": "window", "name"} | {"kind": "monitor", "view": "fit|follow", "zoom"} | '
                         '{"kind": "screen", "display"} | {"kind": "region", "rect": [x, y, w, h]} | '
                         '{"kind": "url", "url": "http://.../x.mjpg"} | '
-                        '{"kind": "test"} | {"kind": "none"}',
+                        '{"kind": "test"} | {"kind": "none"}. Returns at once; progress (and any error) is in '
+                        'status watches[].switch; the watch shows a loading bar meanwhile. An app that '
+                        'isn\'t running is launched',
+    "POST /api/monitor/close": "remove the virtual second monitor (it stays while the bridge runs otherwise)",
     "POST /api/orientation": '{"orientation": "portrait|landscape-left|landscape-right"}',
     "POST /api/config": '{"quality": 1-95, "touch_mouse": bool}  touch_mouse: watch touches drive the Mac '
                         'pointer (window/monitor/screen sources; needs Accessibility permission)',
@@ -119,7 +122,9 @@ def make_handler(bridge):
                 b = self._body()
                 if u.path == "/api/source":
                     spec = {k: v for k, v in b.items() if k != "watch"}
-                    return self._send(200, self._watch(q, b).set_source(spec))
+                    return self._send(200, self._watch(q, b).set_source(spec, wait=False))
+                if u.path == "/api/monitor/close":
+                    return self._send(200, self._watch(q, b).close_monitor())
                 if u.path == "/api/orientation":
                     w = self._watch(q, b)
                     w.set_orientation(b["orientation"])
@@ -148,6 +153,9 @@ def make_handler(bridge):
                 return self._send(404, {"error": f"no route {u.path}", "help": "/api/help"})
             except SystemExit as e:
                 return self._send(400, {"error": str(e)})
+            except Exception as e:  # noqa: BLE001 - never die silently: the UI shows this
+                log("api error:", repr(e))
+                return self._send(500, {"error": f"{type(e).__name__}: {e}"})
             except (KeyError, ValueError, TimeoutError, ConnectionError, json.JSONDecodeError) as e:
                 return self._send(400, {"error": str(e).strip("'\"")})
 

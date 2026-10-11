@@ -69,7 +69,15 @@ button.small { padding: 3px 9px; font-size: 13px; }
 .bar i { position: absolute; top: 0; bottom: 0; background: var(--accent); }
 .bar::after { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--line); }
 #snapimg { max-width: 100%; image-rendering: pixelated; border-radius: 6px; display: none; margin-top: 8px; }
-#err { color: var(--bad); min-height: 1.4em; font-size: 13px; }
+#err { color: var(--bad); min-height: 1.4em; font-size: 13px; max-width: 520px; }
+#switch { margin-top: 10px; display: none; }
+#switch .lbl { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px; }
+#switch .track { height: 6px; background: var(--chip); border-radius: 3px; overflow: hidden; }
+#switch .fill { height: 100%; width: 0; background: var(--accent); border-radius: 3px;
+                transition: width .25s ease-out; }
+#switch.done .fill { background: var(--good); }
+#switch.error .fill { background: var(--bad); }
+#switch.error .lbl { color: var(--bad); }
 .pill { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--chip); color: var(--muted); }
 </style>
 </head>
@@ -85,6 +93,8 @@ button.small { padding: 3px 9px; font-size: 13px; }
     <section>
       <h2>On the watch</h2>
       <div class="stage"><img id="preview" alt="what the watch shows"><div id="touchdot"></div></div>
+      <div id="switch"><div class="lbl"><span id="sw-label"></span><span id="sw-time" class="muted"></span></div>
+        <div class="track"><div class="fill" id="sw-fill"></div></div></div>
       <div class="row" style="margin-top:8px"><span id="srcdesc" class="muted">-</span></div>
       <div class="stats">
         <div class="stat"><b id="s-fps">-</b><span>fps</span></div>
@@ -126,6 +136,7 @@ button.small { padding: 3px 9px; font-size: 13px; }
         <div class="row">
           <button data-src='{"kind":"monitor","view":"fit"}'>Second monitor</button>
           <button data-src='{"kind":"monitor","view":"follow","zoom":2}'>Monitor, zoom 2x</button>
+          <button id="monoff" style="display:none">Remove second monitor</button>
         </div>
         <div class="row">
           <button data-src='{"kind":"screen","display":1}'>Main screen</button>
@@ -160,13 +171,21 @@ button.small { padding: 3px 9px; font-size: 13px; }
 const $ = (s) => document.querySelector(s);
 let W = null, ST = null, lastSeq = 0;
 const esc = (s) => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-async function api(method, path, body) {
-  const r = await fetch(path, {method, headers: {"Content-Type": "application/json"},
-                               body: body ? JSON.stringify(body) : undefined});
-  const ct = r.headers.get("content-type") || "";
-  const out = ct.includes("json") ? await r.json() : await r.blob();
-  if (!r.ok) { $("#err").textContent = out.error || r.statusText; throw new Error(out.error); }
-  $("#err").textContent = "";
+// User actions clear/set the error line; background polls (quiet) never touch it,
+// so an error stays up until the next thing you do.
+async function api(method, path, body, quiet) {
+  let r, out;
+  try {
+    r = await fetch(path, {method, headers: {"Content-Type": "application/json"},
+                           body: body ? JSON.stringify(body) : undefined});
+    const ct = r.headers.get("content-type") || "";
+    out = ct.includes("json") ? await r.json() : await r.blob();
+  } catch (e) {
+    if (!quiet) $("#err").textContent = "Can't reach ewbridge (is it running?)";
+    throw e;
+  }
+  if (!r.ok) { if (!quiet) $("#err").textContent = out.error || r.statusText; throw new Error(out.error); }
+  if (!quiet) $("#err").textContent = "";
   return out;
 }
 const wq = () => W ? `?watch=${encodeURIComponent(W)}` : "";
@@ -212,22 +231,30 @@ function renderWatch(w, s) {
   $("#apps").querySelectorAll("[data-show]").forEach(b => b.onclick = () => showApp(b.dataset.show));
   $("#apps").querySelectorAll("[data-stop]").forEach(b => b.onclick = () => api("POST", "/api/apps/stop", {name: b.dataset.stop}).then(refresh));
   renderInput(w);
+  renderSwitch(w);
+  $("#monoff").style.display = w.monitor ? "" : "none";
+}
+let swErr = null;
+function renderSwitch(w) {
+  const el = $("#switch"), sw = w.switch;
+  if (!sw) { el.style.display = "none"; return; }
+  el.style.display = "block";
+  el.className = sw.phase === "done" ? "done" : sw.phase === "error" ? "error" : "";
+  const text = {preparing: sw.label + (sw.msg ? " (" + sw.msg + ")" : "") + "...",
+                first_frame: "Waiting for the watch...", done: "On the watch",
+                error: "Couldn't switch: " + sw.error}[sw.phase];
+  $("#sw-label").textContent = text;
+  $("#sw-time").textContent = sw.phase === "error" ? "" : sw.elapsed_s.toFixed(1) + " s";
+  $("#sw-fill").style.width = Math.round(sw.progress * 100) + "%";
+  if (sw.phase === "error" && sw.error !== swErr) { $("#err").textContent = sw.error; }
+  swErr = sw.phase === "error" ? sw.error : null;
 }
 async function showApp(name) {
-  const live = ST.apps.connected.find(c => c.name === name);
-  if (!live) {
-    await post("/api/apps/launch", {name});
-    for (let i = 0; i < 60; i++) {
-      await new Promise(r => setTimeout(r, 150));
-      const s = await api("GET", "/api/status");
-      if (s.apps.connected.find(c => c.name === name)) break;
-    }
-  }
-  await post("/api/source", {kind: "app", name});
+  await post("/api/source", {kind: "app", name});        // the bridge launches it if needed
   refresh();
 }
 async function loadWindows() {
-  const ws = await api("GET", "/api/windows");
+  const ws = await api("GET", "/api/windows", null, true);
   const spec = cur() ? cur().source.spec : {};
   $("#windows").innerHTML = ws.map(w => `<div class="item ${spec.kind === "window" && spec.id === w.id ? "cur" : ""}">
       <div class="grow"><div class="t">${esc(w.owner)}</div><div class="s">${esc(w.title || "(untitled)")} · ${w.w}×${w.h}</div></div>
@@ -275,7 +302,7 @@ function logEv(e) {
 
 async function refresh() {
   try {
-    ST = await api("GET", "/api/status");
+    ST = await api("GET", "/api/status", null, true);
     renderWatches(ST);
     renderWatch(cur(), ST);
   } catch (e) { }
@@ -296,7 +323,10 @@ function previewLoop() {
 }
 
 document.querySelectorAll("#orient button").forEach(b => b.onclick = () => post("/api/orientation", {orientation: b.dataset.o}).then(refresh));
-document.querySelectorAll("[data-src]").forEach(b => b.onclick = () => post("/api/source", JSON.parse(b.dataset.src)).then(refresh));
+document.querySelectorAll("[data-src]").forEach(b => b.onclick = () => {
+  $("#err").textContent = "";
+  post("/api/source", JSON.parse(b.dataset.src)).then(refresh);
+});
 $("#quality").oninput = () => { $("#qv").textContent = $("#quality").value; };
 $("#quality").onchange = () => post("/api/config", {quality: +$("#quality").value});
 $("#tmouse").onchange = () => post("/api/config", {touch_mouse: $("#tmouse").checked});
@@ -312,7 +342,11 @@ $("#snap").onclick = async () => {
 const es = new EventSource("/api/stream?imu=0");
 es.onmessage = (m) => { const e = JSON.parse(m.data); logEv(e); if (e.type !== "imu") refresh(); };
 refresh(); loadWindows(); previewLoop();
-setInterval(refresh, 700);
+(function poll() {                                         // faster while a switch is running
+  const busy = cur() && cur().switch && ["preparing", "first_frame"].includes(cur().switch.phase);
+  setTimeout(() => refresh().then(poll), busy ? 150 : 700);
+})();
+$("#monoff").onclick = () => post("/api/monitor/close", {}).then(refresh);
 </script>
 </body>
 </html>

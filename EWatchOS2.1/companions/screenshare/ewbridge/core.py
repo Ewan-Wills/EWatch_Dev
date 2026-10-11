@@ -149,6 +149,75 @@ class ClientSource:
         return self.client.grab(self.watch.w, self.watch.h)
 
 
+def loading_overlay(base, w, h, progress, label):
+    """The picture dimmed, with a loading bar and a label: shown on the watch
+    while a new source is being set up."""
+    from PIL import ImageDraw
+    img = Image.fromarray(base) if base is not None else Image.new("RGB", (w, h))
+    if img.size != (w, h):
+        img = img.resize((w, h))
+    img = Image.eval(img, lambda v: v * 2 // 5)
+    d = ImageDraw.Draw(img)
+    bw, bh = int(w * 0.7), 8
+    x0, y0 = (w - bw) // 2, h // 2 + 6
+    d.rounded_rectangle([x0, y0, x0 + bw, y0 + bh], radius=4, fill=(45, 50, 60))
+    fill = max(bh, int(bw * max(0.0, min(1.0, progress))))
+    d.rounded_rectangle([x0, y0, x0 + fill, y0 + bh], radius=4, fill=(10, 132, 255))
+    label = label[:40]
+    d.text(((w - d.textlength(label)) / 2, y0 - 18), label, fill=(235, 238, 245))
+    return np.asarray(img)
+
+
+def switch_label(spec):
+    k = spec.get("kind")
+    return {"monitor": "Second monitor", "app": f"Starting {spec.get('name', 'app')}",
+            "window": "Window", "url": "Stream", "screen": "Screen", "test": "Test pattern"}.get(k, "Switching")
+
+
+class HelperMonitor:
+    """The virtual second monitor, owned by an ewbridge.vdisplay helper process
+    (see there for why); captured here by display id with screenshare.py's
+    MonitorSource logic (fit / follow + zoom, the drawn pointer)."""
+
+    def __init__(self, w, h, view="fit", zoom=2.0, side=None):
+        import select
+        import Quartz as Q
+        self.proc = subprocess.Popen([sys.executable, "-W", "ignore", "-m", "ewbridge.vdisplay", str(w), str(h),
+                                      side or ""], cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                     stderr=subprocess.DEVNULL)
+        r, _, _ = select.select([self.proc.stdout], [], [], 20)
+        line = self.proc.stdout.readline() if r else b""
+        try:
+            info = json.loads(line or b"{}")
+        except ValueError:
+            info = {}
+        if "did" not in info:
+            self.close()
+            raise SystemExit(info.get("error") or "virtual monitor helper didn't start")
+        m = object.__new__(ss.MonitorSource)        # MonitorSource's capture, without creating a display
+        b = Q.CGDisplayBounds(info["did"])
+        m.Q, m.did, m.view, m.zoom = Q, info["did"], view, max(1.0, zoom)
+        m.center = (b.size.width / 2, b.size.height / 2)
+        m.last = m.gone_since = m.last_rect = None
+        self.m, self.desc = m, info["desc"]
+
+    view = property(lambda self: self.m.view, lambda self, v: setattr(self.m, "view", v))
+    zoom = property(lambda self: self.m.zoom, lambda self, v: setattr(self.m, "zoom", v))
+
+    def grab(self):
+        return self.m.grab()
+
+    def view_to_screen(self, x, y):
+        return self.m.view_to_screen(x, y)
+
+    def close(self):
+        try:
+            self.proc.stdin.close()                 # the helper releases the display and exits
+            self.proc.wait(3)
+        except Exception:  # noqa: BLE001
+            self.proc.kill()
+
+
 class WindowById:
     """One window by CGWindowID (what the UI's window picker hands over)."""
 
@@ -306,6 +375,9 @@ class Watch:
         self.gone_since = None
         self.last_reset, self.last_up = None, None   # from >>ID: why the watch last reset
         self.hold_until = 0.0                    # release(): leave the port alone until then
+        self.heartbeat = time.time()             # stream loop's last turn (stall detector)
+        self.switch = None                       # source change in progress (see set_source)
+        self.overlay_view = None                 # last loading-bar frame (preview)
         self.stop = threading.Event()
         self.set_orientation(orientation)
 
@@ -318,38 +390,78 @@ class Watch:
             self.orientation = o
             self.w, self.h, self.rot = geometry(o)
             self.src_changed = True
-            if self.monitor is not None:          # its shape follows the picture: rebuild
+            # The virtual monitor keeps its shape (it's letterboxed into the new
+            # picture). Sources that fix the picture size when made are rebuilt.
+            if self.src_spec.get("kind") in ("test", "url"):
                 rebuild = dict(self.src_spec)
-                self.monitor = self.src = None
         if self.src_spec.get("kind") == "app":
             c = self.bridge.clients.get(self.src_spec.get("name"))
             if c:
                 c.send(self._config_ev())
         if rebuild:
-            self.set_source(rebuild)
+            self.set_source(rebuild, wait=False)
         self.bridge.remember(self)
 
     def _config_ev(self):
         return {"type": "config", "w": self.w, "h": self.h, "orientation": self.orientation,
                 "watch": self.id, "t": time.time()}
 
-    def set_source(self, spec):
-        """spec: {"kind": "none"|"test"|"screen"|"window"|"monitor"|"region"|"url"|"app", ...}"""
-        try:
-            with SS_LOCK:
-                ss.VW, ss.VH, ss.ROT = self.w, self.h, self.rot
-                out = self._set_source(spec)
-        except SystemExit as e:                   # screenshare.py sources exit on errors
-            raise ValueError(str(e)) from None
-        self.bridge.remember(self)
-        return out
+    def set_source(self, spec, wait=True):
+        """spec: {"kind": "none"|"test"|"screen"|"window"|"monitor"|"region"|"url"|"app", ...}
 
-    def _set_source(self, spec):
+        wait=False returns at once and switches in the background; progress
+        is in self.switch (status "switch"), and the watch shows a loading bar
+        until the new source's first frame is on its panel."""
+        sw = {"target": dict(spec), "phase": "preparing", "started": time.time(), "error": None,
+              "msg": None, "frames0": None}
+        self.switch = sw
+        if wait:
+            return self._switch(spec, sw, raise_errors=True)
+        threading.Thread(target=self._switch, args=(spec, sw), daemon=True).start()
+        return {"switching": True, "spec": dict(spec)}
+
+    def _switch(self, spec, sw, raise_errors=False):
+        try:
+            out = self._set_source(spec, sw)
+        except SystemExit as e:                   # screenshare.py sources exit on errors
+            err = str(e)
+        except (ValueError, KeyError, RuntimeError, OSError, TimeoutError) as e:
+            err = str(e).strip("'\"")
+        else:
+            self.bridge.remember(self)
+            if self.switch is sw:
+                # In flight: up to 2 frames of the old source; the one after is ours.
+                sw["frames0"] = self.stats["frames"] + 2
+                sw["phase"] = "first_frame" if (self.src is not None and self.app_open) else "done"
+                sw["done_t"] = time.time() if sw["phase"] == "done" else None
+            return out
+        if self.switch is sw:
+            sw.update(phase="error", error=err, done_t=time.time())
+        log(f"[{self.id}] source {json.dumps(spec)} failed: {err}")
+        if raise_errors:
+            raise ValueError(err)
+        return {"error": err}
+
+    def close_monitor(self):
+        """Remove the virtual second monitor (it is kept while the bridge runs)."""
+        if self.src_spec.get("kind") == "monitor":
+            self.set_source({"kind": "none"})
+        with self.src_lock:
+            m, self.monitor = self.monitor, None
+        if m is not None:
+            m.close()                               # its helper process ends: the display goes
+            log(f"[{self.id}] virtual monitor removed")
+        return {"watch": self.id, "monitor": False}
+
+    def _set_source(self, spec, sw=None):
         kind = spec.get("kind")
         if kind == "none":
             src = None
         elif kind == "test":
-            src = ss.TestSource()
+            with SS_LOCK:                           # it reads the picture size at creation
+                ss.VW, ss.VH = self.w, self.h
+                src = ss.TestSource()
+            src.desc = "test pattern"
         elif kind == "screen":
             import mss
             sct = mss.MSS() if hasattr(mss, "MSS") else mss.mss()
@@ -366,27 +478,53 @@ class Watch:
                 raise ValueError("another watch already shows the virtual monitor")
             view, zoom = spec.get("view", "fit"), float(spec.get("zoom", 2.0))
             if self.monitor is None:
+                # macOS won't bring a virtual display with the same serial back
+                # online for ~10-15 s after one went away: keep trying.
+                # After ANY virtual display goes away, macOS won't bring a new one
+                # online for ~15 s, and every failed attempt restarts that wait.
+                # So: one try, then 16 s of quiet, then one more.
                 mw = ss.MonitorSource.MIN_W
-                self.monitor = ss.MonitorSource(mw, round(mw * self.h / self.w), view, zoom, spec.get("side"))
+                for attempt in (1, 2):
+                    try:
+                        self.monitor = HelperMonitor(mw, round(mw * self.h / self.w), view, zoom,
+                                                     spec.get("side"))
+                        break
+                    except SystemExit as e:
+                        if "come online" not in str(e) or attempt == 2:
+                            raise
+                        if sw:
+                            sw["msg"] = "macOS needs ~15 s after a display is removed"
+                        time.sleep(16)
             self.monitor.view, self.monitor.zoom = view, max(1.0, zoom)
             src = self.monitor
         elif kind == "url":
             src = UrlSource(spec["url"], self.w, self.h)
         elif kind == "app":
-            c = self.bridge.clients.get(spec.get("name"))
+            name = spec.get("name")
+            c = self.bridge.clients.get(name)
+            if c is None and spec.get("launch", True):
+                import apps
+                if name in [n for n, _ in apps.available()]:
+                    if sw:
+                        sw["msg"] = "starting the app"
+                    self.bridge.launch_app(name, self.id)
+                    deadline = time.time() + 15
+                    while c is None and time.time() < deadline:
+                        time.sleep(0.1)
+                        c = self.bridge.clients.get(name)
             if c is None:
-                raise ValueError(f"no app client {spec.get('name')!r} (connected: {list(self.bridge.clients)})")
+                raise ValueError(f"no app client {name!r} (connected: {list(self.bridge.clients)})")
             src = ClientSource(c, self)
+            spec = {"kind": "app", "name": name}
         else:
             raise ValueError(f"unknown source kind {kind!r}")
         with self.src_lock:
             old, old_src = self.src_spec, self.src
             self.src, self.src_spec, self.src_changed = src, dict(spec), True
-        if hasattr(old_src, "close") and old_src is not src:
+        if hasattr(old_src, "close") and old_src is not src and old_src is not self.monitor:
             old_src.close()
-        with self.src_lock:
-            if kind != "monitor":
-                self.monitor = None               # the virtual display goes when we leave it
+        # The virtual monitor is NOT removed when we switch away: re-creating it
+        # soon after fails (see above), and its windows would be shuffled back.
         old_app = old.get("name") if old.get("kind") == "app" else None
         new_app = spec.get("name") if kind == "app" else None
         if old_app != new_app:
@@ -399,6 +537,22 @@ class Watch:
                 c.send({"type": "focus", "active": True, "watch": self.id, "t": time.time()})
         log(f"[{self.id}] source ->", json.dumps(spec))
         return self.describe_source()
+
+    def _switch_status(self):
+        sw = self.switch
+        if sw is None:
+            return None
+        now = time.time()
+        if sw["phase"] == "done" and now - (sw.get("done_t") or now) > 2:
+            return None
+        t = now - sw["started"]
+        expect = {"monitor": 2.0, "app": 3.0}.get(sw["target"].get("kind"), 0.6)
+        if sw.get("msg") and "15 s" in sw["msg"]:
+            expect = 8.0
+        prog = {"preparing": 0.9 * (1 - np.exp(-t / expect)), "first_frame": 0.95, "done": 1.0,
+                "error": 1.0}[sw["phase"]]
+        return {"phase": sw["phase"], "target": sw["target"], "label": switch_label(sw["target"]),
+                "msg": sw["msg"], "error": sw["error"], "elapsed_s": round(t, 1), "progress": round(prog, 2)}
 
     def describe_source(self):
         return {"spec": self.src_spec, "desc": getattr(self.src, "desc", None) if self.src else None}
@@ -641,7 +795,8 @@ class Watch:
         #    reply line (>>R for a new frame) would land in the middle of them.
         deadline = time.time() + timeout
         self.keep_seq, self.keep_next = None, True
-        while self.keep_next and self.src is not None and time.time() < deadline:
+        while self.keep_next and time.time() < deadline and (
+                self.src is not None or (self.switch is not None and self.switch["phase"] == "preparing")):
             time.sleep(0.01)
         self.snapping = True
         try:
@@ -664,7 +819,11 @@ class Watch:
         return b.getvalue()
 
     def preview_jpeg(self):
-        f = self.last_view if self.last_view is not None else np.zeros((self.h, self.w, 3), np.uint8)
+        sw = self.switch
+        f = self.overlay_view if (sw is not None and sw["phase"] == "preparing"
+                                  and self.overlay_view is not None) else self.last_view
+        if f is None:
+            f = np.zeros((self.h, self.w, 3), np.uint8)
         b = io.BytesIO()
         Image.fromarray(f).save(b, "JPEG", quality=85)
         return b.getvalue()
@@ -678,6 +837,8 @@ class Watch:
                 "released_for_s": max(0, round(self.hold_until - time.time())),
                 "source": self.describe_source(), "orientation": self.orientation,
                 "picture": [self.w, self.h], "quality": self.quality, "touch_mouse": self.touch_mouse,
+                "monitor": self.monitor is not None,
+                "switch": self._switch_status(),
                 "stream": self.stats,
                 "input": {"touch": self.state["touch"], "button": self.state["button"],
                           "imu": self.state["imu"]}}
@@ -694,6 +855,7 @@ class Watch:
         bytes_win = self._bytes_win = collections.deque(maxlen=240)
         seen = set()
         while not self.stop.is_set():
+            self.heartbeat = time.time()
             if not self._ensure_link():
                 time.sleep(1.0)
                 continue
@@ -702,9 +864,33 @@ class Watch:
                     src, changed, keep = self.src, self.src_changed, self.keep_next
                     self.src_changed = False
                 if changed:
-                    prev = None
+                    prev = None                      # new source: send it whole
                 if self.snapping:
                     time.sleep(0.01)
+                    continue
+                sw = self.switch
+                if sw is not None and sw["phase"] == "preparing" and self.app_open:
+                    # New source still being set up: a loading bar over the last
+                    # picture, ~12 fps (the bar is all that changes).
+                    t = time.time() - sw["started"]
+                    expect = {"monitor": 2.0, "app": 3.0}.get(sw["target"].get("kind"), 0.6)
+                    if sw.get("msg") and "15 s" in sw["msg"]:
+                        expect = 8.0                         # the macOS cooldown: a slower bar
+                    prog = 0.9 * (1 - np.exp(-t / expect))
+                    view = loading_overlay(self.last_view, self.w, self.h, prog, switch_label(sw["target"]))
+                    self.overlay_view = view
+                    frame = np.ascontiguousarray(np.rot90(view, self.rot)) if self.rot else view
+                    keep = self.keep_next
+                    rect = (0, 0, ss.PW, ss.PH) if keep else ss.changed_rect(prev, frame, 6)
+                    if rect is not None:
+                        self.write(ss.packet(ss.T_JPEG, seq, *rect, payload=ss.encode(frame, rect, self.quality),
+                                             flags=ss.F_KEEP if keep else 0))
+                        if keep:
+                            self.keep_seq, self.keep_next = seq & 0xFFFF, False
+                        prev = frame
+                        seq += 1
+                        self._wait(lambda: self.replies.get("R") == (seq - 1) & 0xFFFF, 0.08)
+                    time.sleep(0.08)
                     continue
                 if src is None or not self.app_open:
                     if time.perf_counter() - last_ping > 1.0:          # also finds the app opening
@@ -763,6 +949,10 @@ class Watch:
                     win.append((t_d, 1000 * (t_d - sent.pop(k)), dec, push))
                     disp_est = 0.7 * disp_est + 0.3 * ((dec + push) / 1e6)
                     self.stats["frames"] += 1
+                sw = self.switch
+                if sw is not None and sw["phase"] == "first_frame" and sw["frames0"] is not None \
+                        and self.stats["frames"] > sw["frames0"]:
+                    sw["phase"], sw["done_t"] = "done", time.time()      # the new source is on the panel
                 if len(self.shown) > 400:
                     for k in list(self.shown)[:200]:
                         self.shown.pop(k, None)
@@ -775,6 +965,11 @@ class Watch:
                 log(f"[{self.id}] link error:", e)
                 self._drop_link()
                 time.sleep(0.5)
+            except Exception:  # noqa: BLE001 - a bug here must not kill the stream: log it, carry on
+                import traceback
+                log(f"[{self.id}] stream loop error (continuing):\n" + traceback.format_exc().rstrip())
+                prev = None
+                time.sleep(0.2)
         self._drop_link()
 
     def _update_stats(self, win, bytes_win):
@@ -892,6 +1087,30 @@ class Bridge:
                     if p not in have:
                         self.add_watch(port=p)
                 for k, w in list(self.watches.items()):
+                    # A stream loop that stopped turning: dump every thread's stack to
+                    # the log (to find out why), then replace the watch with a fresh one.
+                    if w.port and not w.stop.is_set() and time.time() - w.heartbeat > 15:
+                        import faulthandler
+                        log(f"[{k}] stream loop stuck for {time.time() - w.heartbeat:.0f}s; stacks:")
+                        faulthandler.dump_traceback(all_threads=True)
+                        w.stop.set()
+                        try:
+                            if w.link:
+                                w.link.close()
+                        except Exception:  # noqa: BLE001
+                            pass
+                        if w.monitor is not None:          # or its display blocks the new one
+                            w.monitor.close()
+                            w.monitor = None
+                        del self.watches[k]
+                        nw = self.add_watch(port=w.port)
+                        nw.set_orientation(w.orientation)
+                        if w.src_spec.get("kind") not in ("none", "monitor"):
+                            try:
+                                nw.set_source(w.src_spec)
+                            except Exception as e:  # noqa: BLE001
+                                log(f"[{k}] source restore failed:", e)
+                        continue
                     if w.port and w.gone_since and time.time() - w.gone_since > 10 \
                             and not os.path.exists(w.port) and time.time() > w.hold_until:
                         w.stop.set()

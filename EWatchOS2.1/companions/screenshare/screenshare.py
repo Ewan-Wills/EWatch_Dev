@@ -454,7 +454,7 @@ class TestSource:
 # Encoder: changed rect -> JPEG
 # ---------------------------------------------------------------------------
 def changed_rect(prev, cur, thresh):
-    if prev is None:
+    if prev is None or prev.shape != cur.shape:        # first frame / orientation just changed
         return 0, 0, PW, PH
     diff = np.abs(cur.astype(np.int16) - prev.astype(np.int16)).max(axis=2) > thresh
     rows, cols = np.flatnonzero(diff.any(axis=1)), np.flatnonzero(diff.any(axis=0))
