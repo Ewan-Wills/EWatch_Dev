@@ -5,7 +5,8 @@
 //
 // Packet (little-endian), same on every transport:
 //   'E' 'X'          magic
-//   uint8  type      1 = JPEG rect, 2 = ping, 3 = snapshot request
+//   uint8  type      1 = JPEG rect, 2 = ping, 3 = snapshot request, 4 = haptic
+//                    (haptic: x = ms, y = strength 0-255, no payload)
 //   uint8  flags     JPEG: bit0 KEEP = also copy into the snapshot frame
 //                    (a PSRAM copy costs ~9 ms per full frame, so the host
 //                    sets it only on a full frame before SNAP / on exit)
@@ -19,6 +20,8 @@
 //   >>R <seq>                 packet received (the host may send the next one)
 //   >>D <seq> <dec_us> <push_us>  rect is on the panel (DMA finished)
 //   >>P <seq> <t_us>          ping reply (watch esp_timer clock)
+//   >>ID <MAC>                after a ping with seq 0: this watch's id (12 hex digits),
+//                             so a host can tell several watches apart
 //   >>SNAP 134400             then 240*280 RGB565 little-endian: the KEEP frames
 //   >>BAD <why> <n>           dropped packet (checksum, size, decode)
 //

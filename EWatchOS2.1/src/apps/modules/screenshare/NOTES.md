@@ -34,3 +34,12 @@ Packet format and the decode/GDMA path are shared with the WiFi `livestream` mod
   TIOCEXCL; ewt/flash may need a retry while the bridge runs.
 - `--monitor` (virtual second display): macOS won't run a desktop narrower than 800 pt. Once
   it would not come online with a 4K monitor attached, though later it did.
+
+## Input back to the Mac (2026-10-11)
+While a host is talking to the app (any packet in the last 3 s), the app sends touch
+(`>>T d|m|u X Y`, panel pixels; the chip's 4095 "no position" samples are dropped), gestures
+(`>>G`), the side button (`>>B d|u|s`) and the accelerometer (`>>I`, raw counts at 4096/g,
+50 Hz). It costs the stream nothing: the replies use the IN direction, which is otherwise idle.
+Swipe-right is not "back" in this app (controller.cpp). A 1.2 s button hold exits. Host-to-watch
+haptics are packet type 4. After a ping with seq 0 the watch sends `>>ID <MAC>`, so a host can
+keep several watches apart. The Mac side is `companions/screenshare/ewbridge` (see the README there).

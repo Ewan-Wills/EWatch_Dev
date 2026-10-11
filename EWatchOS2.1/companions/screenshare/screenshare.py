@@ -311,6 +311,7 @@ class MonitorSource:
         c = Q.CGDisplayCopyDisplayMode(self.did)
         self.view = view
         self.last, self.gone_since = None, None
+        self.last_rect = None
         self.zoom = max(1.0, zoom)
         self.center = (b.size.width / 2, b.size.height / 2)   # follow: viewport centre, points
         how = {"fit": "whole monitor", "follow": f"zoom {self.zoom:g}x following the pointer"}[view]
@@ -329,6 +330,9 @@ class MonitorSource:
             return cx - vw / 2, cy - vh / 2, vw, vh
         return 0, 0, W, H
 
+    def view_to_screen(self, x, y):
+        return _view_to_rect(x, y, *self.last_rect) if self.last_rect else None
+
     def grab(self):
         Q = self.Q
         b = Q.CGDisplayBounds(self.did)
@@ -337,6 +341,7 @@ class MonitorSource:
         on = 0 <= px < b.size.width and 0 <= py < b.size.height
         lx, ly, vw, vh = self._viewport(b, px, py, on)
         rect = Q.CGRectMake(b.origin.x + lx, b.origin.y + ly, vw, vh)
+        self.last_rect = (b.origin.x + lx, b.origin.y + ly, vw, vh)
         im = Q.CGDisplayCreateImageForRect(self.did, Q.CGRectMake(lx, ly, vw, vh))
         if im is None:
             # Displays being rearranged (System Settings): no image for a moment.
@@ -363,11 +368,26 @@ class MonitorSource:
         return frame
 
 
+def _view_to_rect(x, y, rx, ry, rw, rh):
+    """Picture point -> screen point for a capture of rect (rx, ry, rw, rh), letterboxed by fit()."""
+    import Quartz as Q
+    s, ox, oy = fit_box(rw, rh)
+    sx, sy = (x - ox) / s, (y - oy) / s
+    if not (0 <= sx < rw and 0 <= sy < rh):
+        return None                                  # on a black bar
+    return Q.CGPointMake(rx + sx, ry + sy)
+
+
 class MssSource:
     def __init__(self, region):
         import mss
         self.sct = mss.MSS() if hasattr(mss, "MSS") else mss.mss()
         self.region = region or self.sct.monitors[1]
+        self.desc = f"screen {self.region}"
+
+    def view_to_screen(self, x, y):
+        r = self.region
+        return _view_to_rect(x, y, r["left"], r["top"], r["width"], r["height"])
 
     def grab(self):
         g = self.sct.grab(self.region)
@@ -476,6 +496,10 @@ def main():
                          "mouse. Default: follow if --zoom is given, else fit")
     ap.add_argument("--zoom", type=float,
                     help="--monitor --view follow: magnification (default 2)")
+    ap.add_argument("--app", metavar="NAME",
+                    help="run apps/NAME.py on the Mac (window + mouse/keys/controller) and stream "
+                         "its frames to the watch directly. --app list shows them")
+    ap.add_argument("--app-scale", type=int, default=3, help="--app: Mac window zoom (default 3)")
     ap.add_argument("--window", help="capture the first window whose owner/title contains this")
     ap.add_argument("--region", help="capture X,Y,W,H (screen points)")
     ap.add_argument("--display", type=int, default=1, help="mss monitor index (default 1)")
@@ -492,6 +516,11 @@ def main():
     ap.add_argument("--snap-dir", help="at the end save pc.png (sent) + watch.png (>>SNAP) here")
     ap.add_argument("-v", "--verbose", action="store_true", help="echo all watch lines")
     a = ap.parse_args()
+    if a.app == "list":
+        import apps
+        for name, doc in apps.available():
+            print(f"  {name:12s} {doc}")
+        return
 
     global VW, VH, ROT
     if a.landscape:
@@ -511,7 +540,12 @@ def main():
     rx = Replies(link, a.verbose)
     rx.start()
 
-    if a.source == "test":
+    runner = None
+    if a.app:
+        import apps
+        runner = apps.Runner(a.app, VW, VH, scale=a.app_scale)
+        src, what = runner, f"app {a.app} ({VW}x{VH}, window on the Mac)"
+    elif a.source == "test":
         src, what = TestSource(), "test pattern (full-screen motion)"
     elif a.monitor:
         if a.monitor == "auto":
@@ -541,6 +575,24 @@ def main():
         sys.exit(f"No reply on {link.name}: open Screenshare (USB) / Stream (WiFi) on the watch.")
     orient = f"landscape-{a.landscape}" if a.landscape else "portrait"
     print(f"Streaming {what} -> {link.name}, {orient}, q{a.quality}, pace={a.pace}. Ctrl-C to stop.")
+    stop = threading.Event()
+    if runner is None:
+        stream(a, link, rx, src, what, orient, stop)
+        return
+    # An app owns the main thread (macOS wants windows there); stream beside it.
+    t = threading.Thread(target=stream, args=(a, link, rx, src, what, orient, stop), daemon=True)
+    t.start()
+    try:
+        runner.run(stop)                 # until its window closes, Ctrl-C, or stop
+    except KeyboardInterrupt:
+        pass
+    finally:
+        stop.set()
+        t.join(10)
+
+
+def stream(a, link, rx, src, what, orient, stop):
+    """Capture -> encode -> send loop, until --seconds, Ctrl-C or `stop`."""
 
     seq = 0
     prev = None                  # last frame sent (240x280x3)
@@ -558,7 +610,7 @@ def main():
     try:
         while True:
             now = time.perf_counter()
-            if a.seconds and now - t_start >= a.seconds:
+            if (a.seconds and now - t_start >= a.seconds) or stop.is_set():
                 break
             # Credit: at most two frames not yet on the panel (one being pushed,
             # one waiting), so receive overlaps decode but nothing queues.
@@ -680,6 +732,7 @@ def main():
         else:
             print("snap: no >>SNAP reply")
     link.close()
+    stop.set()
 
 
 def _collect(rx, sent, seen, lat_win, lat_all, dec_win, push_win):

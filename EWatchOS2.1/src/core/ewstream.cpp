@@ -21,16 +21,18 @@
 #include <freertos/queue.h>
 #include <esp_heap_caps.h>
 #include <esp_timer.h>
+#include <esp_mac.h>
 #include <stdarg.h>
 #include "display.h"     // gfx, displayBus
 #include "ewsim.h"       // ewsimTapRows
 #include "power_mgr.h"   // powerPerfDemand
+#include "haptic.h"      // hapticBuzz (T_HAPTIC)
 
 static constexpr int      PW = 240, PH = 280;
 static constexpr int      STRIP_ROWS = 16;              // one 4:2:0 MCU row
 static constexpr int      SLOTS = 3;
 static constexpr uint32_t SLOT_CAP = 64 * 1024;         // largest JPEG accepted
-static constexpr uint8_t  T_JPEG = 1, T_PING = 2, T_SNAP = 3;
+static constexpr uint8_t  T_JPEG = 1, T_PING = 2, T_SNAP = 3, T_HAPTIC = 4;
 static constexpr uint8_t  F_KEEP = 1;                    // JPEG: keep a copy for SNAP / ewsim
 
 // ---------------------------------------------------------------------------
@@ -241,9 +243,21 @@ static bool startPacket() {
   uint16_t seq = rd16(sHdr + 2);
   uint16_t x = rd16(sHdr + 4), y = rd16(sHdr + 6), w = rd16(sHdr + 8), h = rd16(sHdr + 10);
   uint32_t len = sHdr[12] | (sHdr[13] << 8) | (sHdr[14] << 16) | ((uint32_t)sHdr[15] << 24);
+  if (type == T_HAPTIC) {                     // x = ms, y = strength
+    if (len) { sStats.bad++; ewsReply(">>BAD haptic %lu", (unsigned long)sStats.bad); return false; }
+    hapticBuzz(y > 255 ? 255 : y, x > 1000 ? 1000 : x);
+    sStats.lastPktMs = millis();
+    sPs = Ps::Csum; sCsum = 0; sCur = -1;
+    return true;
+  }
   if (type == T_PING) {
     if (len) { sStats.bad++; ewsReply(">>BAD ping %lu", (unsigned long)sStats.bad); return false; }
     ewsReply(">>P %u %llu", seq, (unsigned long long)esp_timer_get_time());
+    if (seq == 0) {                    // a host saying hello: tell it which watch this is
+      uint8_t m[6];
+      esp_efuse_mac_get_default(m);
+      ewsReply(">>ID %02X%02X%02X%02X%02X%02X", m[0], m[1], m[2], m[3], m[4], m[5]);
+    }
     sStats.lastPktMs = millis();
     sPs = Ps::Csum; sCsum = 0; sCur = -1;
     return true;

@@ -5,3 +5,4 @@ numpy>=1.26
 # --window capture (macOS):
 pyobjc-framework-Quartz>=10.0
 pyobjc-framework-libdispatch>=10.0   # --monitor
+pygame-ce>=2.5      # --app

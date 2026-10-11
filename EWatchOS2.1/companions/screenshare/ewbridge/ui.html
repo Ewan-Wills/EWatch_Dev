@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EWatch Bridge</title>
+<style>
+:root {
+  --bg: #f4f5f7; --panel: #ffffff; --ink: #16181d; --muted: #646b78; --line: #e2e5ea;
+  --accent: #0a84ff; --accent-ink: #ffffff; --good: #1f9d55; --bad: #d64545; --chip: #eef1f5;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0f1115; --panel: #171a21; --ink: #e8eaef; --muted: #8b93a3; --line: #262b35;
+          --accent: #3d9bff; --accent-ink: #0b0d11; --good: #3fcf7c; --bad: #ff6b6b; --chip: #20242d; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+       font: 14px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; }
+header { display: flex; align-items: center; gap: 16px; padding: 14px 20px; border-bottom: 1px solid var(--line);
+         background: var(--panel); position: sticky; top: 0; z-index: 2; }
+header h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: -0.01em; }
+#watches { display: flex; gap: 6px; flex-wrap: wrap; }
+.wtab { border: 1px solid var(--line); background: var(--chip); color: var(--ink); border-radius: 999px;
+        padding: 4px 12px; cursor: pointer; font: inherit; display: flex; gap: 6px; align-items: center; }
+.wtab.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; }
+.dot.ok { background: var(--good); } .dot.warn { background: #e5a50a; }
+main { display: grid; grid-template-columns: minmax(300px, 380px) 1fr; gap: 16px; padding: 16px 20px;
+       max-width: 1200px; margin: 0 auto; }
+@media (max-width: 760px) { main { grid-template-columns: 1fr; padding: 12px 16px; } }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+section + section { margin-top: 16px; }
+h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px;
+     font-weight: 600; }
+.stage { position: relative; display: flex; justify-content: center; align-items: center; background: #000;
+         border-radius: 10px; padding: 14px; min-height: 240px; }
+#preview { image-rendering: pixelated; display: block; border-radius: 6px; max-width: 100%; }
+#touchdot { position: absolute; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%;
+            border: 2px solid #fff; background: rgba(10,132,255,.45); pointer-events: none; display: none; }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.stat { background: var(--chip); border-radius: 8px; padding: 8px 10px; }
+.stat b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; }
+.stat span { color: var(--muted); font-size: 12px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.row + .row { margin-top: 8px; }
+button, select, input[type=range] { font: inherit; }
+button { border: 1px solid var(--line); background: var(--chip); color: var(--ink); border-radius: 8px;
+         padding: 6px 12px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+button.small { padding: 3px 9px; font-size: 13px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; background: transparent; }
+.seg button.on { background: var(--accent); color: var(--accent-ink); }
+.list { max-height: 260px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+.item { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+.item:last-child { border-bottom: 0; }
+.item .grow { flex: 1; min-width: 0; }
+.item .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.item .s { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.item.cur { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 980px) { .cols { grid-template-columns: 1fr; } }
+.muted { color: var(--muted); }
+#log { font: 12px/1.5 ui-monospace, "SF Mono", Menlo, monospace; height: 180px; overflow: auto;
+       background: var(--chip); border-radius: 8px; padding: 8px 10px; white-space: pre; }
+.imu { display: grid; grid-template-columns: 20px 1fr 52px; gap: 6px; align-items: center; font-size: 12px; }
+.bar { height: 8px; background: var(--chip); border-radius: 4px; position: relative; overflow: hidden; }
+.bar i { position: absolute; top: 0; bottom: 0; background: var(--accent); }
+.bar::after { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--line); }
+#snapimg { max-width: 100%; image-rendering: pixelated; border-radius: 6px; display: none; margin-top: 8px; }
+#err { color: var(--bad); min-height: 1.4em; font-size: 13px; }
+.pill { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--chip); color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>EWatch Bridge</h1>
+  <div id="watches"></div>
+  <div style="flex:1"></div>
+  <span id="err"></span>
+</header>
+<main>
+  <div>
+    <section>
+      <h2>On the watch</h2>
+      <div class="stage"><img id="preview" alt="what the watch shows"><div id="touchdot"></div></div>
+      <div class="row" style="margin-top:8px"><span id="srcdesc" class="muted">-</span></div>
+      <div class="stats">
+        <div class="stat"><b id="s-fps">-</b><span>fps</span></div>
+        <div class="stat"><b id="s-lat">-</b><span>latency p50 ms</span></div>
+        <div class="stat"><b id="s-kbps">-</b><span>KiB/s</span></div>
+      </div>
+    </section>
+    <section>
+      <h2>Watch input</h2>
+      <div class="row"><span>Touch</span><b id="i-touch" class="pill">-</b>
+        <span>Button</span><b id="i-btn" class="pill">up</b></div>
+      <div style="margin-top:10px" class="imu" id="imu"></div>
+      <div id="log" style="margin-top:10px"></div>
+    </section>
+  </div>
+  <div>
+    <section>
+      <h2>Picture</h2>
+      <div class="row">
+        <div class="seg" id="orient">
+          <button data-o="portrait">Portrait</button>
+          <button data-o="landscape-left">Landscape</button>
+          <button data-o="landscape-right">Landscape (flipped)</button>
+        </div>
+      </div>
+      <div class="row">
+        <label class="muted" for="quality">JPEG quality</label>
+        <input id="quality" type="range" min="20" max="90" step="5">
+        <span id="qv" class="pill"></span>
+        <label class="row" style="gap:6px;margin-left:auto"><input id="tmouse" type="checkbox">
+          Touch drives the Mac pointer</label>
+      </div>
+    </section>
+    <div class="cols" style="margin-top:16px">
+      <section style="margin:0">
+        <h2>Apps</h2>
+        <div class="list" id="apps"></div>
+        <h2 style="margin-top:14px">Other sources</h2>
+        <div class="row">
+          <button data-src='{"kind":"monitor","view":"fit"}'>Second monitor</button>
+          <button data-src='{"kind":"monitor","view":"follow","zoom":2}'>Monitor, zoom 2x</button>
+        </div>
+        <div class="row">
+          <button data-src='{"kind":"screen","display":1}'>Main screen</button>
+          <button data-src='{"kind":"test"}'>Test pattern</button>
+          <button data-src='{"kind":"none"}'>Nothing</button>
+        </div>
+        <div class="row">
+          <input id="url" placeholder="MJPEG / JPEG URL" style="flex:1;min-width:0;font:inherit;padding:6px 8px;
+                 border:1px solid var(--line);border-radius:8px;background:var(--chip);color:var(--ink)">
+          <button id="showurl">Show URL</button>
+        </div>
+      </section>
+      <section style="margin:0">
+        <div class="row" style="justify-content:space-between"><h2 style="margin:0">Windows</h2>
+          <button class="small" id="refwin">Refresh</button></div>
+        <div class="list" id="windows" style="margin-top:10px"></div>
+      </section>
+    </div>
+    <section>
+      <h2>Watch</h2>
+      <div class="row">
+        <button id="snap" class="primary">Read back from watch</button>
+        <button id="buzz">Buzz</button>
+        <button id="release">Free USB port 60 s</button>
+        <span id="wport" class="muted"></span>
+      </div>
+      <img id="snapimg" alt="read back from the watch">
+    </section>
+  </div>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+let W = null, ST = null, lastSeq = 0;
+const esc = (s) => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+async function api(method, path, body) {
+  const r = await fetch(path, {method, headers: {"Content-Type": "application/json"},
+                               body: body ? JSON.stringify(body) : undefined});
+  const ct = r.headers.get("content-type") || "";
+  const out = ct.includes("json") ? await r.json() : await r.blob();
+  if (!r.ok) { $("#err").textContent = out.error || r.statusText; throw new Error(out.error); }
+  $("#err").textContent = "";
+  return out;
+}
+const wq = () => W ? `?watch=${encodeURIComponent(W)}` : "";
+const post = (path, body) => api("POST", path, Object.assign({watch: W}, body));
+
+function renderWatches(s) {
+  const el = $("#watches");
+  if (!s.watches.length) { el.innerHTML = '<span class="muted">No watch found: plug one in over USB-C</span>'; return; }
+  if (!W || !s.watches.find(w => w.id === W)) W = s.watches[0].id;
+  el.innerHTML = s.watches.map(w => {
+    const cls = w.connected ? (w.app_open ? "ok" : "warn") : "";
+    return `<button class="wtab ${w.id === W ? "on" : ""}" data-w="${esc(w.id)}"><span class="dot ${cls}"></span>${esc(w.id)}</button>`;
+  }).join("");
+  el.querySelectorAll(".wtab").forEach(b => b.onclick = () => { W = b.dataset.w; refresh(); });
+}
+function cur() { return ST && ST.watches.find(w => w.id === W); }
+
+function renderWatch(w, s) {
+  if (!w) return;
+  const st = w.stream;
+  $("#s-fps").textContent = st.fps ?? "-";
+  $("#s-lat").textContent = st.lat_p50 ?? "-";
+  $("#s-kbps").textContent = st.kbps ?? "-";
+  $("#srcdesc").textContent = (w.connected ? (w.app_open ? "" : "Open Screenshare on the watch. ") : "Not connected. ")
+    + "Showing: " + (w.source.desc || w.source.spec.kind);
+  $("#wport").textContent = w.port + (w.released_for_s ? ` (released ${w.released_for_s} s)` : "");
+  document.querySelectorAll("#orient button").forEach(b => b.classList.toggle("on", b.dataset.o === w.orientation));
+  if (document.activeElement !== $("#quality")) $("#quality").value = w.quality;
+  $("#qv").textContent = w.quality;
+  $("#tmouse").checked = w.touch_mouse;
+  const spec = w.source.spec;
+  const apps = s.apps;
+  const names = new Set([...apps.available.map(a => a.name), ...apps.connected.map(c => c.name)]);
+  $("#apps").innerHTML = [...names].map(n => {
+    const av = apps.available.find(a => a.name === n), live = apps.connected.find(c => c.name === n);
+    const on = spec.kind === "app" && spec.name === n;
+    return `<div class="item ${on ? "cur" : ""}"><div class="grow"><div class="t">${esc(n)}
+      ${live ? '<span class="pill">running</span>' : ""}</div>
+      <div class="s">${esc(av ? av.about : "external client")}</div></div>
+      ${on ? '<span class="pill">on watch</span>' : `<button class="small primary" data-show="${esc(n)}">Show</button>`}
+      ${live ? `<button class="small" data-stop="${esc(n)}">Stop</button>` : ""}</div>`;
+  }).join("") || '<div class="item muted">No apps in apps/</div>';
+  $("#apps").querySelectorAll("[data-show]").forEach(b => b.onclick = () => showApp(b.dataset.show));
+  $("#apps").querySelectorAll("[data-stop]").forEach(b => b.onclick = () => api("POST", "/api/apps/stop", {name: b.dataset.stop}).then(refresh));
+  renderInput(w);
+}
+async function showApp(name) {
+  const live = ST.apps.connected.find(c => c.name === name);
+  if (!live) {
+    await post("/api/apps/launch", {name});
+    for (let i = 0; i < 60; i++) {
+      await new Promise(r => setTimeout(r, 150));
+      const s = await api("GET", "/api/status");
+      if (s.apps.connected.find(c => c.name === name)) break;
+    }
+  }
+  await post("/api/source", {kind: "app", name});
+  refresh();
+}
+async function loadWindows() {
+  const ws = await api("GET", "/api/windows");
+  const spec = cur() ? cur().source.spec : {};
+  $("#windows").innerHTML = ws.map(w => `<div class="item ${spec.kind === "window" && spec.id === w.id ? "cur" : ""}">
+      <div class="grow"><div class="t">${esc(w.owner)}</div><div class="s">${esc(w.title || "(untitled)")} · ${w.w}×${w.h}</div></div>
+      <button class="small primary" data-win="${w.id}">Show</button></div>`).join("")
+    || '<div class="item muted">No windows (Screen Recording permission?)</div>';
+  $("#windows").querySelectorAll("[data-win]").forEach(b => b.onclick = async () => {
+    await post("/api/source", {kind: "window", id: +b.dataset.win}); refresh(); loadWindows(); });
+}
+
+function renderInput(w) {
+  const i = w.input;
+  $("#i-touch").textContent = i.touch ? `${i.touch[0]}, ${i.touch[1]}` : "-";
+  $("#i-btn").textContent = i.button ? "down" : "up";
+  const imu = i.imu || [0, 0, 0];
+  $("#imu").innerHTML = ["x", "y", "z"].map((a, k) => {
+    const v = Math.max(-2, Math.min(2, imu[k] || 0)), pct = Math.abs(v) / 2 * 50;
+    const left = v < 0 ? 50 - pct : 50;
+    return `<span class="muted">${a}</span><div class="bar"><i style="left:${left}%;width:${pct}%"></i></div>
+            <span style="text-align:right;font-variant-numeric:tabular-nums">${(imu[k] || 0).toFixed(2)} g</span>`;
+  }).join("");
+  const img = $("#preview"), dot = $("#touchdot");
+  if (i.touch && img.naturalWidth) {
+    const r = img.getBoundingClientRect(), p = img.parentElement.getBoundingClientRect();
+    dot.style.left = (r.left - p.left + i.touch[0] * r.width / img.naturalWidth) + "px";
+    dot.style.top = (r.top - p.top + i.touch[1] * r.height / img.naturalHeight) + "px";
+    dot.style.display = "block";
+  } else dot.style.display = "none";
+}
+
+function logEv(e) {
+  if (e.type === "imu" || (W && e.watch !== W)) return;
+  const el = $("#log");
+  const t = new Date(e.t * 1000).toLocaleTimeString([], {hour12: false});
+  let s = e.type;
+  if (e.type === "touch") s = `touch ${e.phase.padEnd(4)} ${e.x},${e.y}`;
+  else if (e.type === "button") s = `button ${e.phase}`;
+  else if (e.type === "gesture") s = `gesture ${e.name} ${e.x},${e.y}`;
+  else if (e.type === "watch") s = `watch ${e.state}`;
+  if (e.type === "touch" && e.phase === "move" && el.lastChild && el.lastChild.textContent.includes("touch move")) {
+    el.lastChild.textContent = `${t}  ${s}\n`;
+  } else el.append(document.createTextNode(`${t}  ${s}\n`));
+  while (el.childNodes.length > 200) el.removeChild(el.firstChild);
+  el.scrollTop = el.scrollHeight;
+}
+
+async function refresh() {
+  try {
+    ST = await api("GET", "/api/status");
+    renderWatches(ST);
+    renderWatch(cur(), ST);
+  } catch (e) { }
+}
+function previewLoop() {
+  const img = $("#preview");
+  const next = () => setTimeout(previewLoop, 150);
+  if (!W) return next();
+  const n = new Image();
+  n.onload = () => {
+    img.src = n.src;
+    const scale = Math.min(2, (img.parentElement.clientWidth - 28) / n.naturalWidth);
+    img.style.width = (n.naturalWidth * scale) + "px";
+    next();
+  };
+  n.onerror = next;
+  n.src = "/api/preview.jpg" + wq() + (wq() ? "&" : "?") + "t=" + Date.now();
+}
+
+document.querySelectorAll("#orient button").forEach(b => b.onclick = () => post("/api/orientation", {orientation: b.dataset.o}).then(refresh));
+document.querySelectorAll("[data-src]").forEach(b => b.onclick = () => post("/api/source", JSON.parse(b.dataset.src)).then(refresh));
+$("#quality").oninput = () => { $("#qv").textContent = $("#quality").value; };
+$("#quality").onchange = () => post("/api/config", {quality: +$("#quality").value});
+$("#tmouse").onchange = () => post("/api/config", {touch_mouse: $("#tmouse").checked});
+$("#refwin").onclick = loadWindows;
+$("#showurl").onclick = () => $("#url").value && post("/api/source", {kind: "url", url: $("#url").value}).then(refresh);
+$("#buzz").onclick = () => post("/api/haptic", {ms: 80, strength: 220});
+$("#release").onclick = () => post("/api/release", {seconds: 60}).then(refresh);
+$("#snap").onclick = async () => {
+  const b = await api("GET", "/api/snapshot.png" + wq());
+  const img = $("#snapimg"); img.src = URL.createObjectURL(b); img.style.display = "block";
+  img.style.width = Math.min(480, img.parentElement.clientWidth) + "px";
+};
+const es = new EventSource("/api/stream?imu=0");
+es.onmessage = (m) => { const e = JSON.parse(m.data); logEv(e); if (e.type !== "imu") refresh(); };
+refresh(); loadWindows(); previewLoop();
+setInterval(refresh, 700);
+</script>
+</body>
+</html>

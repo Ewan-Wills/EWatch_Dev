@@ -458,6 +458,17 @@ static void taskIO(void *) {
                 postEvent(ge);
               } else
 #endif  // EW_APP_MOTION
+#if EW_APP_SCREENSHARE
+              // Screenshare: swipes are input for the Mac side; the app handles
+              // its own back (button hold, or swipe while nothing streams).
+              if (scr == Screen::Screenshare) {
+                Event ge = makeEvent(EventType::Gesture);
+                ge.x = touchpad.data.x;
+                ge.y = touchpad.data.y;
+                ge.gesture = g;
+                postEvent(ge);
+              } else
+#endif  // EW_APP_SCREENSHARE
               if (scr != Screen::Viewer3D && scr != Screen::Starfox) {
                 Event back = makeEvent(EventType::ButtonShort);
                 postEvent(back);

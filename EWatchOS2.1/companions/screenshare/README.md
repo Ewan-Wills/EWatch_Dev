@@ -8,6 +8,63 @@ latency. One script for both watch apps:
 | Screenshare (USB-C) | `EW_APPS=screenshare` | `python3 screenshare.py` |
 | Stream (WiFi) | `EW_APPS=livestream` | `python3 screenshare.py --wifi ewatch.local` |
 
+## ewbridge (the app)
+
+`ewbridge` runs in the background and owns the watch link. Everything else (the UI, the CLI,
+games, LLM agents) talks to it, so you can switch what the watch shows, start and stop games,
+or point it at a window without ever dropping the connection.
+
+```sh
+bin/ewbridge up                 # start it + open the UI at http://127.0.0.1:7480/
+bin/ewbridge show app swarm     # launches the game if needed
+bin/ewbridge status
+bin/ewbridge down
+```
+
+Open **Screenshare** on the watch. The bridge streams as soon as it's open, and a 1.2 s hold of
+the side button leaves the app.
+
+| want | CLI | UI |
+|---|---|---|
+| a game/app | `show app NAME` | Apps → Show |
+| a window | `windows`, then `show window ID` (or a name) | Windows → Show |
+| second monitor | `show monitor` / `show monitor follow --zoom 2` | Other sources |
+| main screen, test pattern, nothing | `show screen` / `show test` / `show none` | Other sources |
+| an MJPEG stream / JPEG URL | `show url http://…/x.mjpg` | URL box |
+| orientation | `orient landscape-left\|portrait\|landscape-right` | Picture |
+| what the watch shows (read back) | `snap out.png` | Read back from watch |
+| watch input | `input`, `events -f` | Watch input |
+| buzz | `haptic 60 200` | Buzz |
+| test input | `sim "tap 120 140"`, `sim btn short`, `sim tilt 0.5 0 0.85` | |
+| flash with ewt | `release 60`, then flash; it reconnects | Free USB port |
+
+**Watch input**: touch (down/move/up), gestures, the side button (down/up/short) and the
+accelerometer (50 Hz, in g). Touch positions are in the picture's coordinates; the rotation is
+already undone. Apps get it all in `Input` (`touch`, `tapped`, `tilt`, `wbutton`, `wpressed`,
+`gestures`; touch also drives `mouse` unless the app sets `touch_as_mouse = False`) and can call
+`self.haptic(ms, strength)`. With "Touch drives the Mac pointer" on, touches click and drag on
+the window or monitor being shown (needs Accessibility permission).
+
+**Several watches**: every `/dev/cu.usbmodem*` becomes a watch, named by the id its firmware
+reports. Each has its own source and orientation; pick one with `--watch ID`, `?watch=ID`, or the
+tabs in the UI. A watch remembers its settings when re-plugged onto another port. (Built for,
+not yet tested with, two watches.)
+
+**Your own programs**: `ewbridge/client.py` puts pixels on the watch from any program and gets
+its input back (`examples/client_example.py`). The wire format is plain TCP, documented in that
+file, so any language works.
+
+**LLMs**: everything is an HTTP call (`GET /api/help` lists them), a CLI command (`--json` for
+raw output), or an MCP tool:
+```sh
+claude mcp add ewatch -- ~/Documents/EWatch/EWatch_Firmware/EWatchOS2.1/companions/screenshare/bin/ewbridge mcp
+```
+Tools: `ewatch_status`, `ewatch_list_windows`, `ewatch_show`, `ewatch_orientation`, `ewatch_apps`,
+`ewatch_stop_app`, `ewatch_snapshot` (an image), `ewatch_input`, `ewatch_haptic`, `ewatch_sim`,
+`ewatch_release`.
+
+`screenshare.py` below is the one-shot, no-bridge version (and the measuring tool).
+
 ## Install
 
 ```sh
@@ -65,6 +122,39 @@ Views (`--view`):
   Unplug the other monitor if it says it didn't come online.
 - When the script stops, the display goes away and macOS moves its windows back. macOS
   remembers which windows were on it and puts them back next time.
+
+## Apps: run on the Mac, play on the watch
+
+```sh
+.venv/bin/python screenshare.py --app swarm --landscape     # play with the mouse in the Mac window
+.venv/bin/python screenshare.py --app list                  # what's in apps/
+```
+
+An app runs on the MacBook in its own window (mouse, keyboard and controller input go
+there) and every frame it draws goes straight to the watch: no screen capture, no Screen
+Recording permission, exact pixels. `--app-scale N` sets the Mac window zoom (default 3).
+
+To make one, add `apps/<name>.py` with one subclass of `apps.App`:
+
+```python
+from .base import App
+
+class Bounce(App):
+    """One line shown by --app list."""
+    title = "Bounce"
+    fps = 60
+
+    def update(self, dt, inp):          # inp.mouse, inp.clicked, inp.keys, inp.pressed, inp.axes, inp.pad
+        ...
+
+    def draw(self):                     # draw into self.surface (pygame, self.w x self.h)
+        ...                             # or return an h x w x 3 uint8 numpy array
+```
+
+`self.w x self.h` is the watch picture: 280x240 with `--landscape`, 240x280 without. The
+streamer handles rotation, change detection and pacing. Draw your own pointer, because the
+watch doesn't see the Mac's. `apps/swarm.py` is the worked example: 30k-particle numpy
+physics with trails and bloom (~3.5 ms a frame on an M4 Pro), mouse-only.
 
 ## How it's fast
 

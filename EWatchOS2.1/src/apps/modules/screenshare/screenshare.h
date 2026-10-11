@@ -29,6 +29,11 @@ private:
   bool     live = false;              // USB takeover active (not under keepcon)
   bool     showing = false;           // frames on screen (vs waiting banner)
   bool     waitingDrawn = false;
+  uint32_t btnDownMs = 0;             // side button held since (0 = up)
+  uint32_t lastImuMs = 0;
+  uint16_t lastTx = 0, lastTy = 0;    // last on-panel touch (the chip sends 4095s)
+  bool     touchOut = false;          // a ">>T d" went out without its ">>T u"
+  bool     hostLive() const;
   uint32_t lastStatMs = 0, statFrames = 0;
   void drawWaiting();
 };

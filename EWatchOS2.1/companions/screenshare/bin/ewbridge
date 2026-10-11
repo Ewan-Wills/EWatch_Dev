@@ -1,0 +1,4 @@
+#!/bin/sh
+# ewbridge launcher: runs the package with the companion's venv, from anywhere.
+D="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$D" && exec "$D/.venv/bin/python" -W ignore -m ewbridge "$@"

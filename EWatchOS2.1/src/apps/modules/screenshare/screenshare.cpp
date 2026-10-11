@@ -93,6 +93,7 @@ static void rxTask(void *) {
 
 void ScreenshareView::onEnter() {
   showing = waitingDrawn = false;
+  btnDownMs = lastImuMs = 0;
   lastStatMs = millis(); statFrames = 0;
   drawWaiting();
 
@@ -147,6 +148,20 @@ void ScreenshareView::render() {
   if (ewsService(10)) { showing = true; statFrames++; }
 
   uint32_t now = millis();
+  if (hostLive()) {
+    if (btnDownMs && now - btnDownMs > 1200) {        // hold = back to the launcher
+      btnDownMs = 0;
+      hapticBuzz(120, 40);
+      switchTo(Screen::AppList);
+      return;
+    }
+    if (now - lastImuMs >= 20) {                      // the IO task samples at 50 Hz
+      lastImuMs = now;
+      int16_t ax, ay, az; bool ok;
+      { ModelLock lk; ax = model.ax; ay = model.ay; az = model.az; ok = model.imuOk; }
+      if (ok) ewsReply(">>I %d %d %d", ax, ay, az);
+    }
+  }
   // Stream stalled (companion quit / cable out): back to the banner.
   if (showing && now - ewsStats().lastPktMs > 3000) {
     ewsResetParser();
@@ -163,11 +178,47 @@ void ScreenshareView::render() {
   }
 }
 
+bool ScreenshareView::hostLive() const {
+  return live && millis() - ewsStats().lastPktMs < 3000;
+}
+
 void ScreenshareView::onEvent(const Event &e) {
-  // Back: side button / right-swipe (both ButtonShort), or the back chevron
-  // while the waiting banner is up (frames cover the whole panel).
-  if (e.type == EventType::ButtonShort ||
-      (e.type == EventType::Touch && !showing && tappedBack(e.x, e.y))) {
+  if (hostLive()) {
+    // A host is streaming: input goes to it. Only a 1.2 s button hold leaves
+    // (checked in render()).
+    // The touch chip reports 4095 when it has no position: drop those
+    // samples; a release goes out at the last good one.
+    bool onPanel = e.x < 240 && e.y < 280;
+    switch (e.type) {
+      case EventType::Touch:
+        if (onPanel) { ewsReply(">>T d %u %u", e.x, e.y); lastTx = e.x; lastTy = e.y; touchOut = true; }
+        break;
+      case EventType::TouchHold:
+        if (!onPanel) break;
+        ewsReply(touchOut ? ">>T m %u %u" : ">>T d %u %u", e.x, e.y);
+        lastTx = e.x; lastTy = e.y; touchOut = true;
+        break;
+      case EventType::TouchUp:
+        if (touchOut) ewsReply(">>T u %u %u", onPanel ? e.x : lastTx, onPanel ? e.y : lastTy);
+        touchOut = false;
+        break;
+      case EventType::Gesture:
+        ewsReply(">>G %u %u %u", (unsigned)e.gesture, onPanel ? e.x : lastTx, onPanel ? e.y : lastTy);
+        break;
+      case EventType::ButtonDown: btnDownMs = millis(); if (!btnDownMs) btnDownMs = 1;
+                                 ewsReply(">>B d"); break;
+      case EventType::ButtonUp:  btnDownMs = 0; ewsReply(">>B u"); break;
+      case EventType::ButtonShort: ewsReply(">>B s"); break;
+      default: break;
+    }
+    return;
+  }
+  btnDownMs = 0;
+  // No host: the usual back affordances.
+  bool back = e.type == EventType::ButtonShort ||
+              (e.type == EventType::Gesture && e.gesture == Gesture::SwipeRight) ||
+              (e.type == EventType::Touch && !showing && tappedBack(e.x, e.y));
+  if (back) {
     hapticBuzz(120, 20);
     switchTo(Screen::AppList);
   }
