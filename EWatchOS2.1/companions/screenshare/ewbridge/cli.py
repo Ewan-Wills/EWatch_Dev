@@ -10,6 +10,7 @@
     bin/ewbridge snap out.png          read back what the watch shows
     bin/ewbridge events --follow       watch input as JSON lines
     bin/ewbridge sim "tap 120 140"     inject watch input (tests)
+    bin/ewbridge console "log dump"    watch console (logs, reset reasons) without freeing the port
     bin/ewbridge release 60            free the USB port for `ewt flash`
     bin/ewbridge mcp                   MCP server on stdio (for LLM agents)
     bin/ewbridge down
@@ -247,6 +248,12 @@ def cmd_sim(a):
     print(json.dumps(api("POST", "/api/sim", {"cmd": " ".join(a.cmd), "watch": a.watch})))
 
 
+def cmd_console(a):
+    r = api("POST", "/api/console", {"line": " ".join(a.line), "seconds": a.seconds, "watch": a.watch},
+            timeout=a.seconds + 10)
+    print("\n".join(r["lines"]))
+
+
 def cmd_release(a):
     print(json.dumps(api("POST", "/api/release", {"seconds": a.seconds, "watch": a.watch})))
 
@@ -314,6 +321,10 @@ def main(argv=None):
     p = sp.add_parser("sim", help='inject watch input for tests: "tap X Y", "btn short", "tilt 0.5 0 0.8"')
     p.add_argument("cmd", nargs="+")
     p.set_defaults(fn=cmd_sim)
+    p = sp.add_parser("console", help='watch console command, e.g. "log dump" (Screenshare not open)')
+    p.add_argument("line", nargs="+")
+    p.add_argument("--seconds", type=float, default=3)
+    p.set_defaults(fn=cmd_console)
     p = sp.add_parser("release", help="free the USB port for N seconds (ewt flash)")
     p.add_argument("seconds", type=float, nargs="?", default=60)
     p.set_defaults(fn=cmd_release)

@@ -61,6 +61,11 @@ TOOLS = [
                     "'drag X1 Y1 X2 Y2 MS', 'swipe l|r|u|d', 'btn short', 'btn long', "
                     "'tilt GX GY GZ', 'tilt off'. Coordinates are panel pixels (240x280, portrait).",
      "inputSchema": {"type": "object", "required": ["cmd"], "properties": dict(W, cmd={"type": "string"})}},
+    {"name": "ewatch_console",
+     "description": "Run a watch console command and return its output: 'log dump' (persistent log incl. "
+                    "boot/reset reasons and panics), 'pwr stats', 'help'. Only while Screenshare is not open.",
+     "inputSchema": {"type": "object", "required": ["line"], "properties": dict(W, line={"type": "string"},
+                                                                         seconds={"type": "number"})}},
     {"name": "ewatch_release",
      "description": "Let go of the watch's USB port for N seconds (so `ewt flash` can use it).",
      "inputSchema": {"type": "object", "properties": dict(W, seconds={"type": "number"})}},
@@ -103,6 +108,8 @@ def call(name, a):
         return api("POST", "/api/haptic", a)
     if name == "ewatch_sim":
         return api("POST", "/api/sim", a)
+    if name == "ewatch_console":
+        return api("POST", "/api/console", a, timeout=float(a.get("seconds", 2)) + 10)
     if name == "ewatch_release":
         return api("POST", "/api/release", a)
     raise ValueError(f"unknown tool {name}")

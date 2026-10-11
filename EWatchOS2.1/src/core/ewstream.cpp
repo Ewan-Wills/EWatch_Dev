@@ -22,6 +22,7 @@
 #include <esp_heap_caps.h>
 #include <esp_timer.h>
 #include <esp_mac.h>
+#include <esp_system.h>
 #include <stdarg.h>
 #include "display.h"     // gfx, displayBus
 #include "ewsim.h"       // ewsimTapRows
@@ -256,7 +257,13 @@ static bool startPacket() {
     if (seq == 0) {                    // a host saying hello: tell it which watch this is
       uint8_t m[6];
       esp_efuse_mac_get_default(m);
-      ewsReply(">>ID %02X%02X%02X%02X%02X%02X", m[0], m[1], m[2], m[3], m[4], m[5]);
+      // ...and why it last reset, so the host can log crashes it caused or saw.
+      static const char *const kReset[] = {"UNKNOWN", "POWERON", "EXT", "SW", "PANIC", "INT_WDT",
+                                           "TASK_WDT", "WDT", "DEEPSLEEP", "BROWNOUT", "SDIO"};
+      int r = (int)esp_reset_reason();
+      ewsReply(">>ID %02X%02X%02X%02X%02X%02X reset=%s up=%lu", m[0], m[1], m[2], m[3], m[4], m[5],
+               (r >= 0 && r < (int)(sizeof(kReset) / sizeof(kReset[0]))) ? kReset[r] : "?",
+               (unsigned long)millis());
     }
     sStats.lastPktMs = millis();
     sPs = Ps::Csum; sCsum = 0; sCur = -1;
@@ -355,8 +362,7 @@ static bool     sInFlight = false;
 static uint32_t sWaitUs = 0, sCopyUs = 0;
 static bool     sKeep = false;               // this rect also goes to sFrame
 
-// A frame's last strip is left on the wire while the next frame decodes;
-// its ">>D" goes out once that DMA is done (here, or when the stream idles).
+// ">>D" goes out once a frame's last strip is on the panel (finishPush).
 static bool     sPendD = false;
 static char     sPendLine[96];
 
@@ -431,8 +437,12 @@ static bool showJpeg(const Slot &s) {
     }
     sJpeg.close();
   }
-  if (ok) pushStrip();                         // last strip: left in flight
-  else finishPush();
+  if (ok) pushStrip();
+  // Finish the last strip and release the display bus before returning. (It
+  // used to stay locked into the next frame to overlap ~1 ms of DMA; with the
+  // bus held outside render(), another task taking ModelLock and then the bus
+  // deadlocked the render task -> task WDT reset, 2026-10-11.)
+  finishPush();
   uint32_t total = micros() - t0;
   sStats.pushUs = sWaitUs;
   sStats.decUs = total - sWaitUs;

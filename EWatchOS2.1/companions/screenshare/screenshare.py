@@ -181,6 +181,8 @@ class Replies(threading.Thread):
                     self.pongs[int(p[1])] = (now, int(p[2]))
                 elif line.startswith(">>READY"):
                     self.ready = True
+                elif line.startswith(">>ID "):
+                    print(f"[watch] {line[2:]}")
                 elif line.startswith(">>BAD"):
                     self.bad.append(line)
                     print(f"[watch] {line}")

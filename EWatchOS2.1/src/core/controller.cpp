@@ -631,6 +631,8 @@ static void taskIO(void *) {
 // Drop the LDO latch and stop. Called from the render task in response to
 // global power-off triggers (3 s button hold) or from PowerOffView.
 static void shutdownNow() {
+  // Leave a trace: a power-off otherwise looks like an unexplained reset.
+  EWLOGW("PWR", "shutdown=button_hold");
   if (gfx) {
     gfx->fillScreen(BLACK);
     gfx->setTextColor(WHITE, BLACK);

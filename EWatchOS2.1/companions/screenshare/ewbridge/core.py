@@ -299,10 +299,12 @@ class Watch:
         self.replies, self.reply_cond = {}, threading.Condition()
         self.shown = {}
         self.sim_seq = 0
+        self.console_lines = collections.deque(maxlen=4000)   # (t, line): watch text that isn't ">>"
         self.keep_next = False
         self.keep_seq = None                     # seq of the last KEEP frame sent
         self.snapping = False                    # snapshot in progress: send nothing else
         self.gone_since = None
+        self.last_reset, self.last_up = None, None   # from >>ID: why the watch last reset
         self.hold_until = 0.0                    # release(): leave the port alone until then
         self.stop = threading.Event()
         self.set_orientation(orientation)
@@ -506,6 +508,12 @@ class Watch:
                     self.replies["P"] = int(p[1])
                     self.reply_cond.notify_all()
             elif k == ">>ID":
+                info = dict(x.split("=", 1) for x in p[2:] if "=" in x)
+                if info:
+                    up = int(info.get("up", 0))
+                    if up < (self.last_up or 1 << 62):          # first contact, or it rebooted
+                        log(f"[{p[1]}] watch boot: reset={info.get('reset')} up={up / 1000:.1f}s")
+                    self.last_reset, self.last_up = info.get("reset"), up
                 self.bridge.rename(self, p[1])
             elif k == ">>READY":
                 self.app_open = True
@@ -535,6 +543,11 @@ class Watch:
                 with self.reply_cond:
                     self.replies["S:" + k[2:]] = line
                     self.reply_cond.notify_all()
+            elif not k.startswith(">>"):
+                self.console_lines.append((time.time(), line))
+                if "boot reset=" in line or "Guru Meditation" in line or "Backtrace" in line \
+                        or "=== EWatch boot ===" in line:
+                    log(f"[{self.id}] watch: {line}")          # resets show up in our log
         except (ValueError, IndexError):
             pass
 
@@ -609,6 +622,15 @@ class Watch:
         ok = self._wait(lambda: ("S:" + s) in self.replies, timeout)
         return {"ok": ok, "reply": self.replies.get("S:" + s), "watch": self.id}
 
+    def console(self, line, seconds=2.0):
+        """Send a line to the watch's ewlog console (`log dump`, `pwr stats`, `help`)
+        and return the text it prints within `seconds`. Works when the Screenshare
+        app is NOT open (it owns the console while open; use sim there)."""
+        t0 = time.time()
+        self.write(f"\n{line}\n".encode())
+        time.sleep(seconds)
+        return {"watch": self.id, "lines": [l for t, l in list(self.console_lines) if t >= t0]}
+
     def snapshot(self, timeout=5.0):
         """What the watch shows (its own copy of the pixels it sent to the panel),
         PNG, picture orientation."""
@@ -651,6 +673,7 @@ class Watch:
         if getattr(self, "_win", None) is not None:
             self._update_stats(self._win, self._bytes_win)      # decays to 0 when idle
         return {"id": self.id, "mac": self.mac, "port": self.wifi or self.port,
+                "last_reset": self.last_reset,
                 "connected": self.link is not None, "app_open": self.app_open,
                 "released_for_s": max(0, round(self.hold_until - time.time())),
                 "source": self.describe_source(), "orientation": self.orientation,

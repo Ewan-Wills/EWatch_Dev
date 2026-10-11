@@ -35,6 +35,9 @@ HELP = {
     "POST /api/haptic": '{"ms": 40, "strength": 200}  buzz the watch',
     "POST /api/sim": '{"cmd": "tap 120 140"}  inject input on the watch for tests (ewsim: tap X Y, '
                      'drag X1 Y1 X2 Y2 MS, swipe l|r|u|d, btn short|long, tilt GX GY GZ, tilt off)',
+    "POST /api/console": '{"line": "log dump", "seconds": 3}  run a watch console command and return its '
+                         'output (when Screenshare is not open on the watch)',
+    "GET /api/console?since=T": "watch console text seen since unix time T (resets, logs)",
     "POST /api/apps/launch": '{"name": "swarm"}  run apps/NAME.py in its own Mac window, shown on the watch',
     "POST /api/apps/stop": '{"name": "swarm"}',
     "POST /api/release": '{"seconds": 60}  let go of the USB port (for `ewt flash`), then reconnect',
@@ -99,6 +102,10 @@ def make_handler(bridge):
                     return self._send(200, self._watch(q).preview_jpeg(), "image/jpeg")
                 if u.path == "/api/snapshot.png":
                     return self._send(200, self._watch(q).snapshot(), "image/png")
+                if u.path == "/api/console":
+                    w = self._watch(q)
+                    since = float((q.get("since") or ["0"])[0])
+                    return self._send(200, {"watch": w.id, "lines": [l for t, l in list(w.console_lines) if t >= since]})
                 if u.path == "/api/stream":
                     return self._sse(q)
                 return self._send(404, {"error": f"no route {u.path}", "help": "/api/help"})
@@ -126,6 +133,8 @@ def make_handler(bridge):
                     return self._send(200, w.status())
                 if u.path == "/api/haptic":
                     return self._send(200, self._watch(q, b).haptic(b.get("ms", 40), b.get("strength", 200)))
+                if u.path == "/api/console":
+                    return self._send(200, self._watch(q, b).console(b["line"], float(b.get("seconds", 2))))
                 if u.path == "/api/sim":
                     return self._send(200, self._watch(q, b).sim(b["cmd"]))
                 if u.path == "/api/apps/launch":

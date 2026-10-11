@@ -52,7 +52,7 @@ static void simLine(char *line) { ewsimHandleLine(line); }
 static void rxTask(void *) {
   uint8_t buf[64];
   bool direct = false;
-  int64_t lastData = esp_timer_get_time();
+  int64_t lastData = esp_timer_get_time(), lastYield = lastData;
   while (!sRxStop) {
     if (!direct) {
       int n = Serial.read(buf, sizeof(buf));
@@ -73,6 +73,9 @@ static void rxTask(void *) {
     if (usb_serial_jtag_ll_rxfifo_data_available()) {
       uint32_t n = usb_serial_jtag_ll_read_rxfifo(buf, sizeof(buf));
       if (n) { ewsFeed(buf, n, simLine); lastData = esp_timer_get_time(); }
+      // A link that never pauses must still let core 0's idle task run (the
+      // task watchdog checks it): one tick every 100 ms of spinning, ~1 %.
+      if (esp_timer_get_time() - lastYield > 100000) { vTaskDelay(1); lastYield = esp_timer_get_time(); }
       continue;
     }
     int64_t quiet = esp_timer_get_time() - lastData;
@@ -84,7 +87,7 @@ static void rxTask(void *) {
     // Spin through the gaps between USB packets inside a frame (sleeping a
     // 1 ms tick there NAKs the host and capped the link at ~180 KiB/s);
     // sleep once the burst is over so core 0's idle task runs.
-    if (quiet > 4000) vTaskDelay(1);
+    if (quiet > 4000) { vTaskDelay(1); lastYield = esp_timer_get_time(); }
   }
   if (direct) usb_serial_jtag_ll_ena_intr_mask(USB_SERIAL_JTAG_INTR_SERIAL_OUT_RECV_PKT);
   sRxTask = nullptr;
@@ -94,6 +97,7 @@ static void rxTask(void *) {
 void ScreenshareView::onEnter() {
   showing = waitingDrawn = false;
   btnDownMs = lastImuMs = 0;
+  exitArmed = false;
   lastStatMs = millis(); statFrames = 0;
   drawWaiting();
 
@@ -149,17 +153,22 @@ void ScreenshareView::render() {
 
   uint32_t now = millis();
   if (hostLive()) {
-    if (btnDownMs && now - btnDownMs > 1200) {        // hold = back to the launcher
-      btnDownMs = 0;
-      hapticBuzz(120, 40);
-      switchTo(Screen::AppList);
-      return;
+    // Hold 1.2 s: buzz, and leave on release. (Leaving while the button is
+    // still down ran on into the OS's 3 s hold = power off.)
+    if (btnDownMs && !exitArmed && now - btnDownMs > 1200) {
+      exitArmed = true;
+      hapticBuzz(160, 60);
     }
     if (now - lastImuMs >= 20) {                      // the IO task samples at 50 Hz
       lastImuMs = now;
-      int16_t ax, ay, az; bool ok;
-      { ModelLock lk; ax = model.ax; ay = model.ay; az = model.az; ok = model.imuOk; }
-      if (ok) ewsReply(">>I %d %d %d", ax, ay, az);
+      int16_t ax = 0, ay = 0, az = 0; bool ok = false;
+      // Never wait for the model here: skip a sample rather than risk the
+      // render task blocking (that's what the task watchdog catches).
+      if (modelMutex && xSemaphoreTake(modelMutex, 0) == pdTRUE) {
+        ax = model.ax; ay = model.ay; az = model.az; ok = model.imuOk;
+        xSemaphoreGive(modelMutex);
+        if (ok) ewsReply(">>I %d %d %d", ax, ay, az);
+      }
     }
   }
   // Stream stalled (companion quit / cable out): back to the banner.
@@ -207,7 +216,15 @@ void ScreenshareView::onEvent(const Event &e) {
         break;
       case EventType::ButtonDown: btnDownMs = millis(); if (!btnDownMs) btnDownMs = 1;
                                  ewsReply(">>B d"); break;
-      case EventType::ButtonUp:  btnDownMs = 0; ewsReply(">>B u"); break;
+      case EventType::ButtonUp:
+        ewsReply(">>B u");
+        if (exitArmed) {                 // released after the 1.2 s buzz: leave
+          exitArmed = false; btnDownMs = 0;
+          switchTo(Screen::AppList);
+          return;
+        }
+        btnDownMs = 0;
+        break;
       case EventType::ButtonShort: ewsReply(">>B s"); break;
       default: break;
     }

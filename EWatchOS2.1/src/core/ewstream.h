@@ -20,8 +20,9 @@
 //   >>R <seq>                 packet received (the host may send the next one)
 //   >>D <seq> <dec_us> <push_us>  rect is on the panel (DMA finished)
 //   >>P <seq> <t_us>          ping reply (watch esp_timer clock)
-//   >>ID <MAC>                after a ping with seq 0: this watch's id (12 hex digits),
-//                             so a host can tell several watches apart
+//   >>ID <MAC> reset=R up=MS  after a ping with seq 0: this watch's id (12 hex digits,
+//                             so a host can tell several watches apart), why it last
+//                             reset (POWERON, PANIC, TASK_WDT, ...) and its uptime
 //   >>SNAP 134400             then 240*280 RGB565 little-endian: the KEEP frames
 //   >>BAD <why> <n>           dropped packet (checksum, size, decode)
 //
