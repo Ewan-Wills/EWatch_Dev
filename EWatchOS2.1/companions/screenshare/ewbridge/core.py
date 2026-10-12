@@ -134,7 +134,7 @@ class AppClient:
             cmd = json.loads(body)
             for wt in self.bridge.watches_showing(self.name):
                 if cmd.get("cmd") == "haptic":
-                    wt.haptic(cmd.get("ms", 40), cmd.get("strength", 200))
+                    wt.haptic(cmd.get("ms", 40), cmd.get("strength", 200), wait=0)   # games: don't block
             if cmd.get("cmd") == "focus":
                 wt = self.bridge.watch(cmd.get("watch") or self.want_watch)
                 wt.set_source({"kind": "app", "name": self.name})
@@ -656,6 +656,10 @@ class Watch:
                     self.replies["R"] = seq
                     self.shown[seq] = (now, int(p[2]), int(p[3]))
                     self.reply_cond.notify_all()
+            elif k == ">>H":
+                with self.reply_cond:
+                    self.replies["H"] = (int(p[1]), int(p[2]), int(p[3]))
+                    self.reply_cond.notify_all()
             elif k == ">>P":
                 self.app_open = True
                 with self.reply_cond:
@@ -759,9 +763,21 @@ class Watch:
             return True
 
     # ------------------------------------------------------------ commands
-    def haptic(self, ms=40, strength=200):
+    def haptic(self, ms=40, strength=200, wait=0.5):
+        """Buzz. The watch acks with ">>H ms intensity pct" (pct = its Haptics
+        strength setting; 0 = silent, so nothing will be felt)."""
+        self.replies.pop("H", None)
         self.write(ss.packet(4, 0, int(ms), int(strength)))
-        return {"ok": True, "watch": self.id}
+        if not wait:
+            return {"ok": True, "watch": self.id}
+        if not self._wait(lambda: "H" in self.replies, wait):
+            return {"ok": False, "watch": self.id,
+                    "error": "no ack from the watch (Screenshare not open, or firmware without haptic acks)"}
+        ms_, inten, pct = self.replies["H"]
+        out = {"ok": pct > 0, "watch": self.id, "ms": ms_, "intensity": inten, "strength_pct": pct}
+        if pct == 0:
+            out["error"] = "the watch's Haptics strength is 0 (Settings > Haptics): it's set to silent"
+        return out
 
     def sim(self, cmd, timeout=5.0):
         """ewsim command on the watch (tap X Y, drag X1 Y1 X2 Y2 MS, btn short,

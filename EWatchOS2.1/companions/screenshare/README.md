@@ -6,7 +6,10 @@ latency. One script for both watch apps:
 | watch app | build | run |
 |---|---|---|
 | Screenshare (USB-C) | `EW_APPS=screenshare` | `python3 screenshare.py` |
-| Stream (WiFi) | `EW_APPS=livestream` | `python3 screenshare.py --wifi ewatch.local` |
+| Stream (WiFi) | `EW_APPS=livestream` (not in the Screenshare firmware: untested end to end) | `python3 screenshare.py --wifi ewatch.local` |
+
+Flash the watch with `EW_APPS=screenshare` only. The WiFi Stream app stays out of the firmware
+until it has been tested on a network the Mac and watch share.
 
 ## ewbridge (the app)
 

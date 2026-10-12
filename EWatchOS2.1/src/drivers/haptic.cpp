@@ -53,6 +53,8 @@ void hapticBuzz(uint8_t intensity, uint16_t duration_ms) {
   xQueueSend(buzzQueue, &r, 0);
 }
 
+uint8_t hapticStrengthPct() { return g_strengthPct; }
+
 void hapticSetStrengthPct(uint8_t pct) {
   if (pct > 100) pct = 100;
   g_strengthPct = pct;

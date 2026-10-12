@@ -1,5 +1,8 @@
 # screenshare module notes
 
+**Build:** `EW_APPS=screenshare` (e.g. `EW_APPS=screenshare ewt flash`). The WiFi `livestream`
+module shares `core/ewstream` but is left out of the firmware until it's tested end to end.
+
 Mirror the Mac onto the watch over USB-C. The watch is a sink for JPEG rectangles; capture,
 scaling, rotation and change detection all happen in `companions/screenshare/screenshare.py`.
 Packet format and the decode/GDMA path are shared with the WiFi `livestream` module:

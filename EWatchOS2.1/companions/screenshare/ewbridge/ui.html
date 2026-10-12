@@ -332,7 +332,12 @@ $("#quality").onchange = () => post("/api/config", {quality: +$("#quality").valu
 $("#tmouse").onchange = () => post("/api/config", {touch_mouse: $("#tmouse").checked});
 $("#refwin").onclick = loadWindows;
 $("#showurl").onclick = () => $("#url").value && post("/api/source", {kind: "url", url: $("#url").value}).then(refresh);
-$("#buzz").onclick = () => post("/api/haptic", {ms: 80, strength: 220});
+$("#buzz").onclick = async () => {
+  const r = await post("/api/haptic", {ms: 150, strength: 255});
+  $("#err").textContent = r.ok ? "" : (r.error || "the watch didn't confirm the buzz");
+  $("#buzz").textContent = r.ok ? `Buzzed (${r.strength_pct}% strength)` : "Buzz";
+  setTimeout(() => { $("#buzz").textContent = "Buzz"; }, 1500);
+};
 $("#release").onclick = () => post("/api/release", {seconds: 60}).then(refresh);
 $("#snap").onclick = async () => {
   const b = await api("GET", "/api/snapshot.png" + wq());

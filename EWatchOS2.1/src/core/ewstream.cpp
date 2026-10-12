@@ -247,6 +247,7 @@ static bool startPacket() {
   if (type == T_HAPTIC) {                     // x = ms, y = strength
     if (len) { sStats.bad++; ewsReply(">>BAD haptic %lu", (unsigned long)sStats.bad); return false; }
     hapticBuzz(y > 255 ? 255 : y, x > 1000 ? 1000 : x);
+    ewsReply(">>H %u %u %u", x > 1000 ? 1000 : x, y > 255 ? 255 : y, hapticStrengthPct());
     sStats.lastPktMs = millis();
     sPs = Ps::Csum; sCsum = 0; sCur = -1;
     return true;

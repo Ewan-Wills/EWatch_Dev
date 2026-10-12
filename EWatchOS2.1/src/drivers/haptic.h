@@ -19,3 +19,4 @@
 void hapticBegin();
 void hapticBuzz(uint8_t intensity, uint16_t duration_ms);
 void hapticSetStrengthPct(uint8_t pct);
+uint8_t hapticStrengthPct();          // the current multiplier (0 = silent)

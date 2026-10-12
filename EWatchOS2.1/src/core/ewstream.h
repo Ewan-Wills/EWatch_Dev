@@ -25,6 +25,7 @@
 //                             reset (POWERON, PANIC, TASK_WDT, ...) and its uptime
 //   >>SNAP 134400             then 240*280 RGB565 little-endian: the KEEP frames
 //   >>BAD <why> <n>           dropped packet (checksum, size, decode)
+//   >>H <ms> <intensity> <pct>  haptic request queued; pct = the watch's strength setting
 //
 // Flow control: the host keeps at most one packet un-acknowledged by >>R, so
 // receive of frame N+1 overlaps decode/push of frame N and nothing queues
