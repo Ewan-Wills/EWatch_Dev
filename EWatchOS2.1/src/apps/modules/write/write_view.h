@@ -5,6 +5,7 @@
 #include "write_lm.h"
 
 class Arduino_GFX;
+struct CloudContact;
 
 class WriteView : public View {
 public:
@@ -21,7 +22,7 @@ private:
   static constexpr int kMaxStrokes = 8;
   static constexpr int kClasses = 36;
 
-  enum class Btn : uint8_t { None, Shift, Del };
+  enum class Btn : uint8_t { None, Shift, Del, Send };
   enum class Case : uint8_t { Lower, Shift, Caps };
 
   wrec::RawPt *pts = nullptr;   // kMaxPts, PSRAM (allocated on first enter)
@@ -71,6 +72,13 @@ private:
   bool     autoSpace = false;    // the space after . or , was added for the writer
   float    letterSize = 110.f;   // running average of letter ink size (px), for . and ,
 
+  // eWatch Cloud: Send (only while linked). A reply goes straight to the
+  // sender; otherwise the contact picker opens. Text clears once it's sent.
+  bool     canSend = false;
+  bool     sendWait = false;     // our message is in the outbox
+  uint32_t sendAtMs = 0;         // cloudSendStateMs() when it was queued
+  char     replyName[24] = "";   // "" = no reply target
+
   Case     caseMode = Case::Shift;
   bool     loaded = false;
   uint16_t gapMs = 350;
@@ -87,6 +95,10 @@ private:
   void backspace(bool word);
   bool undoCorrection();
   void sentenceCase();
+  void send();
+  void sendTo(const char *id, const char *name);
+  void pollSend();
+  static void onPicked(const CloudContact *c, void *ctx);
   void startFade();
   void stepFade(uint32_t now);
   void inkIncremental();

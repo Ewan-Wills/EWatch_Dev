@@ -8,8 +8,9 @@
 // writer's recent letters); both end the word and add a space.
 // Gestures: one straight stroke left->right = space, right->left = delete.
 // Buttons: shift (tap: next letter upper case, double-tap: caps lock;
-// sentences start upper case by themselves) and delete (tap: one char, hold:
-// repeat). Side button = back.
+// sentences start upper case by themselves), delete (tap: one char, hold:
+// repeat) and, while the watch is linked to eWatch Cloud, send (centre).
+// Side button = back.
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
 #include <Preferences.h>
@@ -26,6 +27,7 @@
 #include "haptic.h"
 #include "ewlog.h"
 #include "ui_style.h"
+#include "cloud_msg.h"
 #include "FreeSans12pt7b.h"
 
 // ---------------------------------------------------------------- layout
@@ -33,7 +35,7 @@ static const int16_t W = 240, H = 280;
 static const int16_t TXT_X = 8, TXT_Y = 8, TXT_W = 224, TXT_H = 50;
 static const int16_t INK_Y = TXT_Y + TXT_H + 4;          // ink anywhere below the text
 static const int16_t BTN_R = 21;                         // button radius
-static const int16_t SHIFT_X = 30, DEL_X = W - 30, BTN_Y = H - 30;
+static const int16_t SHIFT_X = 30, DEL_X = W - 30, SEND_X = W / 2, BTN_Y = H - 30;
 static const int16_t INK_R = 3;                          // brush radius (px)
 static const int16_t kMoveSlop = 10;                     // a press that moves this far is ink
 static const float   kReject = 0.12f;                    // CNN top probability below: not typed
@@ -87,8 +89,10 @@ uint32_t writeTextRevision() { return sRev; }
 bool writeKeepAwake() { return millis() - sLastInputMs < 60000; }
 
 // Console (tests): `write text` -> "WTEXT:<text>|" ('\n' as '~', '|' marks the
-// end so a cut-off line is detectable).
+// end so a cut-off line is detectable). `write set <text>` replaces the text
+// (use it before `goto Write`: an open Write view doesn't redraw for it).
 bool writeConsole(const char *line) {
+  if (strncmp(line, "write set ", 10) == 0) { writeSetText(line + 10); Serial.println("WTEXT set"); return true; }
   if (strcmp(line, "write text") != 0) return false;
   char t[kWriteTextMax + 1];
   size_t n = writeGetText(t, sizeof t);
@@ -245,6 +249,10 @@ void WriteView::onEnter() {
   wordLen = 0; wordOk = false;            // the word before the cursor isn't ours
   { char c = textLast(); if (c == 0 || c == ' ' || c == '\n') wordOk = true; }
   sentenceCase();
+  canSend = cloudLinkState() == CloudLink::Linked;
+  CloudContact r;
+  if (canSend && cloudReplyTo(&r)) snprintf(replyName, sizeof replyName, "%s", r.name);
+  else replyName[0] = 0;
   sLastInputMs = millis();
   full = true;
 }
@@ -261,7 +269,11 @@ uint16_t WriteView::desiredFrameMs() const {
 }
 
 void WriteView::onEvent(const Event &e) {
-  if (e.type == EventType::ButtonShort) { switchTo(Screen::AppList); return; }
+  if (e.type == EventType::ButtonShort) {
+    if (replyName[0]) { cloudSetReplyTo(nullptr); replyName[0] = 0; }
+    switchTo(Screen::AppList);
+    return;
+  }
   if (e.type == EventType::Touch || e.type == EventType::TouchHold ||
       e.type == EventType::TouchUp) sLastInputMs = millis();
 
@@ -271,7 +283,8 @@ void WriteView::onEvent(const Event &e) {
       // A touch on a button is a press unless it moves (then it's ink, e.g. a
       // big letter's stroke starting down there). With ink still pending, a tap
       // on delete cancels that ink and a tap on shift types it first.
-      press = inBtn(e.x, e.y, SHIFT_X) ? Btn::Shift : inBtn(e.x, e.y, DEL_X) ? Btn::Del : Btn::None;
+      press = inBtn(e.x, e.y, SHIFT_X) ? Btn::Shift : inBtn(e.x, e.y, DEL_X) ? Btn::Del
+            : canSend && inBtn(e.x, e.y, SEND_X) ? Btn::Send : Btn::None;
       if (press != Btn::None) {
         pressX = e.x; pressY = e.y; pressMs = repeatMs = millis(); repeating = false;
         dirtyText = true;                                            // pressed look
@@ -311,6 +324,11 @@ void WriteView::onEvent(const Event &e) {
         hapticBuzz(70, 12);
       } else if (press == Btn::Del) {
         if (!repeating) backspace(false);
+      } else if (press == Btn::Send) {
+        if (nStrokes > 0 && !inStroke) commit();
+        press = Btn::None; dirtyText = true;
+        send();
+        break;
       } else if (inStroke) {
         addPoint(e.x, e.y);
         endStroke();
@@ -320,6 +338,54 @@ void WriteView::onEvent(const Event &e) {
     default:
       break;                                                    // chip gestures: ink is the input
   }
+}
+
+// ---------------------------------------------------------------- send
+void WriteView::send() {
+  if (sendWait) { hapticBuzz(140, 30); return; }               // one at a time
+  char t[kWriteTextMax + 1];
+  size_t n = writeGetText(t, sizeof t);
+  while (n > 0 && (t[n - 1] == ' ' || t[n - 1] == '\n')) n--;
+  if (n == 0) { EWLOGI("WRITE", "send: empty"); hapticBuzz(140, 30); return; }
+  CloudContact r;
+  if (cloudReplyTo(&r)) { sendTo(r.id, r.name); return; }
+  EWLOGI("WRITE", "send: pick contact");
+  cloudPickContact(onPicked, this, (uint8_t)Screen::Write);
+}
+
+// Runs on the render task, before the picker switches back to Write.
+void WriteView::onPicked(const CloudContact *c, void *ctx) {
+  if (!c) { EWLOGI("WRITE", "send: cancelled"); return; }
+  ((WriteView *)ctx)->sendTo(c->id, c->name);
+}
+
+void WriteView::sendTo(const char *id, const char *name) {
+  char t[kWriteTextMax + 1];
+  size_t n = writeGetText(t, sizeof t);
+  while (n > 0 && (t[n - 1] == ' ' || t[n - 1] == '\n')) n--;
+  t[n] = 0;
+  bool ok = n > 0 && cloudSendText(id, t);
+  EWLOGI("WRITE", "send: to=%s name=%s chars=%u queued=%d", id, name, (unsigned)n, ok ? 1 : 0);
+  if (!ok) { hapticBuzz(140, 50); return; }
+  sendWait = true;
+  sendAtMs = cloudSendStateMs();
+  hapticBuzz(70, 15);
+}
+
+// Sent: clear the text (and the reply target). Failed: keep it to try again.
+void WriteView::pollSend() {
+  if (!sendWait || cloudSendStateMs() == sendAtMs) return;
+  CloudSendState st = cloudSendState(nullptr, 0);
+  if (st == CloudSendState::Sending || st == CloudSendState::Idle) return;
+  sendWait = false;
+  EWLOGI("WRITE", "send: %s", st == CloudSendState::Sent ? "sent" : "failed");
+  if (st != CloudSendState::Sent) return;
+  writeSetText("");
+  saveText();
+  if (replyName[0]) { cloudSetReplyTo(nullptr); replyName[0] = 0; }
+  wordLen = 0; wordOk = true; corrPos = -1; corrHiUntil = 0; autoSpace = false;
+  caseMode = Case::Shift;
+  full = true;
 }
 
 void WriteView::beginStroke(int16_t x, int16_t y) {
@@ -735,6 +801,24 @@ void WriteView::drawButtonsOn(Arduino_GFX *d) {
     d->drawLine(DEL_X - 1 + o, BTN_Y - 4, DEL_X + 7 + o, BTN_Y + 4, bgc);
     d->drawLine(DEL_X - 1 + o, BTN_Y + 4, DEL_X + 7 + o, BTN_Y - 4, bgc);
   }
+  if (!canSend) return;
+  // send: a paper plane on blue; "to Name" above it for a reply
+  d->fillCircle(SEND_X, BTN_Y, BTN_R + 1, aura::kBg);
+  d->fillCircle(SEND_X, BTN_Y, BTN_R, press == Btn::Send ? aura::kCardHi : aura::kBlue);
+  d->fillTriangle(SEND_X - 11, BTN_Y - 9, SEND_X + 12, BTN_Y, SEND_X - 11, BTN_Y + 9, aura::kText);
+  d->fillTriangle(SEND_X - 11, BTN_Y - 9, SEND_X - 5, BTN_Y, SEND_X - 11, BTN_Y + 9,
+                  press == Btn::Send ? aura::kCardHi : aura::kBlue);
+  d->drawLine(SEND_X - 5, BTN_Y, SEND_X + 4, BTN_Y, press == Btn::Send ? aura::kCardHi : aura::kBlue);
+  if (replyName[0]) {
+    char lab[32];
+    snprintf(lab, sizeof lab, "to %s", replyName);
+    int16_t tw = (int16_t)strlen(lab) * 6;
+    d->fillRect(SEND_X - 60, BTN_Y - BTN_R - 14, 120, 10, aura::kBg);
+    d->setTextSize(1);
+    d->setTextColor(aura::kTextDim);
+    d->setCursor(SEND_X - tw / 2, BTN_Y - BTN_R - 13);
+    d->print(lab);
+  }
 }
 
 // After a letter/space/delete: only the text line and the buttons change.
@@ -747,6 +831,7 @@ void WriteView::drawTextAndButtons() {
   pushRect(cv, 0, 0, W - 1, INK_Y - 1);
   pushRect(cv, SHIFT_X - BTN_R - 1, BTN_Y - BTN_R - 1, SHIFT_X + BTN_R + 1, BTN_Y + BTN_R + 1);
   pushRect(cv, DEL_X - BTN_R - 1, BTN_Y - BTN_R - 1, DEL_X + BTN_R + 1, BTN_Y + BTN_R + 1);
+  if (canSend) pushRect(cv, SEND_X - 60, BTN_Y - BTN_R - 14, SEND_X + 60, BTN_Y + BTN_R + 1);
 }
 
 void WriteView::drawFull() {
@@ -782,6 +867,7 @@ void WriteView::drawFull() {
 
 void WriteView::render() {
   if (!gfx) return;
+  pollSend();
   uint32_t now = millis();
   // Hold delete: repeat (whole words after the first few).
   if (press == Btn::Del && now - pressMs >= kRepeatDelay && now - repeatMs >= kRepeatEvery) {
