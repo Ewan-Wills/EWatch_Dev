@@ -110,6 +110,11 @@ static bool sPerfPinned = false;
 
 void powerPerfDemand(bool need240) {
   if (sPerfPinned) return;          // BLE up: never retune the clock under it
+  // On USB (host present) stay at 240: every 80<->240 switch disturbs the
+  // USB console (measured: the watch face's once-a-second redraw switched
+  // twice a second and corrupted most screenshots; screen off = clean).
+  // Battery saving doesn't matter while plugged in.
+  if (powerDevMode()) need240 = true;
   // Trust the clock, not just the flag: something can retune it behind our
   // back (measured: Doom ran at 80 MHz with sPerf240 already true).
   if (need240 == sPerf240 && getCpuFrequencyMhz() == (need240 ? 240u : 80u)) return;
