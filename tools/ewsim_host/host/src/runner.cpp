@@ -273,6 +273,7 @@ static std::string validate(const std::string &step) {
   if (c == "drag") return nInts(1, 4) ? "" : "usage: drag X1 Y1 X2 Y2 [MS]";
   if (c == "swipe") return a.size() == 2 && a[1].size() == 1 && strchr("udlr", a[1][0]) ? "" : "usage: swipe u|d|l|r";
   if (c == "gest") return nInts(1, 1) ? "" : "usage: gest CODE [X Y]";
+  if (c == "stroke") return a.size() >= 4 ? "" : "usage: stroke DT X Y [X Y ...] [| X Y ...]";
   if (c == "touch") return (a.size() == 2 && a[1] == "up") || (a.size() >= 4 && nInts(2, 2)) ? "" : "usage: touch down X Y | touch up";
   if (c == "btn") {
     static const std::set<std::string> ok = { "short", "long", "vlong", "down", "up" };
@@ -324,7 +325,7 @@ static bool runStep(const std::string &step) {
     sFails++;
     return false;
   };
-  static const std::set<std::string> input = { "tap", "dtap", "long", "drag", "swipe", "gest", "touch", "btn", "shake", "wake" };
+  static const std::set<std::string> input = { "tap", "dtap", "long", "drag", "swipe", "gest", "touch", "btn", "shake", "wake", "stroke" };
   if (input.count(c)) {
     sMark = host_serial_tx_size();
     if (c == "btn" && a[1] == "vlong") sNotes.push_back("btn vlong powers the watch off");

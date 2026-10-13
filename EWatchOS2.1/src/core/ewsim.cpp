@@ -1,8 +1,35 @@
+#include <stdarg.h>
+#if defined(__XTENSA__)
+#include "hal/usb_serial_jtag_ll.h"
+#endif
 // ewsim — host-driven test hooks. See ewsim.h for the overview.
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
 #include <string.h>
 #include "ewsim.h"
+
+// Every reply re-arms the USB TX interrupt. HWCDC moves TX data from its ring
+// buffer to the USB FIFO only from the TX-empty interrupt, and sometimes
+// leaves that disarmed (its "connected" flag dropped): the reply then sat in
+// the ring until the next write (measured: 4+ s late, released by the host's
+// next command). Serial.flush() is no fix: while "disconnected" it DISCARDS
+// the ring. Arming the interrupt makes the ISR mark the link up and drain it.
+static void sreply(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+static void sreply(const char *fmt, ...) {
+  char buf[256];
+  va_list ap;
+  va_start(ap, fmt);
+  vsnprintf(buf, sizeof buf, fmt, ap);
+  va_end(ap);
+  Serial.print(buf);
+#if defined(__XTENSA__)
+  for (int i = 0; i < 3; i++) {
+    usb_serial_jtag_ll_txfifo_flush();
+    usb_serial_jtag_ll_ena_intr_mask(USB_SERIAL_JTAG_INTR_SERIAL_IN_EMPTY);
+    if (i < 2) vTaskDelay(pdMS_TO_TICKS(2));
+  }
+#endif
+}
 #include "model.h"
 #include "view.h"
 #include "power_mgr.h"
@@ -315,13 +342,13 @@ static const char *pwrName() {
 // ---- snapshot: binary chunks, each one Serial.write (atomic vs log lines) --
 //   A5 5A <len u16 LE> <len bytes> <sum16 LE of the bytes>
 static void cmdSnap(const char *seq) {
-  if (!sShadow) { Serial.printf("S:%s ERR no shadow (psram)\n", seq); return; }
+  if (!sShadow) { sreply("S:%s ERR no shadow (psram)\n", seq); return; }
   const size_t total = kW * kH * 2;
   uint8_t *copy = (uint8_t *)ps_malloc(total);   // consistent frame
-  if (!copy) { Serial.printf("S:%s ERR no mem\n", seq); return; }
+  if (!copy) { sreply("S:%s ERR no mem\n", seq); return; }
   memcpy(copy, sShadow, total);
   idfQuiet(true);
-  Serial.printf("S:%s SNAP %d %d %u\n", seq, kW, kH, (unsigned)total);
+  sreply("S:%s SNAP %d %d %u\n", seq, kW, kH, (unsigned)total);
   Serial.flush();
   static uint8_t buf[4 + 2048 + 2];
   for (size_t off = 0; off < total; off += 2048) {
@@ -340,15 +367,15 @@ static void cmdSnap(const char *seq) {
   Serial.flush();
   idfQuiet(false);
   free(copy);
-  Serial.printf("S:%s OK snap\n", seq);
+  sreply("S:%s OK snap\n", seq);
   Serial.flush();
 }
 
 static void cmdState(const char *seq) {
   uint8_t scr; uint32_t rev;
   { ModelLock lk; scr = (uint8_t)model.screen; rev = model.revision; }
-  Serial.printf("S:%s OK scr=%u pwr=%s bl=%u heap=%u psram=%u up=%lu "
-                "rev=%lu px=%lu\n", seq, scr, pwrName(), backlightGet(),
+  sreply("S:%s OK scr=%u pwr=%s bl=%u heap=%u psram=%u up=%lu "
+                "rev=%lu px=%lu dd=1\n", seq, scr, pwrName(), backlightGet(),
                 (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getFreePsram(),
                 (unsigned long)millis(), (unsigned long)rev,
                 (unsigned long)sPxCount);
@@ -468,7 +495,7 @@ static void recTask(void *) {
 
 static void cmdRec(const char *seq, const char *a1, int nv, const int *v) {
   if (!strcmp(a1, "on")) {
-    if (!sShadow) { Serial.printf("S:%s ERR no shadow\n", seq); return; }
+    if (!sShadow) { sreply("S:%s ERR no shadow\n", seq); return; }
     int fps = nv >= 1 && v[0] > 0 ? v[0] : 30;
     sRecMinUs = 1000000 / fps;
     if (!sRecRunning) {
@@ -478,18 +505,18 @@ static void cmdRec(const char *seq, const char *a1, int nv, const int *v) {
       idfQuiet(true);                   // released when the task exits
       xTaskCreatePinnedToCore(recTask, "ewrec", 4096, nullptr, 1, nullptr, 0);
     }
-    Serial.printf("S:%s OK t=%lu\n", seq, (unsigned long)millis());
+    sreply("S:%s OK t=%lu\n", seq, (unsigned long)millis());
   } else if (!strcmp(a1, "off")) {
     sRecOn = false;
     uint32_t t0 = millis();
     while (sRecRunning && millis() - t0 < 2000) ms(5);
-    Serial.printf("S:%s OK frames=%lu bytes=%lu drops=%lu\n", seq, (unsigned long)sRecFrames,
+    sreply("S:%s OK frames=%lu bytes=%lu drops=%lu\n", seq, (unsigned long)sRecFrames,
                   (unsigned long)sRecBytes, (unsigned long)sRecDrops);
   } else if (!strcmp(a1, "key")) {
     sRecKeyReq = true;
-    Serial.printf("S:%s OK\n", seq);
+    sreply("S:%s OK\n", seq);
   } else {
-    Serial.printf("S:%s ERR usage: rec on [fps] | rec off | rec key\n", seq);
+    sreply("S:%s ERR usage: rec on [fps] | rec off | rec key\n", seq);
   }
 }
 
@@ -502,18 +529,75 @@ static Gesture swipeCode(char d) {
   }
 }
 
+// HWCDC drops its "connected" flag now and then (TX timeout, SOF glitch);
+// until something re-arms the TX-empty interrupt, a printed reply sits in the
+// ring buffer (measured: replies seconds late, released by the next write).
+// `Serial` (operator bool -> isCDC_Connected) re-arms it; give the ISR a
+// moment to mark the link up again before we reply.
+static void usbTxKick() {
+  for (int i = 0; i < 20 && !Serial; i++) ms(1);
+}
+
 bool ewsimHandleLine(char *line) {
   if (strncmp(line, "sim ", 4) != 0) return false;
+  usbTxKick();
   // Tokens: <seq> <cmd> [word] [ints...] — the optional word is a1
   // (btn short, swipe l, touch up); the ints follow it.
+  // stroke DT x0 y0 x1 y1 ... [| x y ...]: finger strokes with real timing (DT ms
+  // per point, 180 ms pen lift at each |), played here so serial latency can't stretch it (one step per
+  // point over USB took 100-500 ms each and split multi-stroke letters).
+  {
+    char *p = line + 4;
+    char *sq = p;
+    while (*p && *p != ' ') p++;
+    if (!strncmp(p, " stroke ", 8)) {
+      *p = 0;
+      char seqBuf[24];
+      strncpy(seqBuf, sq, sizeof seqBuf - 1); seqBuf[sizeof seqBuf - 1] = 0;
+      static char lastStrokeSeq[24] = "";
+      if (!strcmp(seqBuf, lastStrokeSeq)) { sreply("S:%s OK dup\n", seqBuf); return true; }
+      strncpy(lastStrokeSeq, seqBuf, sizeof lastStrokeSeq - 1);
+      char *q = p + 8;
+      long dt = strtol(q, &q, 10);
+      if (dt < 5) dt = 5; if (dt > 200) dt = 200;
+      int n = 0;
+      ensureAwake();
+      for (;;) {
+        while (*q == ' ') q++;
+        if (*q == '|') {                       // next stroke of the same glyph: pen lift
+          q++;
+          if (n) { finger(false); ms(180); }
+          continue;
+        }
+        char *e1; long x = strtol(q, &e1, 10); if (e1 == q) break;
+        char *e2; long y = strtol(e1, &e2, 10); if (e2 == e1) break;
+        q = e2;
+        finger(true, (uint16_t)x, (uint16_t)y);
+        ms((uint32_t)dt);
+        n++;
+      }
+      if (n) { finger(false); ms(kSettle); }
+      sreply("S:%s %s\n", seqBuf, n ? "OK" : "ERR usage: stroke dt x y [x y ...]");
+      return true;
+    }
+  }
   char *tok[9] = { nullptr };
   int nt = 0;
   char *save = nullptr;
   for (char *t = strtok_r(line + 4, " ", &save); t && nt < 9; t = strtok_r(nullptr, " ", &save)) {
     tok[nt++] = t;
   }
-  if (nt < 2) { Serial.println("S:? ERR usage: sim <seq> <cmd> [args]"); return true; }
+  if (nt < 2) { sreply("S:? ERR usage: sim <seq> <cmd> [args]\n"); return true; }
   const char *seq = tok[0], *cmd = tok[1];
+  // ewt re-sends a command whose reply it didn't get (a reply can be lost
+  // when HWCDC briefly thinks the host is gone). Run each seq once; a repeat
+  // only gets its acknowledgement again. `state` has no side effects and its
+  // reply carries data, so it always runs.
+  static char lastSeq[24] = "";
+  if (strcmp(cmd, "state") != 0) {
+    if (!strcmp(seq, lastSeq)) { sreply("S:%s OK dup\n", seq); return true; }
+    strncpy(lastSeq, seq, sizeof lastSeq - 1);
+  }
   int k = 2;
   const char *a1 = "";
   if (k < nt && (isalpha((unsigned char)tok[k][0]))) a1 = tok[k++];
@@ -525,21 +609,21 @@ bool ewsimHandleLine(char *line) {
   if (!strcmp(cmd, "snap"))  { cmdSnap(seq);  return true; }
   if (!strcmp(cmd, "rec"))   { cmdRec(seq, a1, nv, v); return true; }
   if (!strcmp(cmd, "goto")) {
-    if (nv < 1 || !viewFor((Screen)v[0])) { Serial.printf("S:%s ERR bad screen\n", seq); return true; }
+    if (nv < 1 || !viewFor((Screen)v[0])) { sreply("S:%s ERR bad screen\n", seq); return true; }
     ensureAwake();
     sGoto = v[0];
     uint32_t t0 = millis();
     while (sGoto >= 0 && millis() - t0 < 1000) ms(10);
     ms(kSettle);
-    Serial.printf("S:%s OK\n", seq); return true;
+    sreply("S:%s OK\n", seq); return true;
   }
   if (!strcmp(cmd, "wake")) {
-    Serial.printf("S:%s OK was=%c\n", seq, ensureAwake()); return true;
+    sreply("S:%s OK was=%c\n", seq, ensureAwake()); return true;
   }
   if (!strcmp(cmd, "tilt")) {          // tilt <ax> <ay> <az> (raw, 4096 = 1 g) | tilt off
     if (nv >= 3) accel(true, v[0], v[1], v[2]); else accel(false);
     ms(kSettle);
-    Serial.printf("S:%s OK\n", seq); return true;
+    sreply("S:%s OK\n", seq); return true;
   }
   if (!strcmp(cmd, "shake")) {         // shake [ms]
     uint32_t dur = nv >= 1 ? v[0] : 600;
@@ -548,14 +632,14 @@ bool ewsimHandleLine(char *line) {
       ms(20);
     }
     accel(false); ms(kSettle);
-    Serial.printf("S:%s OK\n", seq); return true;
+    sreply("S:%s OK\n", seq); return true;
   }
 
   // Everything below is user input: wake the screen first, like a person.
   ensureAwake();
 
   if (!strcmp(cmd, "tap") || !strcmp(cmd, "dtap")) {   // tap x y
-    if (nv < 2) { Serial.printf("S:%s ERR usage: %s x y\n", seq, cmd); return true; }
+    if (nv < 2) { sreply("S:%s ERR usage: %s x y\n", seq, cmd); return true; }
     int reps = cmd[0] == 'd' ? 2 : 1;
     for (int r = 0; r < reps; r++) {
       finger(true, v[0], v[1]); ms(80); finger(false); ms(r + 1 < reps ? 100 : 0);
@@ -563,7 +647,7 @@ bool ewsimHandleLine(char *line) {
     gesture(reps == 2 ? Gesture::DoubleTap : Gesture::SingleTap, v[0], v[1]);
     ms(kSettle);
   } else if (!strcmp(cmd, "long")) {   // long x y [ms]
-    if (nv < 2) { Serial.printf("S:%s ERR usage: long x y [ms]\n", seq); return true; }
+    if (nv < 2) { sreply("S:%s ERR usage: long x y [ms]\n", seq); return true; }
     uint32_t hold = nv >= 3 ? v[2] : 1000;
     finger(true, v[0], v[1]);
     ms(hold > 800 ? 800 : hold);
@@ -571,12 +655,12 @@ bool ewsimHandleLine(char *line) {
     if (hold > 800) ms(hold - 800);
     finger(false); ms(kSettle);
   } else if (!strcmp(cmd, "drag")) {   // drag x1 y1 x2 y2 [ms]
-    if (nv < 4) { Serial.printf("S:%s ERR usage: drag x1 y1 x2 y2 [ms]\n", seq); return true; }
+    if (nv < 4) { sreply("S:%s ERR usage: drag x1 y1 x2 y2 [ms]\n", seq); return true; }
     path(v[0], v[1], v[2], v[3], nv >= 5 ? v[4] : 300);
     ms(kSettle);
   } else if (!strcmp(cmd, "swipe")) {  // swipe u|d|l|r  (finger path + chip gesture)
     char d = a1[0];
-    if (!strchr("udlr", d) || !d) { Serial.printf("S:%s ERR usage: swipe u|d|l|r\n", seq); return true; }
+    if (!strchr("udlr", d) || !d) { sreply("S:%s ERR usage: swipe u|d|l|r\n", seq); return true; }
     int x1 = 120, y1 = 140, x2 = 120, y2 = 140;
     if (d == 'l') { x1 = 190; x2 = 50; }
     if (d == 'r') { x1 = 50;  x2 = 190; }
@@ -586,13 +670,13 @@ bool ewsimHandleLine(char *line) {
     gesture(swipeCode(d), x2, y2);
     ms(kSettle);
   } else if (!strcmp(cmd, "gest")) {   // gest <code> [x y]  raw CST816S gesture id
-    if (nv < 1) { Serial.printf("S:%s ERR usage: gest code [x y]\n", seq); return true; }
+    if (nv < 1) { sreply("S:%s ERR usage: gest code [x y]\n", seq); return true; }
     gesture((Gesture)v[0], nv >= 3 ? v[1] : 120, nv >= 3 ? v[2] : 140);
     ms(kSettle);
   } else if (!strcmp(cmd, "touch")) {  // touch down x y | touch up  (raw finger)
     if (!strcmp(a1, "up")) finger(false);
     else if (nv >= 2) finger(true, v[0], v[1]);   // "down"/"move" + x y
-    else { Serial.printf("S:%s ERR usage: touch down x y | touch up\n", seq); return true; }
+    else { sreply("S:%s ERR usage: touch down x y | touch up\n", seq); return true; }
     ms(kSettle);
   } else if (!strcmp(cmd, "btn")) {    // btn short|long|vlong|down|up|hold <ms>
     if      (!strcmp(a1, "short")) pressBtn(150);
@@ -601,12 +685,13 @@ bool ewsimHandleLine(char *line) {
     else if (!strcmp(a1, "down"))  { setBtn(true);  ms(kSettle); }
     else if (!strcmp(a1, "up"))    { setBtn(false); ms(kSettle); }
     else if (!strcmp(a1, "hold") && nv >= 1) pressBtn(v[0]);
-    else { Serial.printf("S:%s ERR usage: btn short|long|vlong|down|up|hold ms\n", seq); return true; }
+    else { sreply("S:%s ERR usage: btn short|long|vlong|down|up|hold ms\n", seq); return true; }
   } else {
-    Serial.printf("S:%s ERR unknown sim cmd '%s'\n", seq, cmd);
+    sreply("S:%s ERR unknown sim cmd '%s'\n", seq, cmd);
     return true;
   }
-  Serial.printf("S:%s OK\n", seq);
+  usbTxKick();
+  sreply("S:%s OK\n", seq);
   return true;
 }
 

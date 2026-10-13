@@ -351,7 +351,10 @@ static void consoleTask(void *) {
   size_t pos = 0;
   for (;;) {
     if (sConsolePaused) pos = 0;  // drop any half-typed line
-    while (!sConsolePaused && Serial && Serial.available()) {
+    // No `Serial &&` (HWCDC "connected"): that flag drops now and then while
+    // the host is still sending, and unread bytes then overflowed the 256 B
+    // RX queue (commands lost mid-line). Reading needs no connection.
+    while (!sConsolePaused && Serial.available()) {
       char c = (char)Serial.read();
       if (c == '\n' || c == '\r') {
         line[pos] = '\0';
