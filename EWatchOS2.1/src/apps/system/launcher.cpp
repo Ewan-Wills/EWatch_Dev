@@ -278,6 +278,10 @@ void AuraListView::render() {
         handleEvent(e);
         if (currentView != this) return;
       }
+    } else {
+      // Frame overran (80 MHz, big list): still give the core away for a
+      // tick, or a long drag starves loopTask -> task WDT reboot (measured).
+      vTaskDelay(1);
     }
   }
 }

@@ -217,9 +217,29 @@ static bool readTouchHeld(uint16_t &x, uint16_t &y) {
   uint8_t xl  = Wire.read();
   uint8_t yh  = Wire.read();
   uint8_t yl  = Wire.read();
-  if (pts == 0) return false;
-  x = ((uint16_t)(xh & 0x0F) << 8) | xl;
-  y = ((uint16_t)(yh & 0x0F) << 8) | yl;
+  // Last good sample: a garbage read repeats it rather than inventing a
+  // touch or a release.
+  static bool     lastLive = false;
+  static uint16_t lastX = 0, lastY = 0;
+  uint16_t nx = ((uint16_t)(xh & 0x0F) << 8) | xl;
+  uint16_t ny = ((uint16_t)(yh & 0x0F) << 8) | yl;
+  // The CST816S reports 0 or 1 finger. Now and then the read comes back all
+  // 0xFF (measured 2026-10-13: a touch at 4095,4095 in the middle of writing;
+  // it joined the glyph and squashed the real ink to a dot). Off-panel
+  // coordinates are the same kind of garbage.
+  if (pts > 1 || (pts == 1 && (nx >= 240 || ny >= 280))) {
+    static uint32_t lastWarnMs = 0;
+    if (millis() - lastWarnMs > 5000) {
+      lastWarnMs = millis();
+      EWLOGW("TOUCH", "bad_read pts=%u x=%u y=%u", pts, nx, ny);
+    }
+    x = lastX; y = lastY;
+    return lastLive;
+  }
+  lastLive = pts != 0;
+  if (!lastLive) return false;
+  x = lastX = nx;
+  y = lastY = ny;
   return true;
 }
 
@@ -722,6 +742,11 @@ static void taskRender(void *) {
       currentView->render();
       lastRender = millis();
       lastSeenRev = rev;
+      // A held finger posts TouchHold every 30 ms; if a frame takes that long
+      // the queue is never empty and this task (prio 4) never blocks, which
+      // starved loopTask on this core (console dead, task WDT reboot after
+      // 20 s, seen in Write and Settings). One tick lets it run.
+      vTaskDelay(1);
     }
 #if EW_APP_MOUSE
     mouseCursorPaint();                    // overlay after the view drew (btmouse)
