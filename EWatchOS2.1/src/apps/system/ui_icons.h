@@ -15,6 +15,9 @@ enum class Icon : uint8_t {
   Pen,
   Book,
   Mail, Cloud,
+#if EW_APP_DRAW
+  Brush,           // Draw module (last, so no other icon id moves)
+#endif  // EW_APP_DRAW
 };
 
 // Draw the glyph. `color` is the main stroke; `bg` is used by the few icons

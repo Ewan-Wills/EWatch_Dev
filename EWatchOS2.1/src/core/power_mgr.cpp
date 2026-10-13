@@ -27,6 +27,9 @@
 #if EW_APP_WRITE
 #include "write_text.h"
 #endif  // EW_APP_WRITE
+#if EW_APP_DRAW
+#include "draw.h"
+#endif  // EW_APP_DRAW
 #include "ewsim.h"
 
 // ---------------------------------------------------------------------------
@@ -240,6 +243,10 @@ static bool screenBlocksSleep(Screen s) {
     case Screen::Write:        // awake while someone is writing (< 60 s idle)
       return writeKeepAwake();
 #endif  // EW_APP_WRITE
+#if EW_APP_DRAW
+    case Screen::Draw:         // awake while someone is drawing (< 60 s idle)
+      return drawKeepAwake();
+#endif  // EW_APP_DRAW
     default:
       return false;
   }
