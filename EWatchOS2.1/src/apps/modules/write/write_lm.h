@@ -24,4 +24,10 @@ int decode(const float *logp, const char *word, int len);
 // Returns true if it differs from typed.
 bool correct(const char *typed, int L, const float (*logp)[kClasses], char *out);
 
+// Dictionary lookup of an upper-case word: kWord if it is a listed word,
+// kPrefix if a longer listed word starts with it; *logf = its log-frequency
+// (relative to "the"; -1e9 if not listed). ~20k words, ~1 ms.
+constexpr int kWord = 1, kPrefix = 2;
+int wordStatus(const char *w, int L, float *logf = nullptr);
+
 }  // namespace wlm

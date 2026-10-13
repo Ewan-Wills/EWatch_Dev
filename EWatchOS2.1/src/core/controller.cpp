@@ -645,6 +645,7 @@ static void taskIO(void *) {
 // Drop the LDO latch and stop. Called from the render task in response to
 // global power-off triggers (3 s button hold) or from PowerOffView.
 static void shutdownNow() {
+  ewlogFlush();                        // buffered log lines (ewlog) before the rail drops
   if (gfx) {
     gfx->fillScreen(BLACK);
     gfx->setTextColor(WHITE, BLACK);
@@ -932,6 +933,7 @@ void enterDeepSleep() {
   gpio_hold_en((gpio_num_t)PIN_LDO_LATCH);
   gpio_deep_sleep_hold_en();
 
+  ewlogFlush();
   esp_deep_sleep_start();
   // Does not return.
 }

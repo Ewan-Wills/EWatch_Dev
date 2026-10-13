@@ -96,6 +96,49 @@ static void fsAppend(const char *line, size_t n) {
   }
 }
 
+// Lines for the FS ring are buffered in RAM and written by a low-priority
+// task: a LittleFS open/append/close took 40-60 ms per line, on the caller's
+// task (measured 2026-10-13: the Write app spent ~100 ms per typed letter in
+// its two log lines, with the render task blocked). The RTC mirror still gets
+// every line at once, so a crash keeps its last lines.
+static char         sPend[4096];
+static size_t       sPendLen = 0;
+static uint32_t     sPendDropped = 0;
+static portMUX_TYPE sPendMux = portMUX_INITIALIZER_UNLOCKED;
+
+static void pendAppend(const char *line, size_t n) {
+  portENTER_CRITICAL(&sPendMux);
+  if (sPendLen + n <= sizeof(sPend)) { memcpy(sPend + sPendLen, line, n); sPendLen += n; }
+  else sPendDropped++;
+  portEXIT_CRITICAL(&sPendMux);
+}
+
+void ewlogFlush() {
+  static char out[sizeof(sPend)];
+  size_t n;
+  uint32_t dropped;
+  portENTER_CRITICAL(&sPendMux);
+  n = sPendLen; memcpy(out, sPend, n); sPendLen = 0;
+  dropped = sPendDropped; sPendDropped = 0;
+  portEXIT_CRITICAL(&sPendMux);
+  if (!n && !dropped) return;
+  if (sLogMutex) xSemaphoreTake(sLogMutex, portMAX_DELAY);
+  fsAppend(out, n);
+  if (dropped) {
+    char note[48];
+    int m = snprintf(note, sizeof note, "--- ewlog: %lu lines not stored ---\n", (unsigned long)dropped);
+    fsAppend(note, (size_t)m);
+  }
+  if (sLogMutex) xSemaphoreGive(sLogMutex);
+}
+
+static void fsWriterTask(void *) {
+  for (;;) {
+    vTaskDelay(pdMS_TO_TICKS(500));
+    ewlogFlush();
+  }
+}
+
 void ewlogWrite(uint8_t level, const char *tag, const char *fmt, ...) {
   if (level > sRuntimeLevel) return;
 
@@ -116,8 +159,8 @@ void ewlogWrite(uint8_t level, const char *tag, const char *fmt, ...) {
   if (sLogMutex) xSemaphoreTake(sLogMutex, portMAX_DELAY);
   if (Serial) Serial.write((const uint8_t *)line, len);
   rtcMirrorAppend(line, len);
-  fsAppend(line, len);
   if (sLogMutex) xSemaphoreGive(sLogMutex);
+  if (sFsReady) pendAppend(line, len);
 }
 
 void ewlogSetState(const char *stateAbbrev) {
@@ -191,6 +234,7 @@ void ewlogMountFs() {
   sActiveRing = (s1 > s0) ? 1 : 0;
   sActiveSize = (s1 > s0) ? s1 : s0;
   sFsReady = true;
+  xTaskCreatePinnedToCore(fsWriterTask, "ewlogfs", 3072, nullptr, 1, nullptr, 0);
 
   // Persist the mirror content staged by ewlogInit() (the RTC copy is
   // already wiped — see the crash-loop note above).
@@ -240,6 +284,7 @@ static void dumpFile(const char *path) {
 
 static void cmdLogDump() {
   if (!sFsReady) { Serial.println("(fs sink not mounted)"); return; }
+  ewlogFlush();                                     // lines still in RAM first
   if (sLogMutex) xSemaphoreTake(sLogMutex, portMAX_DELAY);
   // Inactive half holds the older data.
   const char *older = sActiveRing ? kRing0 : kRing1;

@@ -40,6 +40,9 @@ enum : uint8_t {
 // ewlogStartConsole() after tasks exist.
 void ewlogInit();
 void ewlogMountFs();
+// Write buffered log lines to the FS ring now (they are otherwise written by a
+// background task every 500 ms). Call before power-off / deep sleep / dumps.
+void ewlogFlush();
 void ewlogStartConsole();
 // Hand the USB serial RX stream to another reader (an app's own protocol) and
 // back. While paused the console reads nothing, so it can't steal bytes.

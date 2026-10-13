@@ -231,6 +231,7 @@ def drive_words(ewt_cmd, path, outp):
                 break
         corr = re.findall(r"WRITE: correct from=(\S+) to=(\S+)", txt)
         res.append((it["phrase"], got, it["writer"], corr, "PASS" in txt))
+        got = got.lower()                    # sentences start upper case by themselves
         print(f"{'OK ' if got == it['phrase'] else '   '} want={it['phrase']!r:24} got={got!r:24} {it['writer']} fixes={corr}", flush=True)
     n = len(res)
     exact = sum(g == p for p, g, *_ in res)
@@ -252,3 +253,77 @@ if __name__ == "__main__" and sys.argv[1] == "words":
     words_ewt(sys.argv[2])
 if __name__ == "__main__" and sys.argv[1] == "drive_words":
     drive_words(sys.argv[2].split("|"), sys.argv[3], sys.argv[4])
+
+
+PUNCT_PHRASES = ["hello, world.", "ok, see you soon.", "thanks. call me later.", "yes, at 6.",
+                 "good morning, how are you.", "on my way. back in 10.", "love you, see you.",
+                 "it works. thank you."]
+
+
+def punct_ewt(path, seed=31, writers_per=3):
+    """Phrases with '.' and ',' written by unseen writers. Each writer's letters
+    AND punctuation get one common scale (letters ~120 px), so punctuation keeps
+    its real size relative to the letters."""
+    import json
+    r = np.random.default_rng(seed)
+    allp = [(ch, w, s) for ch, w, s in parse_uji("data/uji/ujipenchars2.txt") if w.startswith("tst")]
+    writers = sorted({w.split("-")[0] for _, w, _ in allp})
+    out = []
+    for ph in PUNCT_PHRASES:
+        for _ in range(writers_per):
+            wr = writers[r.integers(len(writers))]
+            mine = [(ch, s) for ch, w, s in allp if w.startswith(wr)]
+            sz = lambda s: max(np.ptp(np.concatenate(s)[:, 0]), np.ptp(np.concatenate(s)[:, 1]))
+            k = 120 / np.median([sz(s) for ch, s in mine if label_of(ch) is not None])
+            steps = ["goto Write", "expect screen Write", "long 210 250 5000", "wait 300"]
+            for ch in ph:
+                if ch == " ":
+                    if steps[-2].startswith("stroke") and steps[-3:] and ph[ph.index(ch) - 1:ph.index(ch)] in ".,":
+                        pass
+                    y = int(r.uniform(170, 220)); x0 = int(r.uniform(40, 70)); x1 = int(r.uniform(170, 200))
+                    pts = [(x0, y)] + [(x0 + (x1 - x0) * j // 6, y + int(r.normal(0, 1.5))) for j in range(1, 7)]
+                    steps += [stroke_step([pts]), "wait 650"]
+                    continue
+                cands = [s for c2, s in mine if c2 == ch]
+                s = cands[r.integers(len(cands))]
+                if ch in ".,":
+                    p = np.concatenate(s); c0 = (p.min(0) + p.max(0)) / 2
+                    centre = np.array([120 + r.uniform(-30, 30), 215 + r.uniform(-15, 10)])
+                    q = [np.round((st - c0) * k + centre).astype(int) for st in s]
+                    if all(len(x) == 1 or np.ptp(x, 0).max() < 6 for x in q) and len(q) == 1:
+                        steps += [f"tap {q[0][0][0]} {q[0][0][1]}", "wait 650"]
+                    else:
+                        steps += [stroke_step(q), "wait 650"]
+                else:
+                    steps += [stroke_step(place(s, r)), "wait 650"]
+            steps += ["wait 3000", "show WRITE: (text|correct|punct)"]
+            out.append({"phrase": ph, "writer": wr, "steps": steps})
+    json.dump(out, open(path, "w"))
+    print(len(out), "phrases")
+
+
+def sim_words(path, sim_dir, proj):
+    """Run phrase scripts in ewsim_host; score case-insensitively (sentences
+    start upper case by themselves) and ignoring the trailing space."""
+    import json, subprocess, re, os
+    items = json.load(open(path))
+    exact = 0; pr = pt = 0
+    for it in items:
+        open("/tmp/claude-501/sw.ewt", "w").write("\n".join(it["steps"]))
+        o = subprocess.run(["./ewsimrec", proj, "--snap", "out/sw", "/tmp/claude-501/sw.ewt", "-v"], cwd=sim_dir,
+                           env={**os.environ, "EW_APPS": "write"}, capture_output=True, text=True).stdout
+        texts = re.findall(r"I/WRITE: text=(.*)", o)
+        got = texts[-1].strip() if texts else "<none>"
+        want = it["phrase"]
+        ok = got.lower() == want.lower()
+        exact += ok
+        for a in ".,":
+            pt += want.count(a); pr += min(want.count(a), got.count(a))
+        print(f"{'OK ' if ok else '   '} {want!r:30} -> {got!r}", flush=True)
+    print(f"exact {exact}/{len(items)}  punctuation found {pr}/{pt}")
+
+
+if __name__ == "__main__" and sys.argv[1] == "punct":
+    punct_ewt(sys.argv[2])
+if __name__ == "__main__" and sys.argv[1] == "sim_words":
+    sim_words(sys.argv[2], sys.argv[3], sys.argv[4])

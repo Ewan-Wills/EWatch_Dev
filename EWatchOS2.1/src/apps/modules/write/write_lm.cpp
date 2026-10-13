@@ -42,7 +42,8 @@ bool correct(const char *typed, int L, const float (*logp)[kClasses], char *out)
     else if (isDigit(typed[i])) allLetters = false;
     else return false;
   }
-  if (!anyLetter || kCount[L] == 0) return false;
+  if (kCount[L] == 0) return false;
+  bool allDigits = !anyLetter;                     // needs overwhelming evidence (y/o/u read as 7/0/1)
   float typedSc = 0;
   for (int i = 0; i < L; i++) typedSc += logp[i][clsOf(typed[i])];
   float typedF = -255.0f / 8.0f;           // the typed string's own frequency, if listed
@@ -66,9 +67,38 @@ bool correct(const char *typed, int L, const float (*logp)[kClasses], char *out)
   bool sameAsTyped = true;
   for (int i = 0; i < L; i++) if ((char)(bestW[i] - 'a' + 'A') != typed[i]) sameAsTyped = false;
   // A stray digit: take the best word with no margin (the typed string isn't a word).
-  if (sameAsTyped || bestSc <= typedSc + kAlpha * typedF + (allLetters ? kMargin : 0.0f)) return false;
+  float margin = allDigits ? kMargin + (L <= 2 ? kDigitWordMargin : kDigitWordMargin3)
+                           : allLetters ? kMargin : 0.0f;
+  if (sameAsTyped || bestSc <= typedSc + kAlpha * typedF + margin) return false;
   for (int i = 0; i < L; i++) out[i] = (char)(bestW[i] - 'a' + 'A');
   return true;
+}
+
+}  // namespace wlm
+
+namespace wlm {
+
+int wordStatus(const char *w, int L, float *logf) {
+  int st = 0;
+  if (logf) *logf = -1e9f;
+  if (L < 1) return kPrefix;
+  for (int i = 0; i < L; i++) if (!isLetter(w[i])) return 0;
+  for (int len = L; len <= kMaxLen; len++) {
+    const uint8_t *p = kWords + kOff[len];
+    for (int k = 0; k < kCount[len]; k++, p += len + 1) {
+      bool same = true;
+      for (int i = 0; i < L && same; i++) same = (char)(p[i] - 'a' + 'A') == w[i];
+      if (!same) continue;
+      if (len == L) {
+        if (!(st & kWord) && logf) *logf = deq(p[L]);      // first entry = most frequent
+        st |= kWord;
+      } else {
+        st |= kPrefix;
+      }
+      if (st == (kWord | kPrefix) && (!logf || *logf > -1e8f)) return st;
+    }
+  }
+  return st;
 }
 
 }  // namespace wlm

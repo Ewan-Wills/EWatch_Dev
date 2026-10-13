@@ -8,33 +8,22 @@ expect screen Write
 # clear: hold delete (repeats, then whole words)
 long 210 250 5000
 wait 300
-# H in three strokes, any order
-touch down 105 120
-touch move 105 150
-touch move 105 180
-touch move 105 210
-touch move 105 240
-touch up
-touch down 175 120
-touch move 175 150
-touch move 175 180
-touch move 175 210
-touch move 175 240
-touch up
-touch down 105 180
-touch move 130 180
-touch move 150 180
-touch move 175 180
-touch up
+# H: a confident shape that never starts another letter -> typed early,
+# and upper case by itself (start of the text)
+stroke 30 105 120 105 150 105 180 105 210 105 240 | 175 120 175 150 175 180 175 210 175 240 | 105 180 130 180 150 180 175 180
 expect log WRITE:.*char=B 1500
-# I
-touch down 140 120
-touch move 140 160
-touch move 140 200
-touch move 140 240
-touch up
-expect log WRITE:.*char=I 1500
-# space: straight stroke left to right (must not be "back")
+# a plain stem could be the start of i/t/l: it waits the full pause
+stroke 30 140 120 140 160 140 200 140 240
+expect log WRITE:.*char=I.*early=0 1500
+expect log WRITE:.*text=Hi 1000
+# small dot = full stop (plus a space, next letter upper case)
+tap 140 200
+expect log WRITE:.*punct=\. 1500
+expect log WRITE:.*text=Hi\. 1000
+# small tick = comma
+stroke 30 140 190 138 200 134 212 130 220
+expect log WRITE:.*punct=, 1500
+# space: straight stroke left to right (must not be "back"); no double space
 touch down 50 200
 touch move 90 201
 touch move 130 201
@@ -46,9 +35,9 @@ expect screen Write
 # delete button: tap = one character
 tap 210 250
 expect log WRITE:.*edit=backspace 1000
-# shift: next letter upper case
+# shift: toggles (auto-on after the full stop -> tap turns it off)
 tap 30 250
-expect log WRITE:.*case=shift 1000
+expect log WRITE:.*case= 1000
 expect noerr
 btn short
 wait 400

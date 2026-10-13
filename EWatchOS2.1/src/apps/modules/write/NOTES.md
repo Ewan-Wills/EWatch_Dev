@@ -19,13 +19,29 @@ Launcher: **Write** (yellow pencil).
 +--------------------------------+
 ```
 - **Letters/digits:** draw one at a time, upper or lower case, any stroke order.
-  The letter is typed when the finger has been up for **450 ms** (NVS `ewwrite/gapMs`,
-  200-3000). Write letters on top of each other: the whole area is the canvas.
+  Write letters on top of each other: the whole area is the canvas. The glyph is
+  classified as soon as the finger lifts; it is typed **200 ms** later if it is a
+  confident shape that is never the start of another letter (A B D E G H K M N P Q W X
+  Y 3 4 5 6 8), else after **350 ms** without a new stroke (NVS `ewwrite/gapMs`,
+  200-3000; default 350). So a lone stem waits: it may become i, t, l, f, j, k...
+- **Full stop / comma:** a small dot (or a tap) = `.`, a small single stroke = `,`
+  (size relative to the writer's recent letters; a bigger downward stroke right after
+  a complete word counts as a comma when the letter would make a non-word). Both end
+  the word (it is corrected) and add a space; a space gesture after them adds no
+  second space. Inside a number, `.` is a decimal point (3.5).
 - **Space:** one straight stroke left to right. **Delete:** right to left, or the
-  delete button (tap = one character; hold = repeat, then whole words).
+  delete button (tap = one character; hold = repeat, then whole words). Tapping delete
+  while ink is still on screen cancels that ink. One delete right after an
+  auto-correction puts back what was written.
 - **Shift:** tap = next letter upper case; double-tap = caps lock; tap again = lower.
-  While a letter is being written the buttons are canvas (a stroke may start there).
-- **Last word:** corrected when you write a space, or after 2.5 s without writing.
+  A sentence starts upper case by itself (the button lights up). A touch on a button
+  that moves is ink; tapping shift with ink pending types that letter first.
+- **Last word:** corrected when you write a space or punctuation, or after 2.5 s
+  without writing. A corrected word flashes green for 0.8 s.
+- **Feel:** the last letter's ink fades out (3 steps of 45 ms); haptics differ for a
+  letter (light tick), space, punctuation, correction (stronger) and delete.
+- Nothing is learned per user (public app): the only adaptation is the running
+  letter size used to judge punctuation.
 - **Side button** = back. Swipe-right is *not* "back" in Write (controller.cpp).
 - No suggestion chips: the recogniser plus English context decide (Ewan's call,
   2026-10-13: "be confident about the training").
@@ -94,6 +110,19 @@ recipe trained without them. Host numbers use the firmware's C code.
 | speed on the watch | 69-70 ms per letter at 240 MHz; word correction 0.8-1.3 ms |
 | `test/write/write.ewt` / `write_mustfail.ewt` | PASS / FAIL at step 25 (as it must), watch and ewsim_host |
 
+### 2026-10-13, second pass (ewsim_host + host; the watch was off: NOT yet run on the watch)
+| check | result |
+|---|---|
+| early commit rule (`prefix.py`): classify the first strokes of every multi-stroke UJI letter | held-out writers: 37 % of letters typed at 200 ms, 0.3 % of unfinished letters cut |
+| same, ewsim_host, 18 phrases | 83/190 letters (44 %) typed early; O T I L C S R U always wait |
+| `.` and `,` rule on all 120+120 UJI punctuation samples, each writer's scale | `.` 118/120, `,` 76/120 (size+shape), letters taken for punctuation 11/7440 |
+| 24 sentences with `.` and `,` by unseen writers, ewsim_host (shipping model) | 18/24 exact, 44/48 punctuation marks (13/24 and 40/48 before the context comma rule) |
+| 18 plain phrases, ewsim_host | 17/18 exact |
+| 180 phrases, host replica, held-out model | 94.2 % of words (unchanged by the new LM rules) |
+| correction then one delete (ewsim_host, "yon" -> "you" -> "yon") | undo restores the written word; next delete deletes normally |
+| LM C vs Python incl. all-digit words ("701" -> "you" needs a 2-nat extra margin at 3+ digits, 7 at 2 digits so "10" stays) | 3000/3000 identical |
+| smoke / must-fail (now covers early commit, '.', ',', kept space) | PASS / FAIL (ewsim_host) |
+
 Bugs found and fixed on the way (all measured on the watch):
 - The touch controller sometimes returns an all-0xFF read: a touch at (4095,4095)
   joined the glyph and squashed the ink to a dot. controller.cpp now repeats the last
@@ -105,6 +134,15 @@ Bugs found and fixed on the way (all measured on the watch):
 - Test harness: lost USB replies, multi-stroke letters split by serial latency (the
   `stroke` step now plays a whole glyph on the watch), log lines lost (the test reads
   the text with the `write text` console command). See the KB doc ewatch-test-harness.md.
+
+
+### Speed (measured on the watch, 2026-10-13, timing log `WRITE timing`)
+| step | before | now |
+|---|---|---|
+| finger-up -> letter typed | 410 ms (all letters) | 205 ms (early classes, 44 % of letters) / ~360 ms |
+| committing a letter (logging) | 85-138 ms | 7-20 ms: ewlog no longer writes LittleFS on the caller's task (RAM buffer + `ewlogfs` task every 500 ms; RTC mirror unchanged) |
+| screen update per letter | 61 ms full flush | 18 ms: only the text line + buttons are pushed |
+| CNN (70 ms) | on the render task (ink froze) | `wcnn` worker on core 0; ink keeps 60 fps |
 
 ## Tests
 ```
