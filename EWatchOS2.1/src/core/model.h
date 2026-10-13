@@ -61,6 +61,12 @@ enum class Screen : uint8_t {
   PrintStream,      // module: user app: Creality K2 Plus camera + stats + control (WiFi)
   HomeAssistant,    // module: user app: toggle a Home Assistant light over WiFi/REST
   Stocks,           // module: user app: live stock tracker (PC pushes tickers via USB)
+  Inbox,            // eWatch Cloud: message list (core, cloud_msg.h)
+  InboxRead,        // eWatch Cloud: one message (text or image)
+  ContactPicker,    // eWatch Cloud: pick who to send to (Write, Draw)
+  CloudSettings,    // eWatch Cloud: link / unlink this watch (pairing code)
+  CloudNotify,      // eWatch Cloud: "New message" card (View / Later)
+  Draw,             // module (draw): finger painting, send as an image
   PowerOff
 };
 
