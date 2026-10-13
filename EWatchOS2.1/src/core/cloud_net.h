@@ -10,8 +10,24 @@
 // mid-response, response bigger than the buffer.
 constexpr int kNetNoWifi = -1, kNetConnect = -2, kNetTimeout = -3, kNetTooBig = -4;
 
-// True while the radio is associated (a request can be made).
-bool cloudNetUp();
+// True while a request can be made: the radio is associated, or (base
+// "usb:...") always: the USB relay below.
+bool cloudNetUp(const char *base);
+bool cloudNetIsRelay(const char *base);   // base starts with "usb:"
+
+// USB relay (tests, or a watch with bad WiFi): base "usb:http://host:port"
+// sends each request over the USB console instead of the radio. The host
+// side (ewt, while it holds the port) makes the real HTTP call:
+//   watch -> host  #WQ <id> <METHOD> <url> <bodyLen> <token|->
+//                  #WB <id> <base64 body part>      (repeated)
+//                  #WE <id> <crc32 of "METHOD url len token" then the body, hex>
+//   host -> watch  #WP <id>                         (request received, working on it)
+//                  #WR <id> <status> <respLen>
+//                  #WD <id> <base64, <= 180 bytes>   (watch acks each: #WA <id> <n>)
+//                  #WZ <id> <crc32 of response, hex>
+// No answer within 4 s (nobody relaying) = kNetConnect.
+bool cloudNetRelayLine(const char *line);   // console hook: true if it was a #W line
+bool cloudNetRelayBusy();                   // console polls fast while true
 
 // One request to base + path (base "https://..." = TLS verified against the
 // Let's Encrypt roots in cloud_ca.h; "http://..." = plain, for local tests).

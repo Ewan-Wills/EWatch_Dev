@@ -15,7 +15,6 @@
 #include "ui_style.h"
 #include "ui_icons.h"
 #include "FreeSans12pt7b.h"
-#include "FreeSansBold24pt7b.h"
 
 using namespace aura;
 
@@ -142,7 +141,9 @@ void CloudSettingsView::draw() {
       auraTextCentered(d, W / 2, 76, "Devices > Link a watch", 1, kText);
       auraTextCentered(d, W / 2, 90, "and enter this code:", 1, kTextDim);
       auraCard(d, 12, 104, W - 24, 64, 16, kCard);
-      auraFontCentered(d, &FreeSansBold24pt7b, W / 2, 152, code, kText);
+      // Pixel font at size 3: monospace (easy to read off and type), 162 px
+      // wide (FreeSansBold24 ran past the card at 9 characters).
+      auraTextCentered(d, W / 2, 125, code, 3, kText);
       char t[24];
       snprintf(t, sizeof t, "%lu:%02lu left", (unsigned long)(left / 60), (unsigned long)(left % 60));
       auraTextCentered(d, W / 2, 182, t, 1, kTextDim);
@@ -236,6 +237,17 @@ static char sInboxSubs[kCloudInboxMax][48];
 static CloudMsg sInboxCopy[kCloudInboxMax];
 static char sOpenId[kCloudIdMax] = "";      // InboxRead shows this one
 
+// Copy src into out, cut to maxChars with "..." if longer.
+static void fitText(char *out, size_t cap, const char *src, size_t maxChars) {
+  size_t n = strlen(src);
+  if (maxChars >= cap) maxChars = cap - 1;
+  if (n <= maxChars) { memcpy(out, src, n + 1); return; }
+  size_t k = maxChars - 3;
+  while (k > 0 && src[k - 1] == ' ') k--;
+  memcpy(out, src, k);
+  memcpy(out + k, "...", 4);
+}
+
 InboxView::InboxView() : AuraListView(sInboxRows, 0, "Messages", Screen::AppList) {}
 
 void InboxView::rebuild() {
@@ -245,7 +257,9 @@ void InboxView::rebuild() {
     char age[8];
     fmtAge(age, sizeof age, m.ts);
     snprintf(sInboxLabels[i], sizeof sInboxLabels[i], "%s%s%s", m.from, age[0] ? "  " : "", age);
-    snprintf(sInboxSubs[i], sizeof sInboxSubs[i], "%s", m.preview[0] ? m.preview : (m.image ? "Photo" : ""));
+    // The list prints the sub line unclipped: cut it to the row (size 1 =
+    // 6 px a character; 26 fit between the icon and the chevron).
+    fitText(sInboxSubs[i], sizeof sInboxSubs[i], m.preview[0] ? m.preview : (m.image ? "Photo" : ""), 26);
     sInboxRows[i] = { sInboxLabels[i], m.image ? Icon::Photo : Icon::Mail,
                       m.read ? kLine : kBlue, Screen::InboxRead, nullptr, sInboxSubs[i] };
   }
@@ -339,6 +353,7 @@ void InboxReadView::draw() {
   fmtAge(age, sizeof age, m.ts);
   if (!m.image || lastImg != CloudImgState::Ready) {
     d->setFont(&FreeSans12pt7b);
+    d->setTextSize(1);                   // a size-2 status line may have left it at 2
     d->setTextColor(kText);
     d->setCursor(14, 32);
     d->print(m.id[0] ? m.from : "Message gone");
@@ -383,8 +398,11 @@ void InboxReadView::onEvent(const Event &e) {
     if (s > maxScroll) s = maxScroll;
     if (s != scroll) { scroll = s; dirty = true; }
   } else if (e.type == EventType::TouchUp) {
+    // Only a press that started here: the notification card switches on
+    // touch-down, and that same tap's release must not hit Reply.
+    bool mine = dragging;
     dragging = false;
-    if (!moved && m.id[0] && inR(e.x, e.y, 50, 222, 140, 54)) {
+    if (mine && !moved && m.id[0] && inR(e.x, e.y, 50, 222, 140, 54)) {
 #if EW_APP_WRITE
       CloudContact c = {};
       strncpy(c.id, m.fromId, sizeof c.id - 1);
@@ -512,8 +530,10 @@ void cloudToastPaint() {
     if (st == CloudSendState::Sending) toast("Sending...", kCard, 30000);
     else if (st == CloudSendState::Sent) toast("Sent", kGreen, 1500);
     else if (st == CloudSendState::Failed) {
-      char t[48];
+      char t[64];
       snprintf(t, sizeof t, "Couldn't send: %s", reason);
+      if (auraTextWidth(t, 1) + 28 > W - 16) snprintf(t, sizeof t, "Not sent: %s", reason);
+      if (auraTextWidth(t, 1) + 28 > W - 16) snprintf(t, sizeof t, "%s", reason);
       toast(t, kRed, 3000);
     }
   }

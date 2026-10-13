@@ -44,6 +44,9 @@ void ewlogMountFs();
 // background task every 500 ms). Call before power-off / deep sleep / dumps.
 void ewlogFlush();
 void ewlogStartConsole();
+// Held around multi-write binary/framed output (ewsim snap, cloud USB relay)
+// so two of them never interleave. Recursive; plain log lines don't take it.
+void ewlogTxLock(bool take);
 // Hand the USB serial RX stream to another reader (an app's own protocol) and
 // back. While paused the console reads nothing, so it can't steal bytes.
 void ewlogConsolePause(bool paused);

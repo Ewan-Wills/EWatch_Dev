@@ -23,6 +23,7 @@
 #include "cloud_net.h"
 #include "wifi_svc.h"
 #include "model.h"
+#include "storage.h"
 #include "haptic.h"
 #include "ewlog.h"
 
@@ -153,6 +154,7 @@ void saveNvs() {
 const char *baseUrl() { return sUrl[0] ? sUrl : kDefaultUrl; }
 
 bool wifiClientOn() {
+  if (cloudNetIsRelay(baseUrl())) return true;               // USB relay: no radio
   ModelLock lk;
   return model.wifiEnabled && model.wifiMode == WifiMode::Client;
 }
@@ -170,12 +172,21 @@ void dropToken(const char *why) {
 }
 
 // A request with the device token; handles 401 (token revoked on the site).
+// One 401 isn't proof (a request damaged on the way, a flaky relay): the
+// token is dropped only if GET /device/me says 401 too. 5xx and network
+// errors never unlink.
 int api(const char *method, const char *path, const char *body, size_t bodyLen, size_t *len) {
   char tok[64];
   { Lock l; copyStr(tok, sizeof tok, sToken); }
   int st = cloudHttp(baseUrl(), method, path, body, bodyLen, tok[0] ? tok : nullptr,
                      sResp, kRespCap, len);
-  if (st == 401 && tok[0]) dropToken("Unlinked on ewatch.cloud");
+  if (st == 401 && tok[0]) {
+    static uint8_t me[512];
+    size_t n;
+    int chk = cloudHttp(baseUrl(), "GET", "/device/me", nullptr, 0, tok, me, sizeof me, &n);
+    EWLOGW("CLOUD", "401 on %s, /device/me=%d", path, chk);
+    if (chk == 401) dropToken("Unlinked on ewatch.cloud");
+  }
   return st;
 }
 
@@ -188,7 +199,8 @@ const char *netReason(int st) {
     case 401: return "Not linked";
     case 403: return "Not a contact";
     case 413: return "Too big to send";
-    case 429: return "Too many, try later";
+    case 429: return "Too many, try later";       // IMAGE_LIMIT: 100 photos a day
+    case 503: return "Server busy";               // BUSY: converting images
     default: return "Server error";
   }
 }
@@ -379,8 +391,12 @@ void doSummary() {
     fresh = unread > 0 && id[0] && strcmp(id, sLastNotified) != 0;
     if (fresh) {
       copyStr(sNotice.id, sizeof sNotice.id, id);
-      asciiCopy(sNotice.from, sizeof sNotice.from, personName(lt["from"]));
-      asciiCopy(sNotice.preview, sizeof sNotice.preview, lt["preview"] | "");
+      // fromAscii / previewAscii: server-side ASCII (emoji dropped); older
+      // servers only have from / preview, which asciiCopy cleans up.
+      const char *fa = lt["fromAscii"] | (const char *)nullptr;
+      const char *pa = lt["previewAscii"] | (const char *)nullptr;
+      asciiCopy(sNotice.from, sizeof sNotice.from, fa ? fa : personName(lt["from"]));
+      asciiCopy(sNotice.preview, sizeof sNotice.preview, pa ? pa : (lt["preview"] | ""));
       const char *k = lt["kind"] | "TEXT";
       sNotice.image = strcmp(k, "IMAGE") == 0;
       copyStr(sLastNotified, sizeof sLastNotified, id);
@@ -513,6 +529,7 @@ void doSend(Outgoing &o) {
 
 // ---------------------------------------------------------------- task
 void hold(bool on) {
+  if (on && cloudNetIsRelay(baseUrl())) return;
   if (on) { wifiSvcHold(true); sHolding = true; }
   else if (sHolding) { wifiSvcHold(false); sHolding = false; }
 }
@@ -550,7 +567,7 @@ bool workPending() {
 void cloudTask(void *) {
   for (;;) {
     vTaskDelay(pdMS_TO_TICKS(150));
-    bool up = cloudNetUp();
+    bool up = cloudNetUp(baseUrl());
     {
       Lock l;
       if (up && !sWasConnected && sLink == CloudLink::Linked) { sWantSummary = true; sWantContacts = true; }
@@ -563,8 +580,8 @@ void cloudTask(void *) {
     hold(true);
     if (!up) {
       uint32_t t0 = millis();
-      while (!cloudNetUp() && millis() - t0 < 30000) { wifiSvcHold(true); vTaskDelay(pdMS_TO_TICKS(250)); }
-      if (!cloudNetUp()) { failAll("No WiFi"); hold(false); continue; }
+      while (!cloudNetUp(baseUrl()) && millis() - t0 < 30000) { wifiSvcHold(true); vTaskDelay(pdMS_TO_TICKS(250)); }
+      if (!cloudNetUp(baseUrl())) { failAll("No WiFi"); hold(false); continue; }
       sWasConnected = true;
     }
 
@@ -834,9 +851,11 @@ void cloudSetBaseUrl(const char *url) {
 }
 
 bool cloudConsole(const char *line) {
+  if (cloudNetRelayLine(line)) return true;
   if (strncmp(line, "cloud", 5) != 0) return false;
   const char *a = line + 5;
   while (*a == ' ') a++;
+  if (!strcmp(a, "url default")) { cloudSetBaseUrl(""); Serial.printf("cloud url=%s\n", baseUrl()); return true; }
   if (!strncmp(a, "url ", 4)) { cloudSetBaseUrl(a + 4); Serial.printf("cloud url=%s\n", baseUrl()); return true; }
   if (!strcmp(a, "check")) { cloudCheckNow(); Serial.println("cloud check queued"); return true; }
   if (!strcmp(a, "pair")) { cloudStartPairing(); Serial.println("cloud pairing"); return true; }
@@ -845,9 +864,12 @@ bool cloudConsole(const char *line) {
   uint32_t left = 0;
   cloudPairingCode(code, sizeof code, &left);
   Lock l;
-  Serial.printf("cloud link=%d name=%s self=%s url=%s code=%s left=%lu err=%s contacts=%u inbox=%u unread=%u send=%d\n",
+  Serial.printf("cloud link=%d name=%s self=%s url=%s code=%s left=%lu err=%s contacts=%u inbox=%u unread=%u send=%d"
+                " wifi=%d client=%d known=%u up=%d\n",
                 (int)sLink, sName, sSelfId, baseUrl(), code, (unsigned long)left, sPairErr,
-                (unsigned)sNContacts, (unsigned)sNInbox, sUnread, (int)sSendState);
+                (unsigned)sNContacts, (unsigned)sNInbox, sUnread, (int)sSendState,
+                model.wifiEnabled ? 1 : 0, model.wifiMode == WifiMode::Client ? 1 : 0,
+                (unsigned)Storage::knownCount(), cloudNetUp(baseUrl()) ? 1 : 0);
   return true;
 }
 

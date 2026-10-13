@@ -2,6 +2,7 @@
 #if defined(__XTENSA__)
 #include "hal/usb_serial_jtag_ll.h"
 #endif
+#include "ewlog.h"
 // ewsim — host-driven test hooks. See ewsim.h for the overview.
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
@@ -21,6 +22,7 @@ static void sreply(const char *fmt, ...) {
   va_start(ap, fmt);
   vsnprintf(buf, sizeof buf, fmt, ap);
   va_end(ap);
+  ewlogTxLock(true);               // nobody else writes while we poke the FIFO
   Serial.print(buf);
 #if defined(__XTENSA__)
   for (int i = 0; i < 3; i++) {
@@ -29,11 +31,13 @@ static void sreply(const char *fmt, ...) {
     if (i < 2) vTaskDelay(pdMS_TO_TICKS(2));
   }
 #endif
+  ewlogTxLock(false);
 }
 #include "model.h"
 #include "view.h"
 #include "power_mgr.h"
 #include "display.h"
+#include "ewlog.h"
 #include <esp_timer.h>
 #include <esp_log.h>
 
@@ -341,15 +345,26 @@ static const char *pwrName() {
 
 // ---- snapshot: binary chunks, each one Serial.write (atomic vs log lines) --
 //   A5 5A <len u16 LE> <len bytes> <sum16 LE of the bytes>
+// txDrain: wait (up to ms) until the USB TX buffer has room again. Unlike
+// Serial.flush() it never discards what's queued (flush does while HWCDC
+// briefly reads "disconnected": snaps lost their header).
+static void txDrain(uint32_t ms) {
+  static int full = 0;
+  if (!full) full = Serial.availableForWrite();
+  uint32_t t0 = millis();
+  while (Serial.availableForWrite() < full && millis() - t0 < ms) vTaskDelay(1);
+}
+
 static void cmdSnap(const char *seq) {
   if (!sShadow) { sreply("S:%s ERR no shadow (psram)\n", seq); return; }
   const size_t total = kW * kH * 2;
   uint8_t *copy = (uint8_t *)ps_malloc(total);   // consistent frame
   if (!copy) { sreply("S:%s ERR no mem\n", seq); return; }
   memcpy(copy, sShadow, total);
+  ewlogTxLock(true);
   idfQuiet(true);
   sreply("S:%s SNAP %d %d %u\n", seq, kW, kH, (unsigned)total);
-  Serial.flush();
+  txDrain(200);
   static uint8_t buf[4 + 2048 + 2];
   for (size_t off = 0; off < total; off += 2048) {
     uint16_t n = (uint16_t)((total - off) < 2048 ? (total - off) : 2048);
@@ -359,16 +374,16 @@ static void cmdSnap(const char *seq) {
     for (uint16_t i = 0; i < n; i++) sum += copy[off + i];
     buf[4 + n] = sum & 0xFF; buf[5 + n] = sum >> 8;
     if (Serial.write(buf, 6 + n) != 6 + n) {   // partial chunk: host must retry
-      Serial.flush(); idfQuiet(false); free(copy);
+      txDrain(200); idfQuiet(false); free(copy); ewlogTxLock(false);
       Serial.printf("\nS:%s ERR snap short write at %u\n", seq, (unsigned)off);
       return;
     }
   }
-  Serial.flush();
+  txDrain(500);
   idfQuiet(false);
   free(copy);
+  ewlogTxLock(false);
   sreply("S:%s OK snap\n", seq);
-  Serial.flush();
 }
 
 static void cmdState(const char *seq) {

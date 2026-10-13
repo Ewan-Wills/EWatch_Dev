@@ -1,4 +1,5 @@
 #include "cloud_msg.h"
+#include "cloud_net.h"
 #include <stdarg.h>
 #include <string.h>
 #include <Preferences.h>
@@ -143,6 +144,12 @@ static void fsWriterTask(void *) {
   }
 }
 
+void ewlogTxLock(bool take) {
+  static SemaphoreHandle_t m = xSemaphoreCreateRecursiveMutex();
+  if (take) xSemaphoreTakeRecursive(m, portMAX_DELAY);
+  else xSemaphoreGiveRecursive(m);
+}
+
 void ewlogWrite(uint8_t level, const char *tag, const char *fmt, ...) {
   if (level > sRuntimeLevel) return;
 
@@ -160,10 +167,15 @@ void ewlogWrite(uint8_t level, const char *tag, const char *fmt, ...) {
   line[len++] = '\n';
   line[len] = '\0';
 
+  // TX lock first (then the log mutex): ewsim's replies poke the USB FIFO
+  // directly, and a line written meanwhile lost bytes (cut relay requests,
+  // snap headers without their "S:<seq>").
+  ewlogTxLock(true);
   if (sLogMutex) xSemaphoreTake(sLogMutex, portMAX_DELAY);
   if (Serial) Serial.write((const uint8_t *)line, len);
   rtcMirrorAppend(line, len);
   if (sLogMutex) xSemaphoreGive(sLogMutex);
+  ewlogTxLock(false);
   if (sFsReady) pendAppend(line, len);
 }
 
@@ -426,7 +438,7 @@ static void consoleTask(void *) {
         line[pos++] = c;
       }
     }
-    vTaskDelay(pdMS_TO_TICKS(50));
+    vTaskDelay(cloudNetRelayBusy() ? 1 : pdMS_TO_TICKS(50));   // relay: each chunk waits on us
   }
 }
 
