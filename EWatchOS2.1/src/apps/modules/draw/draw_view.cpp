@@ -32,6 +32,7 @@
 #include "ewlog.h"
 #include "ui_style.h"
 #include "cloud_msg.h"
+#include "FreeSans12pt7b.h"
 
 namespace {
 
@@ -90,11 +91,13 @@ struct Rect {
 };
 
 Op        sOps[kMaxOps];
+uint32_t  sSumAt[kMaxOps + 1];                       // picture sum after op k (k = op count)
 int       sNOps = 0;
 Pt       *sPts = nullptr;
 int       sNPts = 0;
 uint16_t *sBase = nullptr;
 uint16_t  sBaseBg = 0x0000;
+bool      sBaseBlank = true;                         // nothing folded into sBase but clears
 uint8_t   sSpan[kMaxR + 1][kMaxR + 1];               // disc half-widths per radius, |dy|
 
 int       sColorIdx = 1;                             // white on a black page
@@ -115,6 +118,8 @@ int       sTgtIdx = -1;
 // Render requests (render task only).
 bool      sCompose = false;                          // rebuild the drawing from base + ops
 bool      sFlushAll = false;                         // push the whole frame
+bool      sHintShown = false;                        // empty-page hint on the canvas
+bool      sHintClear = false;                        // erase it (first stroke)
 Rect      sPush;                                     // else push this
 const char *sLogAfter = nullptr;                     // log the sum after the next compose
 char      sBanner[40] = "";
@@ -139,6 +144,25 @@ void initSpans() {
     }
 }
 
+// Live ink: the dirty area is pushed in chunks. Once the box would grow past
+// kChunk in both directions, the box so far goes to the panel and a new one
+// starts, so a long diagonal sample pushes a band of small boxes instead of
+// its whole bounding box (a 200 px diagonal: 13.9 ms -> ~2 ms in ewsim).
+constexpr int kChunk = 40;
+Arduino_Canvas *sChunkCv = nullptr;              // set while stamping live ink
+void pushRect(Arduino_Canvas *cv, int x0, int y0, int x1, int y1);
+inline void addDirty(Rect *d, int x0, int y0, int x1, int y1) {
+  if (sChunkCv && !d->empty()) {
+    int nx0 = x0 < d->x0 ? x0 : d->x0, nx1 = x1 > d->x1 ? x1 : d->x1;
+    int ny0 = y0 < d->y0 ? y0 : d->y0, ny1 = y1 > d->y1 ? y1 : d->y1;
+    if (nx1 - nx0 > kChunk && ny1 - ny0 > kChunk) {
+      pushRect(sChunkCv, d->x0, d->y0, d->x1, d->y1);
+      *d = Rect();
+    }
+  }
+  d->add(x0, y0, x1, y1);
+}
+
 // Round brush stamp into a 240-wide, CH-tall RGB565 buffer (clipped).
 inline void disc(uint16_t *fb, int cx, int cy, int r, uint16_t c, Rect *dirty) {
   for (int dy = -r; dy <= r; dy++) {
@@ -152,7 +176,7 @@ inline void disc(uint16_t *fb, int cx, int cy, int r, uint16_t c, Rect *dirty) {
     uint16_t *p = fb + y * W + x0;
     for (int x = x0; x <= x1; x++) *p++ = c;
   }
-  if (dirty) dirty->add(cx - r, cy - r, cx + r, cy + r);
+  if (dirty) addDirty(dirty, cx - r, cy - r, cx + r, cy + r);
 }
 
 inline float stepFor(int r) { float s = r * 0.5f; return s < 1.f ? 1.f : s; }
@@ -232,7 +256,8 @@ void foldOldest() {
   bool wasLive = liveOp(0);
   if (wasLive) return;                   // never fold the stroke going down
   const Op &o = sOps[0];
-  if (o.kind == OpKind::Clear) sBaseBg = o.color;
+  if (o.kind == OpKind::Clear) { sBaseBg = o.color; sBaseBlank = true; }
+  else sBaseBlank = false;
   applyOp(sBase, 0);
   int drop = o.n;
   if (drop > 0) {
@@ -240,6 +265,7 @@ void foldOldest() {
     sNPts -= drop;
   }
   memmove(sOps, sOps + 1, (size_t)(sNOps - 1) * sizeof(Op));
+  memmove(sSumAt, sSumAt + 1, (size_t)sNOps * sizeof(uint32_t));
   sNOps--;
   for (int i = 0; i < sNOps; i++) if (sOps[i].kind == OpKind::Stroke) sOps[i].first -= drop;
 }
@@ -259,11 +285,18 @@ void pushRect(Arduino_Canvas *cv, int x0, int y0, int x1, int y1) {
   for (int y = y0; y <= y1; y++) gfx->draw16bitRGBBitmap(x0, y, fb + y * W + x0, x1 - x0 + 1, 1);
 }
 
+// Logs the drawing's checksum. Edits record it per op count; an undo then
+// reports same=1 when the recomposed picture is pixel-identical to what was
+// on screen at that step (proves replay == live drawing, on any touch timing).
 void logSum(const char *what) {
   Arduino_Canvas *cv = frameCanvas();
   if (!cv) return;
-  EWLOGI("DRAW", "%s ops=%d pts=%d bg=%04x sum=%08lx", what, sNOps, sNPts, curBg(),
-         (unsigned long)drawChecksum(cv->getFramebuffer(), (uint32_t)W * CH));
+  uint32_t sum = drawChecksum(cv->getFramebuffer(), (uint32_t)W * CH);
+  bool isUndo = strcmp(what, "op=undo") == 0;
+  int same = isUndo ? (sSumAt[sNOps] == sum ? 1 : 0) : -1;
+  if (!isUndo) sSumAt[sNOps] = sum;
+  EWLOGI("DRAW", "%s ops=%d pts=%d bg=%04x sum=%08lx same=%d", what, sNOps, sNPts, curBg(),
+         (unsigned long)sum, same);
 }
 
 // ---------------------------------------------------------------- toolbar + popovers
@@ -338,7 +371,11 @@ void drawBar(Arduino_GFX *d) {
   // size: the brush dot itself
   x = slotX(S_SIZE);
   d->drawCircle(x, ICON_Y, 13, aura::kLine);
-  d->fillCircle(x, ICON_Y, kBrushR[sSizeIdx], aura::kText);
+  {
+    uint16_t c = sEraser || curColor() == 0x0000 ? aura::kText : curColor();
+    static const uint8_t kShow[kSizes] = { 2, 4, 7, 10 };     // fits inside the ring
+    d->fillCircle(x, ICON_Y, kShow[sSizeIdx], c);
+  }
   // eraser (blue disc while active)
   x = slotX(S_ERASER);
   if (sEraser) hi(S_ERASER, aura::kBlue);
@@ -420,6 +457,16 @@ int popItemAt(int x, int y) {
   return -1;
 }
 
+// Empty page: a quiet hint in the middle of the canvas.
+Rect hintRect() { Rect r; r.add(10, 90, W - 11, 150); return r; }
+void drawHint(Arduino_GFX *d) {
+  uint16_t bg = curBg();
+  uint16_t c = bg == 0x0000 ? 0x6B4D : aura::kTextDim;   // quiet grey on either page
+  auraFontCentered(d, &FreeSans12pt7b, W / 2, 114, "Draw with", c);
+  auraFontCentered(d, &FreeSans12pt7b, W / 2, 140, "your finger", c);
+  d->setFont(nullptr);
+}
+
 // ---------------------------------------------------------------- requests
 void wantBar() { sPush.add(0, BAR_Y, W - 1, H - 1); }
 void wantPop(Pop p) { sPush.add(popRect(p)); }
@@ -436,7 +483,7 @@ void closePop() { if (sPop != Pop::None) openPop(sPop); }
 
 void banner(const char *msg) {
   snprintf(sBanner, sizeof sBanner, "%s", msg);
-  sBannerUntil = millis() + 2500;
+  sBannerUntil = millis() + 1800;
   wantBar();
 }
 
@@ -457,6 +504,7 @@ void beginStroke(int x, int y) {
   o.n = 0;
   sInStroke = true;
   sPieces = 0;
+  if (sHintShown) sHintClear = true;
   sFrames = sFrameUsSum = sFrameUsMax = 0;
   addPoint(x, y);
   wantBar();                                     // undo greys out while drawing
@@ -488,10 +536,12 @@ void inkLive(bool finish) {
   uint16_t *fb = cv->getFramebuffer();
   const Op &o = sOps[sNOps - 1];
   Rect d;
+  sChunkCv = cv;
   if (sPieces == 0 && o.n > 0) disc(fb, sPts[o.first].x, sPts[o.first].y, o.r, o.color, &d);
   for (; sPieces + 1 < o.n; sPieces++) piece(fb, o, sPieces, &d);
   if (finish) tail(fb, o, &d);
-  if (d.empty()) return;
+  sChunkCv = nullptr;
+  if (d.empty()) return;                         // (d is never empty after a stamp)
   pushRect(cv, d.x0, d.y0, d.x1, d.y1);
   uint32_t us = micros() - t0;
   sFrames++; sFrameUsSum += us; if (us > sFrameUsMax) sFrameUsMax = us;
@@ -511,12 +561,27 @@ void endStroke() {
   wantBar();
 }
 
+// Undoing a stroke recomposes the picture but pushes only the stroke's box
+// (a full flush costs ~50 ms on the watch); undoing a clear pushes it all.
 void undo() {
   if (sNOps == 0) { hapticBuzz(140, 30); return; }
-  sNOps--;
-  if (sOps[sNOps].kind == OpKind::Stroke) sNPts = sOps[sNOps].first;
+  const Op o = sOps[--sNOps];
   hapticBuzz(60, 10);
-  wantAll();
+  sCompose = true;
+  if (o.kind == OpKind::Stroke && o.n > 0) {
+    Rect b;
+    for (int i = 0; i < o.n; i++) {
+      const Pt &p = sPts[o.first + i];
+      b.add(p.x - o.r - 1, p.y - o.r - 1, p.x + o.r + 1, p.y + o.r + 1);
+    }
+    if (b.y1 > CH - 1) b.y1 = CH - 1;
+    sPush.add(b);
+    sNPts = o.first;
+  } else {
+    if (o.kind == OpKind::Stroke) sNPts = o.first;
+    sFlushAll = true;
+  }
+  EWLOGI("DRAW", "undo left=%d", sNOps);
   sLogAfter = "op=undo";
 }
 
@@ -533,6 +598,13 @@ void clearTo(uint16_t bg) {
 void onPicked(const CloudContact *c, void *);
 
 void send() {
+  if (sNOps == 0 && sBaseBlank) { banner("Draw something first"); hapticBuzz(140, 30); return; }
+  if (cloudLinkState() != CloudLink::Linked) {
+    EWLOGI("DRAW", "send: not linked");
+    banner("Link eWatch Cloud in Settings");
+    hapticBuzz(140, 30);
+    return;
+  }
   EWLOGI("DRAW", "send: pick contact");
   cloudPickContact(onPicked, nullptr, (uint8_t)Screen::Draw);
 }
@@ -548,7 +620,8 @@ void onPicked(const CloudContact *c, void *) {
   compose(fb);
   uint32_t sum = drawChecksum(fb, (uint32_t)W * CH);
   bool ok = cloudSendImage(c->id, fb, W, CH, nullptr);
-  EWLOGI("DRAW", "send: to=%s w=%d h=%d sum=%08lx queued=%d", c->id, W, CH, (unsigned long)sum, ok ? 1 : 0);
+  EWLOGI("DRAW", "send: to=%s w=%d h=%d sum=%08lx same=%d queued=%d", c->id, W, CH,
+         (unsigned long)sum, sum == sSumAt[sNOps] ? 1 : 0, ok ? 1 : 0);
   if (!ok) banner("Not sent: link eWatch Cloud");
   hapticBuzz(ok ? 70 : 140, ok ? 15 : 50);
 }
@@ -700,12 +773,24 @@ void DrawView::render() {
   }
   if (sBanner[0] && (int32_t)(millis() - sBannerUntil) >= 0) wantBar();   // banner expired
 
+  if (sHintClear) {                              // first stroke: the hint goes
+    sHintClear = false;
+    if (sHintShown) { sHintShown = false; sCompose = true; sPush.add(hintRect()); }
+    if (sCompose) {                              // under the stroke's first dot
+      compose(cv->getFramebuffer()); sCompose = false;
+      sPieces = 0;
+    }
+  }
   if (sInStroke) inkLive(false);
   if (!sCompose && !sFlushAll && sPush.empty()) return;
 
   uint32_t t0 = micros();
   bool composed = sCompose, all = sFlushAll;
-  if (sCompose) { compose(cv->getFramebuffer()); sCompose = false; }
+  if (sCompose) {
+    compose(cv->getFramebuffer()); sCompose = false;
+    sHintShown = sNOps == 0 && sBaseBlank && !sInStroke;
+    if (sHintShown) drawHint(cv);
+  }
   drawBar(cv);
   drawPopover(cv);
   if (sFlushAll) cv->flush();
