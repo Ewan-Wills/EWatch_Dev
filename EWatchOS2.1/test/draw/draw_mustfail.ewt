@@ -1,0 +1,73 @@
+# MUST FAIL: draw.ewt with the undo check inverted (expects same=0, i.e. a
+# replay that differs from the live drawing). Proves the checker can fail:
+# Regexes must not contain spaces (use \s). ewsimrec must exit 1 at that step.
+# ewsimrec: EW_APPS=draw ./ewsimrec ../../EWatchOS2.1 --snap out/draw test/draw/draw_mustfail.ewt
+goto AppList
+wait 300
+goto Draw
+wait 500
+expect screen Draw
+expect log DRAW:.*op=enter 1000
+# empty page: Send refuses (nothing to send), nothing is picked
+tap 213 260
+expect nolog DRAW:.*send:\spick
+# stroke 1: white, default size (r=4)
+stroke 30 40 60 60 80 80 70 100 90 120 110 140 120 160 100 180 80 200 70
+expect log DRAW:.*stroke\sn=\d+\sr=4\scolor=ffff 1000
+expect log DRAW:.*op=stroke\sops=1\s.*same=-1 1000
+# colour popover -> orange (row 1 slot 5)
+tap 27 260
+wait 300
+tap 213 170
+expect log DRAW:.*color=fcc2 1000
+# size popover -> largest (r=11)
+tap 64 260
+wait 300
+tap 206 206
+expect log DRAW:.*size=3\sr=11 1000
+# stroke 2 left to right: paint, not "back"
+touch down 30 200
+touch move 60 190
+touch move 90 180
+touch move 120 170
+touch move 150 160
+touch move 180 150
+touch up
+expect log DRAW:.*stroke\sn=\d+\sr=11\scolor=fcc2 1000
+# the touch chip reports that stroke as SwipeRight (0x04); in Draw it must
+# not be turned into back (ewsim doesn't classify moves, so inject the code)
+gest 4 180 150
+wait 200
+expect screen Draw
+snap two_colours
+# undo stroke 2: the picture is exactly what it was after stroke 1
+tap 138 260
+expect log DRAW:.*op=undo\sops=1\s.*same=0 1000
+# eraser across stroke 1
+tap 101 260
+expect log DRAW:.*eraser=1 1000
+stroke 30 50 90 100 90 150 90 200 90
+expect log DRAW:.*stroke\sn=\d+\sr=16\scolor=0000 1000
+snap erased
+# clear -> Cancel keeps the drawing; clear -> White makes a white page
+tap 175 260
+wait 300
+tap 120 212
+expect nolog DRAW:.*clear\sbg
+tap 175 260
+wait 300
+tap 174 169
+expect log DRAW:.*clear\sbg=ffff 1000
+# undo the clear: back to the drawing
+tap 138 260
+expect log DRAW:.*op=undo\sops=2\s.*same=1 1000
+# send: picker (stub: picks Ewan) -> image handed over, same pixels as on screen
+tap 213 260
+expect log DRAW:.*send:\spick\scontact 1000
+expect log DRAW:.*stub\ssend\sto=stub-ewan\sw=240\sh=240\sbytes=115200 1000
+expect log DRAW:.*send:\sto=stub-ewan\sw=240\sh=240\s.*same=1\squeued=1 1000
+snap sent
+expect noerr
+btn short
+wait 400
+expect screen AppList
