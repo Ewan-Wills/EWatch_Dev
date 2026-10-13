@@ -39,6 +39,9 @@
 #if EW_APP_WRITE
 #include "write_view.h"
 #endif  // EW_APP_WRITE
+#if EW_APP_DRAW
+#include "draw_view.h"
+#endif  // EW_APP_DRAW
 #if EW_APP_BLECONTROLS
 #include "blecontrols.h"
 #endif  // EW_APP_BLECONTROLS
@@ -129,6 +132,9 @@ static const AuraEntry kTopApps[] = {
 #if EW_APP_WRITE
   { "Write",     Icon::Pen,       aura::kYellow, Screen::Write,       nullptr },
 #endif  // EW_APP_WRITE
+#if EW_APP_DRAW
+  { "Draw",      Icon::Brush,     aura::kPink,   Screen::Draw,        nullptr },
+#endif  // EW_APP_DRAW
 #if EW_APP_BLECONTROLS
   { "Controls",  Icon::Bluetooth, aura::kTeal,   Screen::BleControls, nullptr },
 #endif  // EW_APP_BLECONTROLS
@@ -253,6 +259,9 @@ static UsbHostView vUsbHost;
 #if EW_APP_WRITE
 static WriteView vWrite;
 #endif  // EW_APP_WRITE
+#if EW_APP_DRAW
+static DrawView vDraw;
+#endif  // EW_APP_DRAW
 #if EW_APP_BLECONTROLS
 static BleControlsView vBleControls;
 #endif  // EW_APP_BLECONTROLS
@@ -359,6 +368,9 @@ View *viewFor(Screen s) {
 #if EW_APP_WRITE
     case Screen::Write:           return &vWrite;
 #endif  // EW_APP_WRITE
+#if EW_APP_DRAW
+    case Screen::Draw:            return &vDraw;
+#endif  // EW_APP_DRAW
 #if EW_APP_BLECONTROLS
     case Screen::BleControls:     return &vBleControls;
 #endif  // EW_APP_BLECONTROLS

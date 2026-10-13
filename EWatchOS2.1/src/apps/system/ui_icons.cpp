@@ -254,6 +254,23 @@ void drawIcon(Arduino_GFX *d, Icon ic, int16_t cx, int16_t cy, int16_t s,
       thickLine(d, cx + sc(s, 3, 12), y0, cx + sc(s, 5, 12), y0 - sc(s, 1, 12), t, color);
       break;
     }
+#if EW_APP_DRAW
+    case Icon::Brush: {   // paintbrush at 45 deg (bristles lower-left) + a paint dab
+      float hw = s * 0.07f + 1;                                  // handle half-width
+      float hx0 = cx + s * 0.38f, hy0 = cy - s * 0.38f;          // handle end (upper right)
+      float hx1 = cx - s * 0.02f, hy1 = cy + s * 0.02f;          // ferrule
+      float nx = 0.7071f * hw, ny = 0.7071f * hw;
+      d->fillTriangle(hx0 + nx, hy0 + ny, hx0 - nx, hy0 - ny, hx1 + nx, hy1 + ny, color);
+      d->fillTriangle(hx0 - nx, hy0 - ny, hx1 - nx, hy1 - ny, hx1 + nx, hy1 + ny, color);
+      // bristles: a teardrop ending in a point at the lower left
+      int16_t bx = cx - sc(s, 2, 12), by = cy + sc(s, 2, 12), br = sc(s, 2, 12) + 1;
+      d->fillCircle(bx, by, br, color);
+      d->fillTriangle(bx - br, by - br / 2, bx + br / 2, by + br, cx - sc(s, 5, 12), cy + sc(s, 5, 12), color);
+      // ferrule band
+      thickLine(d, hx1 + nx * 1.6f, hy1 + ny * 1.6f, hx1 - nx * 1.6f, hy1 - ny * 1.6f, 1, bg);
+      break;
+    }
+#endif  // EW_APP_DRAW
     case Icon::Book: {                 // open book: two pages + text lines
       int16_t q = sc(s, 4, 12), ph = sc(s, 5, 12), lg = sc(s, 2, 12);
       d->fillRoundRect(cx - q - 1, cy - ph, q, ph * 2, 2, color);

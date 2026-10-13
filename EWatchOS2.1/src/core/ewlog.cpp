@@ -20,6 +20,9 @@
 #if EW_APP_WRITE
 bool writeConsole(const char *line);    // modules/write/write_view.cpp
 #endif  // EW_APP_WRITE
+#if EW_APP_DRAW
+#include "draw.h"                       // drawConsole: `draw state`
+#endif  // EW_APP_DRAW
 #if EW_APP_MOTION
 #include "motion_engine.h"   // `motion ...` console commands
 #endif  // EW_APP_MOTION
@@ -376,6 +379,10 @@ static void handleLine(char *line) {
   } else if (writeConsole(line)) {
     // `write text`: the Write app's text (tests)
 #endif  // EW_APP_WRITE
+#if EW_APP_DRAW
+  } else if (drawConsole(line)) {
+    // `draw state`: the Draw app's undo stack / tool (tests)
+#endif  // EW_APP_DRAW
 #if EW_APP_MOTION
   } else if (motionConsole(line)) {
     // motion LM commands (modules/motion/motion_engine.cpp)

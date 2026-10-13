@@ -483,6 +483,11 @@ static void taskIO(void *) {
               if (scr == Screen::Write) {
               } else
 #endif  // EW_APP_WRITE
+#if EW_APP_DRAW
+              // Draw: a left-to-right stroke is paint, not back (side button exits).
+              if (scr == Screen::Draw) {
+              } else
+#endif  // EW_APP_DRAW
               if (scr != Screen::Viewer3D && scr != Screen::Starfox) {
                 Event back = makeEvent(EventType::ButtonShort);
                 postEvent(back);
