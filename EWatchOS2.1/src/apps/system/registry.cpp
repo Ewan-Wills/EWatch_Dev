@@ -5,6 +5,9 @@
 #include "ui_kit.h"
 #include "ui_style.h"
 #include "launcher.h"
+#if defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
+#include "cloud_views.h"           // eWatch Cloud messages
+#endif
 #include "system_views.h"
 #if defined(EWATCH_ENABLE_VIEWER3D) && EWATCH_ENABLE_VIEWER3D
   #include "viewer3d.h"
@@ -99,6 +102,9 @@ View *doomViewPtr();    // games/doom_app.cpp
 // Launcher tables. Sections render as dim headers above their first row.
 // ---------------------------------------------------------------------------
 static const AuraEntry kTopApps[] = {
+#if defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
+  { "Messages",  Icon::Mail,      aura::kBlue,   Screen::Inbox,       "APPS"  },
+#endif
 #if defined(EW_APP_SPOTIFY) && EW_APP_SPOTIFY && \
     defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
   { "Spotify",   Icon::Music,     aura::kGreen,  Screen::Spotify,     "APPS"  },
@@ -208,6 +214,7 @@ static const AuraEntry kSettingsEntries[] = {
   { "Haptics", Icon::Vibrate, aura::kPink,   Screen::SettingsHaptics, nullptr },
 #if defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
   { "WiFi",    Icon::Wifi,    aura::kGreen,  Screen::SettingsWifi,    nullptr },
+  { "eWatch Cloud", Icon::Cloud, aura::kBlue, Screen::CloudSettings,  nullptr },
 #endif
   { "Memory",  Icon::Memory,  aura::kLine,   Screen::SettingsMemory,  nullptr },
 };
@@ -308,6 +315,13 @@ View *viewFor(Screen s) {
     case Screen::AppList:         return &vAppList;
     case Screen::SystemApps:      return &vSystemApps;
     case Screen::Settings:        return &vSettings;
+#if defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
+    case Screen::Inbox:           return &vInbox;
+    case Screen::InboxRead:       return &vInboxRead;
+    case Screen::ContactPicker:   return &vContactPicker;
+    case Screen::CloudSettings:   return &vCloudSettings;
+    case Screen::CloudNotify:     return &vCloudNotify;
+#endif
     case Screen::QuickSettings:   return quickSettingsViewPtr();
     case Screen::Torch:           return torchViewPtr();
     case Screen::SettingsTime:    return settingsTimeViewPtr();

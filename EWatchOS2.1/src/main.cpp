@@ -1,6 +1,7 @@
 // EWatch v2 — boot only. Hardware bring-up + FreeRTOS task launch. All
 // runtime logic lives in controller.cpp (I/O + tasks) and view.cpp (UI).
 
+#include "cloud_msg.h"
 #if EW_APP_WAKESOAK
 #include "wake_soak.h"
 #endif  // EW_APP_WAKESOAK
@@ -447,6 +448,7 @@ void setup() {
   installTaskWatchdog();
 
   if (!gSafeMode) wifiSvcInit();
+  if (!gSafeMode) cloudInit();         // eWatch Cloud: token from NVS + its task
 #if defined(EW_APP_SPOTIFY) && EW_APP_SPOTIFY && \
     defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
   if (!gSafeMode) spotifyInit();       // load Client ID + refresh token (NVS)

@@ -1,3 +1,4 @@
+#include "cloud_msg.h"
 #include <stdarg.h>
 #include <string.h>
 #include <Preferences.h>
@@ -390,6 +391,8 @@ static void handleLine(char *line) {
   } else if (cfLinkConsole(line)) {
     // `cf ...` commands (modules/claudeface/cf_link.cpp)
 #endif  // EW_APP_CLAUDEFACE
+  } else if (cloudConsole(line)) {
+    // eWatch Cloud: cloud status|check|pair|unlink|url <u>
   } else if (ewsimHandleLine(line)) {
     // host test command (ewsim.cpp)
   } else {

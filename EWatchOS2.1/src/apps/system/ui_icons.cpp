@@ -254,6 +254,23 @@ void drawIcon(Arduino_GFX *d, Icon ic, int16_t cx, int16_t cy, int16_t s,
       thickLine(d, cx + sc(s, 3, 12), y0, cx + sc(s, 5, 12), y0 - sc(s, 1, 12), t, color);
       break;
     }
+    case Icon::Mail: {                 // envelope: body + flap V
+      int16_t w = sc(s, 6, 12), hh = sc(s, 4, 12);
+      d->fillRoundRect(cx - w, cy - hh, w * 2, hh * 2, 2, color);
+      for (int o = 0; o < 2; o++) {
+        d->drawLine(cx - w + 1, cy - hh + 1 + o, cx, cy + 1 + o, bg);
+        d->drawLine(cx + w - 2, cy - hh + 1 + o, cx, cy + 1 + o, bg);
+      }
+      break;
+    }
+    case Icon::Cloud: {                // three bumps on a flat base
+      int16_t r = sc(s, 3, 12), b = sc(s, 2, 12);
+      d->fillCircle(cx - r, cy + b - r / 2, r, color);
+      d->fillCircle(cx + r + 1, cy + b - r / 2, r, color);
+      d->fillCircle(cx, cy + b - r - r / 2, r + 1, color);
+      d->fillRect(cx - r, cy + b - r / 2, r * 2 + 1, r + 1, color);
+      break;
+    }
     case Icon::Book: {                 // open book: two pages + text lines
       int16_t q = sc(s, 4, 12), ph = sc(s, 5, 12), lg = sc(s, 2, 12);
       d->fillRoundRect(cx - q - 1, cy - ph, q, ph * 2, 2, color);

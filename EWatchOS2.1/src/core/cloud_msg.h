@@ -72,9 +72,56 @@ bool cloudSendImage(const char *toUserId, const uint16_t *pixels,
 
 enum class CloudSendState : uint8_t { Idle, Sending, Sent, Failed };
 CloudSendState cloudSendState(char *reason, size_t cap);   // last send
+uint32_t       cloudSendStateMs();                         // millis() of the last change
 
 // ---- inbox ---------------------------------------------------------------
 uint16_t cloudUnreadCount();            // last value from the server (0 if unknown)
+
+constexpr size_t kCloudInboxMax = 10;   // newest received messages kept
+constexpr size_t kCloudTextMax  = 1000; // server limit (printable ASCII on the watch)
+
+struct CloudMsg {
+  char     id[kCloudIdMax];
+  char     from[kCloudNameMax];        // sender display name (ASCII)
+  char     fromId[kCloudIdMax];        // sender user id (reply "to")
+  char     preview[40];                // first line of the text, or "Photo"
+  bool     image;
+  bool     read;
+  uint32_t ts;                         // unix seconds
+  uint16_t iw, ih;                     // watch image size
+};
+
+void     cloudRefreshInbox();           // queue GET /messages (opens a WiFi window)
+bool     cloudInboxLoading();
+uint32_t cloudInboxRevision();          // changes whenever the cached list changes
+size_t   cloudInbox(CloudMsg *out, size_t max);              // newest first
+bool     cloudInboxText(const char *id, char *out, size_t cap);   // full text
+void     cloudMarkRead(const char *id); // queued; the cached copy is updated at once
+
+// Watch copy of a message's image (JPEG from the server, decoded to RGB565 in
+// PSRAM). Request it, then poll. The pixels stay valid until the next
+// cloudLoadImage().
+enum class CloudImgState : uint8_t { Idle, Loading, Ready, Failed };
+void          cloudLoadImage(const char *id);
+CloudImgState cloudImage(const uint16_t **px, uint16_t *w, uint16_t *h);
+
+// The newest notification (valid after cloudTakeNotify() returned true).
+struct CloudNotice { char id[kCloudIdMax]; char from[kCloudNameMax]; char preview[80]; bool image; };
+void cloudNotice(CloudNotice *out);
+// The Inbox opens this message as soon as the list has it (notification "View").
+void cloudOpenWhenLoaded(const char *id);
+bool cloudTakeOpenId(char *out, size_t cap);
+
+// Reply: InboxRead sets it, Write sends to it without the picker.
+void cloudSetReplyTo(const CloudContact *c);     // nullptr clears
+bool cloudReplyTo(CloudContact *out);
+
+// Check for new messages now (summary + inbox; opens a WiFi window).
+void cloudCheckNow();
+const char *cloudBaseUrl();                      // static buffer
+void        cloudSetBaseUrl(const char *url);    // NVS; "" = https://api.ewatch.cloud
+// Console: "cloud status|check|pair|unlink|url <u>" (tests). True if handled.
+bool cloudConsole(const char *line);
 
 // Render-task hooks (called from controller.cpp):
 //   cloudTakeNotify(): true once per new message -> show the "New message" card

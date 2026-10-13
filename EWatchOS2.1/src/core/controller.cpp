@@ -1,3 +1,6 @@
+#if defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
+#include "cloud_views.h"
+#endif
 #include <Wire.h>
 #include <esp_task_wdt.h>
 #include "pins.h"
@@ -757,6 +760,10 @@ static void taskRender(void *) {
 #if EW_APP_MOUSE
     mouseCursorPaint();                    // overlay after the view drew (btmouse)
 #endif  // EW_APP_MOUSE
+#if defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
+    cloudViewsPollNotify();                // new eWatch Cloud message: card or toast
+    cloudToastPaint();                     // send status over the frame
+#endif
   }
 }
 

@@ -1,3 +1,4 @@
+#include "cloud_msg.h"
 #include <Wire.h>
 #include <Preferences.h>
 #include <esp_sleep.h>
@@ -231,6 +232,10 @@ static bool screenBlocksSleep(Screen s) {
     case Screen::Island:
 #endif
       return true;
+#if defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
+    case Screen::CloudSettings:   // the pairing code must stay readable
+      return cloudLinkState() == CloudLink::Pairing;
+#endif
 #if EW_APP_WRITE
     case Screen::Write:        // awake while someone is writing (< 60 s idle)
       return writeKeepAwake();

@@ -14,6 +14,7 @@ enum class Icon : uint8_t {
   Play, Pause, Next, Prev, Check, Cross, Clock, Vibrate, Memory, Bluetooth,
   Pen,
   Book,
+  Mail, Cloud,
 };
 
 // Draw the glyph. `color` is the main stroke; `bg` is used by the few icons
