@@ -478,6 +478,11 @@ static void taskIO(void *) {
                 postEvent(ge);
               } else
 #endif  // EW_APP_MOTION
+#if EW_APP_WRITE
+              // Write: a left-to-right stroke (H crossbar, space) is ink, not back.
+              if (scr == Screen::Write) {
+              } else
+#endif  // EW_APP_WRITE
               if (scr != Screen::Viewer3D && scr != Screen::Starfox) {
                 Event back = makeEvent(EventType::ButtonShort);
                 postEvent(back);

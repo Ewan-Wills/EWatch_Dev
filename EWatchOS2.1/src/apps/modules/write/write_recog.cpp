@@ -207,7 +207,7 @@ bool normalize(const RawPt *pts, int n, Pt out[kN]) {
   return resample(sWork, n, out) && scaleTranslate(out);
 }
 
-int classify(const Pt cloud[kN], Cand *out, int maxOut) {
+int classify(const Pt cloud[kN], Cand *out, int maxOut, bool userOnly) {
   float best[kClasses];
   bool  bestUser[kClasses];
   for (int i = 0; i < kClasses; i++) { best[i] = 1e30f; bestUser[i] = false; }
@@ -230,7 +230,7 @@ int classify(const Pt cloud[kN], Cand *out, int maxOut) {
     float d = greedyCloudMatch(cloud, t.p, limit);
     if (d < best[ci]) { best[ci] = d; bestUser[ci] = t.user; }
   };
-  for (int i = 0; i < sBuiltinN; i++) run(sBuiltin[i]);
+  if (!userOnly) for (int i = 0; i < sBuiltinN; i++) run(sBuiltin[i]);
   for (int i = 0; i < sUserN; i++) run(sUser[i]);
 
   int n = 0;

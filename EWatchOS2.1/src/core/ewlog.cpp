@@ -17,6 +17,9 @@
 #if EW_APP_MOUSE
 #include "btmouse.h"
 #endif  // EW_APP_MOUSE
+#if EW_APP_WRITE
+bool writeConsole(const char *line);    // modules/write/write_view.cpp
+#endif  // EW_APP_WRITE
 #if EW_APP_MOTION
 #include "motion_engine.h"   // `motion ...` console commands
 #endif  // EW_APP_MOTION
@@ -324,6 +327,10 @@ static void handleLine(char *line) {
   } else if (soakHandleLine(line)) {
     // wake soak test (apps/wake_soak.cpp)
 #endif  // EW_APP_WAKESOAK
+#if EW_APP_WRITE
+  } else if (writeConsole(line)) {
+    // `write text`: the Write app's text (tests)
+#endif  // EW_APP_WRITE
 #if EW_APP_MOTION
   } else if (motionConsole(line)) {
     // motion LM commands (modules/motion/motion_engine.cpp)

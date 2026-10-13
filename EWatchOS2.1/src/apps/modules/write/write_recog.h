@@ -38,7 +38,7 @@ bool normalize(const RawPt *pts, int n, Pt out[kN]);
 // Best match per character, best first (distinct characters). Returns the
 // number written (<= maxOut). score: 1 = identical, 0 = RMS point distance
 // of half the glyph box or worse (see NOTES.md).
-int  classify(const Pt cloud[kN], Cand *out, int maxOut);
+int  classify(const Pt cloud[kN], Cand *out, int maxOut, bool userOnly = false);
 
 // Edit gestures: a single straight stroke. Checked before classify().
 enum class Edit : uint8_t { None, Space, Backspace, Enter };

@@ -1,32 +1,55 @@
-# module test: build with EW_APPS=write
-# MUST FAIL (exit 1): proves `expect log WRITE:.*char=X` can fail
+# MUST FAIL: draws H, expects B (proves the checker can fail).
+# ewt -P . run test/write/write.ewt   (build with EW_APPS including write)
+goto AppList
+wait 300
 goto Write
-wait 400
-tap 210 72
-touch down 145 240
-touch move 150 225
-touch move 154 211
-touch move 159 196
-touch move 164 181
-touch move 169 166
-touch move 173 151
-touch move 178 137
-touch move 182 121
-touch move 186 113
-touch move 191 128
-touch move 195 142
-touch move 199 157
-touch move 204 172
-touch move 208 187
-touch move 213 202
-touch move 217 216
-touch move 220 231
-touch move 223 239
+wait 500
+expect screen Write
+# clear: hold delete (repeats, then whole words)
+long 210 250 5000
+wait 300
+# H in three strokes, any order
+touch down 105 120
+touch move 105 150
+touch move 105 180
+touch move 105 210
+touch move 105 240
 touch up
-touch down 208 188
-touch move 197 187
-touch move 186 188
-touch move 175 188
-touch move 164 187
+touch down 175 120
+touch move 175 150
+touch move 175 180
+touch move 175 210
+touch move 175 240
+touch up
+touch down 105 180
+touch move 130 180
+touch move 150 180
+touch move 175 180
 touch up
 expect log WRITE:.*char=B 1500
+# I
+touch down 140 120
+touch move 140 160
+touch move 140 200
+touch move 140 240
+touch up
+expect log WRITE:.*char=I 1500
+# space: straight stroke left to right (must not be "back")
+touch down 50 200
+touch move 90 201
+touch move 130 201
+touch move 170 202
+touch move 200 202
+touch up
+expect log WRITE:.*edit=space 1500
+expect screen Write
+# delete button: tap = one character
+tap 210 250
+expect log WRITE:.*edit=backspace 1000
+# shift: next letter upper case
+tap 30 250
+expect log WRITE:.*case=shift 1000
+expect noerr
+btn short
+wait 400
+expect screen AppList
