@@ -1,0 +1,19 @@
+# Host simulator: one stray 401 doesn't unlink (GET /device/me still says
+# 200); a revoked token (401 there too) does.
+raw cloud url usb:sim
+goto CloudSettings
+wait 600
+tap 120 230
+wait 7000
+raw cloud fake 401
+raw cloud check
+wait 1500
+expect log CLOUD:.*401\son\s/messages/summary,\s/device/me=200 1000
+raw cloud status
+expect log cloud\slink=2 1000
+raw cloud fake revoke
+raw cloud check
+wait 1500
+expect log CLOUD:.*/device/me=401 1000
+raw cloud status
+expect log cloud\slink=0\s.*err=Unlinked\son\sewatch.cloud 1000

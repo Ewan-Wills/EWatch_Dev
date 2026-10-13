@@ -63,11 +63,18 @@ expect log DRAW:.*clear\sbg=ffff 1000
 # undo the clear: back to the drawing
 tap 138 260
 expect log DRAW:.*op=undo\sops=2\s.*same=1 1000
-# send: picker (stub: picks Ewan) -> image handed over, same pixels as on screen
+# send (watch linked to eWatch Cloud: test/cloud/pair.ewt; simulator: add
+# --pref ewcloud.token=ewd_sim --pref ewcloud.url=usb:sim): picker -> the
+# second contact (row 2) -> image queued
 tap 213 260
 expect log DRAW:.*send:\spick\scontact 1000
-expect log DRAW:.*stub\ssend\sto=stub-ewan\sw=240\sh=240\sbytes=115200 1000
-expect log DRAW:.*send:\sto=stub-ewan\sw=240\sh=240\s.*same=1\squeued=1 1000
+wait 1200
+# (taps during the picker slide-up are ignored)
+expect screen ContactPicker
+tap 120 153
+expect log DRAW:.*send:\sto=\S+\sw=240\sh=240\s.*same=1\squeued=1 1500
+wait 400
+expect screen Draw
 snap sent
 expect noerr
 btn short

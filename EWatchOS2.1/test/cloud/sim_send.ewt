@@ -1,0 +1,84 @@
+# Host simulator (ewsimrec, stub cloud_net = fake server): pair, reply from
+# the reader, send from Write via the picker, send a drawing from Draw.
+raw cloud url usb:sim
+goto CloudSettings
+wait 600
+tap 120 230
+wait 1500
+snap s0_code
+wait 6000
+goto Inbox
+wait 1500
+snap s1_inbox
+# reply from the reader: Write shows "to Py B", sends without the picker
+tap 120 160
+wait 1200
+tap 120 249
+wait 1200
+expect screen Write
+snap s2_reply_empty
+raw write set Yes see you there
+goto AppList
+wait 300
+goto Write
+wait 800
+snap s3_reply
+tap 120 250
+expect log WRITE:.*send:\sto=u_pyb\sname=Py\sB\schars=17\squeued=1 2000
+expect log cloud\sfake:\ssent.*.to.:.u_pyb.,.text.:.Yes\ssee\syou\sthere 3000
+expect log WRITE:.*send:\ssent 3000
+wait 600
+raw write text
+expect log WTEXT:\| 1000
+snap s4_cleared
+# no reply target now: Send opens the picker
+raw write set Hi Ada
+goto AppList
+wait 300
+goto Write
+wait 800
+snap s5_plain
+tap 120 250
+wait 1200
+expect screen ContactPicker
+snap s6_picker
+tap 120 153
+expect log WRITE:.*send:\sto=u_ada\sname=Ada\schars=6\squeued=1 2000
+expect log WRITE:.*send:\ssent 3000
+wait 600
+expect screen Write
+raw write text
+expect log WTEXT:\| 1000
+snap s7_after_pick
+# server busy: the send fails, the text stays to try again
+raw write set Try again
+goto AppList
+wait 300
+goto Write
+wait 800
+raw cloud fake fail 503
+tap 120 250
+wait 1200
+tap 120 153
+expect log CLOUD:.*send\sto=u_ada\skind=text.*status=503 3000
+expect log WRITE:.*send:\sfailed 3000
+wait 300
+raw write text
+expect log WTEXT:Try\sagain\| 1000
+snap s7b_failed
+# Draw: a stroke, Send, pick Ada -> an EWI1 image goes out
+goto Draw
+wait 800
+drag 60 60 180 160 400
+wait 300
+tap 213 260
+wait 1200
+expect screen ContactPicker
+tap 120 153
+expect log DRAW:.*send:\sto=u_ada\sw=240\sh=240\s.*same=1\squeued=1 2000
+expect log cloud\sfake:\ssent.*.image.:.ewi1: 5000
+expect log CLOUD:.*send\sto=u_ada\skind=image.*status=201 3000
+wait 400
+expect screen Draw
+snap s8_draw_sent
+expect noerr

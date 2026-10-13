@@ -1,0 +1,17 @@
+# Pair over the USB relay with the local backend (test account a), from the
+# real settings screen. Needs: backend on :4100, claim.sh.
+raw cloud url usb:http://192.168.1.121:4100
+raw cloud unlink
+goto CloudSettings
+wait 500
+tap 120 230
+wait 3000
+raw cloud status
+expect log code=(\S+)\sleft 3000
+snap cs_code
+sh ~/Documents/EWatch/local-run/messages/claim.sh {1} a
+wait 6000
+raw cloud status
+expect log cloud\slink=2\sname=\S+ 1000
+snap cs_linked
+expect noerr

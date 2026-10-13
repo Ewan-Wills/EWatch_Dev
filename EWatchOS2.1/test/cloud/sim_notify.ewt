@@ -1,0 +1,27 @@
+# Host simulator: a new message while the watch face is up raises the card;
+# Later goes back, View opens that message in the reader.
+raw cloud url usb:sim
+goto CloudSettings
+wait 600
+tap 120 230
+wait 7000
+goto Watch
+wait 2500
+raw cloud fake say Are we still on for 6pm? Bring the cable
+raw cloud check
+wait 1500
+expect screen CloudNotify
+snap n1_card
+tap 60 240
+wait 600
+expect screen Watch
+raw cloud fake say Second one: running 10 min late
+raw cloud check
+wait 1500
+expect screen CloudNotify
+tap 180 240
+wait 2000
+expect screen InboxRead
+expect log CLOUD:.*read\sid=m4 3000
+snap n2_view
+expect noerr

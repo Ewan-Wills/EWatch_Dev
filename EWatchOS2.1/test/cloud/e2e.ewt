@@ -1,0 +1,59 @@
+# Watch <-> local backend over the USB relay, end to end. Run pair.ewt first
+# (watch linked to test account a; b = "Py B" is its contact).
+# Helpers: ~/Documents/EWatch/local-run/messages/{claim.sh,inbox.sh} (local rig),
+# ffmpeg (makes the test photo).
+raw cloud url usb:http://192.168.1.121:4100
+goto Watch
+wait 1500
+# 1. text from Py B -> card -> View -> reader
+sh ~/Documents/EWatch/local-run/messages/claim.sh say "Watch test: are you there?" a
+raw cloud check
+expect log CLOUD:.*summary\sunread=\d+\slatest=\S+\snew=1 5000
+wait 1500
+expect screen CloudNotify
+snap w1_card
+tap 180 240
+wait 3000
+expect screen InboxRead
+snap w2_read
+# 2. reply from Write -> Py B gets it
+tap 120 249
+wait 1200
+expect screen Write
+raw write set Yes from the watch
+goto AppList
+wait 300
+goto Write
+wait 800
+tap 120 250
+expect log WRITE:.*send:\sto=\S+\sname=Py\sB\schars=18\squeued=1 2000
+expect log WRITE:.*send:\ssent 8000
+sh ~/Documents/EWatch/local-run/messages/inbox.sh b 1 | grep -q '"t":"Yes from the watch"'
+# 3. photo from Py B -> card -> View -> decoded on the watch
+goto Watch
+wait 1000
+sh ffmpeg -loglevel error -y -f lavfi -i testsrc=size=640x480 -frames:v 1 /tmp/ewt-cloud-photo.jpg && ~/Documents/EWatch/local-run/messages/claim.sh pic /tmp/ewt-cloud-photo.jpg a
+raw cloud check
+expect log CLOUD:.*summary\sunread=\d+\slatest=\S+\snew=1 8000
+wait 1500
+expect screen CloudNotify
+tap 180 240
+expect log CLOUD:.*image\sid=\S+\sstatus=200\sbytes=\d+\sok=1 15000
+wait 1000
+snap w3_photo
+# 4. drawing from Draw -> picker -> Py B gets an image
+goto Draw
+wait 800
+drag 60 60 180 160 400
+wait 300
+tap 213 260
+wait 1500
+expect screen ContactPicker
+snap w4_picker
+tap 120 153
+expect log DRAW:.*send:\sto=\S+\sw=240\sh=240\s.*same=1\squeued=1 2000
+expect log CLOUD:.*send\sto=\S+\skind=image.*status=201 15000
+sh ~/Documents/EWatch/local-run/messages/inbox.sh b 1 | grep -q '"k":"i"'
+wait 500
+snap w5_draw_sent
+expect noerr

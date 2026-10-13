@@ -14,7 +14,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FW_ROOT = os.path.dirname(os.path.dirname(HERE))   # repo root (ewsim_host lives in tools/)
 
 # Firmware sources replaced by host stubs (radio / BLE stacks the host can't run).
-STUBBED = ["core/wifi_svc.cpp", "apps/spotify/spotify.cpp", "apps/modules/spotify/spotify.cpp", "apps/bluetooth.cpp",
+STUBBED = ["core/wifi_svc.cpp", "core/cloud_net.cpp", "apps/spotify/spotify.cpp", "apps/modules/spotify/spotify.cpp", "apps/bluetooth.cpp",
            "apps/xbox_pad.cpp", "apps/btmouse.cpp", "core/ble_stack.cpp"]
 RADIO_RE = re.compile(r'#include\s*<((?:WiFi|WiFiClient|WiFiClientSecure|HTTPClient|WebServer|AsyncTCP|ESPAsyncWebServer|BLE\w*|NimBLE\w*|esp_bt\w*|esp_gap\w*|esp_gatt\w*)\.h)>')
 LIBS = {  # build-dir name -> (libdeps folder, source globs relative to it, include dir)
