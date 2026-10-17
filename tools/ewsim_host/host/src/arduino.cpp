@@ -55,8 +55,17 @@ extern "C" void analogWrite(uint8_t, int) {}
 // ---------------------------------------------------------------- LEDC (backlight / haptic PWM)
 static uint32_t sLedcDuty[16];
 static int sLedcPin[16] = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
-extern "C" uint32_t ledcSetup(uint8_t, uint32_t freq, uint8_t) { return freq; }
-extern "C" void ledcWrite(uint8_t ch, uint32_t duty) { if (ch < 16) sLedcDuty[ch] = duty; }
+static uint32_t sLedcFreq[16];
+extern "C" uint32_t ledcSetup(uint8_t ch, uint32_t freq, uint8_t) { if (ch < 16) sLedcFreq[ch] = freq; return freq; }
+extern "C" uint32_t ledcReadFreq(uint8_t ch) { return ch < 16 ? sLedcFreq[ch] : 0; }
+extern "C" void ledcWrite(uint8_t ch, uint32_t duty) {
+  if (ch >= 16) return;
+  sLedcDuty[ch] = duty;
+  // EWSIM_MOTOR_TRACE=1: log every write to the haptic motor PWM (GPIO37) so
+  // effect timing can be checked without a watch.
+  static const bool trace = getenv("EWSIM_MOTOR_TRACE") != nullptr;
+  if (trace && sLedcPin[ch] == 37) fprintf(stderr, "MOTOR %u %u\n", (unsigned)millis(), (unsigned)duty);
+}
 extern "C" uint32_t ledcRead(uint8_t ch) { return ch < 16 ? sLedcDuty[ch] : 0; }
 extern "C" uint32_t ledcWriteTone(uint8_t, uint32_t f) { return f; }
 extern "C" void ledcAttachPin(uint8_t pin, uint8_t ch) { if (ch < 16) sLedcPin[ch] = pin; }

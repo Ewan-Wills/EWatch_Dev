@@ -45,6 +45,7 @@ void analogWrite(uint8_t pin, int value);
 uint32_t ledcSetup(uint8_t channel, uint32_t freq, uint8_t resolution_bits);
 void ledcWrite(uint8_t channel, uint32_t duty);
 uint32_t ledcRead(uint8_t channel);
+uint32_t ledcReadFreq(uint8_t channel);
 uint32_t ledcWriteTone(uint8_t channel, uint32_t freq);
 void ledcAttachPin(uint8_t pin, uint8_t channel);
 void ledcDetachPin(uint8_t pin);
