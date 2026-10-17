@@ -17,6 +17,7 @@
 #include <esp_task_wdt.h>
 #include "display.h"
 #include "haptic.h"
+#include "haptic_roles.h"
 #include "ui_kit.h"
 #include "ui_style.h"
 #include "ui_icons.h"
@@ -313,12 +314,12 @@ private:
     if (m >= 0) {
       pressedMedia = m;
       bool ok = btRemoteSend(mediaKey(m));
-      hapticBuzz(ok ? 40 : 120, ok ? 30 : 80);     // long buzz = not paired
+      haptic(ok ? HapticRole::Tap : HapticRole::Failed);   // failed = not paired
       return;
     }
     int t = tileAt(x, y);
     if (t < 0) return;
-    hapticBuzz(24, 30);
+    haptic(HapticRole::Tap);
     switch (t) {
       case 0: {                                        // WiFi toggle
         bool on;
@@ -330,7 +331,7 @@ private:
       }
       case 1: {                                        // Bluetooth remote toggle (saved)
         bool want = !btRemoteOn();
-        if (!btRemoteSetOn(want)) hapticBuzz(150, 120);  // stack failed to start
+        if (!btRemoteSetOn(want)) haptic(HapticRole::Failed);  // stack failed to start
         relayout();
         break;
       }
@@ -341,7 +342,7 @@ private:
           hs = model.hapticStrength; model.revision++; }
         hapticSetStrengthPct(hs);
         Storage::save();
-        if (hs) hapticBuzz(40, 45);                    // audible "back on" cue
+        if (hs) haptic(HapticRole::ToggleOn);          // "back on" cue
         break;
       }
       case 3:
@@ -354,7 +355,7 @@ private:
   }
 
   void dismiss() {
-    hapticBuzz(18, 20);
+    haptic(HapticRole::Back);
     switchToAnimated(Screen::Watch, Trans::CurtainUp);
   }
 };

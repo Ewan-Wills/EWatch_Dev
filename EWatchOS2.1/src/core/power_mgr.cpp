@@ -14,6 +14,7 @@
 #include "controller.h"
 #include "wifi_svc.h"
 #include "ewlog.h"
+#include "apptimer.h"     // timerArmed(): the countdown must wake us from light sleep
 #include "bluetooth.h"   // btRemoteOn(): no real light sleep while BLE is up
 #if EW_APP_MOUSE
 #include "btmouse.h"      // mouseConnected(): same, while a BLE mouse is linked
@@ -227,6 +228,9 @@ static bool screenBlocksSleep(Screen s) {
 #if EW_APP_RACER
     case Screen::Racer:
 #endif  // EW_APP_RACER
+#if EW_APP_HOPPER
+    case Screen::Hopper:
+#endif  // EW_APP_HOPPER
 #if defined(EWATCH_ENABLE_ISLAND) && EWATCH_ENABLE_ISLAND
     case Screen::Island:
 #endif
@@ -557,6 +561,22 @@ static void enterScreenOff() {
   // touch-wakeable dark screen.
   rtcMinuteTick(true);                // minute tick for background wakes
 
+  // Countdown Timer: the I/O task (which checks expiry) is parked from here,
+  // so the off phase itself must wake for the deadline. Read the RTC now
+  // (the model's clock froze at screen-off) and convert to a millis() target.
+  uint32_t timerDueMs = 0;              // 0 = no armed timer
+  if (timerArmed()) {
+    uint8_t h, m, s, wd, d, mo; uint16_t y;
+    if (readRTC(h, m, s, wd, d, mo, y)) {
+      uint32_t remain = timerRemainingSec(rtcEpochSec(y, mo, d, h, m, s));
+      timerDueMs = (millis() + remain * 1000UL) | 1;
+      EWLOGD("PWR", "timer_due_in_s=%lu", (unsigned long)remain);
+    }
+  }
+  auto timerDue = [&]() {
+    return timerDueMs && (int32_t)(millis() - timerDueMs) >= -30;
+  };
+
   // Anything queued before the screen went dark is stale.
   if (eventQueue) xQueueReset(eventQueue);
 
@@ -632,6 +652,11 @@ static void enterScreenOff() {
     uint32_t horizon = deepIn;
     uint32_t syncIn = wifiSvcNextWindowInMs();
     if (syncIn < horizon) horizon = syncIn;
+    if (timerDueMs) {
+      int32_t tIn = (int32_t)(timerDueMs - now);
+      uint32_t t = tIn <= 0 ? 1 : (uint32_t)tIn;
+      if (t < horizon) horizon = t;
+    }
     if (horizon < 50) horizon = 50;
 
     // Real light sleep would kill an active radio (softAP beacons / an open
@@ -666,8 +691,10 @@ static void enterScreenOff() {
     if (wake == WK_RTC) {
       rtcWrite8(0x0E, 0x00);          // clear UF -> release INT
       EWLOGD("PWR", "rtc_tick");
+      if (timerDue()) { wake = WK_TIMER; break; }   // belt and braces vs. a late timer wake
       continue;
     }
+    if (wake == WK_TIMER && timerDue()) break;   // countdown done: wake, the I/O task alarms
     if (wake == WK_TIMER) {
       if (toDeepSec > 0 && millis() - offStartMs >= (uint32_t)toDeepSec * 1000UL) {
         // Deep-sleep deadline. enterDeepSleep() does full shutdown; the
@@ -840,6 +867,7 @@ static void enterScreenOff() {
 
   const char *cause = (wake == WK_BUTTON) ? "button"
                     : (wake == WK_TOUCH)  ? "touch"
+                    : (wake == WK_TIMER)  ? "timer"
                     : "motion";
 #if EW_APP_WAKESOAK
   uint32_t offMs = millis() - offStartMs;

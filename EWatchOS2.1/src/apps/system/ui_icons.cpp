@@ -154,6 +154,16 @@ void drawIcon(Arduino_GFX *d, Icon ic, int16_t cx, int16_t cy, int16_t s,
       d->fillCircle(cx + sc(s, 3, 12), cy - sc(s, 1, 12), sc(s, 1, 8), color);
       break;
     }
+    case Icon::Frog: {                 // frog face: two eye bumps over a wide head
+      int16_t r = sc(s, 5, 12), er = sc(s, 2, 12) + 1;
+      d->fillRoundRect(cx - r - 1, cy - sc(s, 1, 12), (r + 1) * 2, sc(s, 6, 12), sc(s, 3, 12), color);
+      d->fillCircle(cx - sc(s, 3, 12), cy - sc(s, 2, 12), er + 1, color);
+      d->fillCircle(cx + sc(s, 3, 12), cy - sc(s, 2, 12), er + 1, color);
+      d->fillCircle(cx - sc(s, 3, 12), cy - sc(s, 2, 12), er - 1, bg);
+      d->fillCircle(cx + sc(s, 3, 12), cy - sc(s, 2, 12), er - 1, bg);
+      d->drawFastHLine(cx - sc(s, 3, 12), cy + sc(s, 2, 12), sc(s, 6, 12), bg);
+      break;
+    }
     case Icon::Island: {  // palm on a mound
       d->fillCircle(cx, cy + sc(s, 4, 12), sc(s, 4, 12), color);              // mound (top half visible)
       d->fillRect(cx - sc(s, 5, 12), cy + sc(s, 4, 12), sc(s, 10, 12), sc(s, 3, 12), bg);

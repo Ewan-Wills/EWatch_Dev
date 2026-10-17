@@ -13,6 +13,7 @@
 #include "spotify.h"
 #include "display.h"     // gfx
 #include "haptic.h"      // hapticBuzz
+#include "haptic_roles.h"
 #include "model.h"       // model (wifi status / IP) + ModelLock
 #include "wifi_svc.h"    // radio hold while the remote is on screen
 
@@ -456,7 +457,7 @@ void SpotifyView::adjustVolume(const SpotifySnapshot &s, int delta) {
   if (base < 0) base = 0; if (base > 100) base = 100;
   volOverlayVal = base;
   volOverlayUntil = millis() + 1300;
-  hapticBuzz(50, 35);
+  haptic(HapticRole::Adjust);
   Serial.printf("SPOT: volume swipe %+d -> %d%% (hasVol=%d)\n", delta, base, s.hasVolume);
   spotifyPostCmd(SpotifyCmd::VolumeSet, (int16_t)base);
 }
@@ -508,8 +509,8 @@ void SpotifyView::onEvent(const Event &e) {
       if (millis() - lastActionMs < ACTION_DEBOUNCE) return;
       bool acted = true;
       switch (e.gesture) {                  // flipped: left = next, right = prev
-        case Gesture::SwipeLeft:  hapticBuzz(60, 45); spotifyPostCmd(SpotifyCmd::Next); break;
-        case Gesture::SwipeRight: hapticBuzz(60, 45); spotifyPostCmd(SpotifyCmd::Prev); break;
+        case Gesture::SwipeLeft:  haptic(HapticRole::Scroll); spotifyPostCmd(SpotifyCmd::Next); break;
+        case Gesture::SwipeRight: haptic(HapticRole::Scroll); spotifyPostCmd(SpotifyCmd::Prev); break;
         case Gesture::SwipeUp:    adjustVolume(s, +10); break;
         case Gesture::SwipeDown:  adjustVolume(s, -10); break;
         default: acted = false; break;      // SingleTap/DoubleTap/LongPress
@@ -533,10 +534,10 @@ void SpotifyView::onEvent(const Event &e) {
       uint16_t x = downX, y = downY;
       if (inRect(x, y, 0, 0, BACK_W, BACK_H)) { switchTo(Screen::AppList); return; }
       if (y >= BOT_Y - 6) {                               // bottom transport row
-        if (x < 80)  { hapticBuzz(60, 45); spotifyPostCmd(SpotifyCmd::Prev); return; }
-        if (x > 160) { hapticBuzz(60, 45); spotifyPostCmd(SpotifyCmd::Next); return; }
+        if (x < 80)  { haptic(HapticRole::Scroll); spotifyPostCmd(SpotifyCmd::Prev); return; }
+        if (x > 160) { haptic(HapticRole::Scroll); spotifyPostCmd(SpotifyCmd::Next); return; }
       }
-      hapticBuzz(80, 55);                                 // centre / art -> play/pause
+      haptic(HapticRole::Tap);                                 // centre / art -> play/pause
       optimisticPlaying = !(haveOptimistic ? optimisticPlaying : s.isPlaying);
       haveOptimistic = true;
       spotifyPostCmd(SpotifyCmd::PlayPause);

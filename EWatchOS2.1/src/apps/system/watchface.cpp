@@ -28,6 +28,7 @@
 #include "pins.h"
 #include "display.h"
 #include "haptic.h"
+#include "haptic_roles.h"
 #include "ui_kit.h"
 #include "ui_style.h"
 #include "ui_icons.h"
@@ -36,6 +37,7 @@
 #include "storage.h"
 #include "apptimer.h"
 #include "wifi_svc.h"
+#include "radio_status.h"
 #include "system_views.h"
 #include "power_mgr.h"
 #include "default_bg.h"
@@ -148,11 +150,11 @@ public:
       case EventType::Gesture:
         switch (e.gesture) {
           case Gesture::SwipeUp:
-            hapticBuzz(20, 22);
+            haptic(HapticRole::Open);
             switchToAnimated(Screen::AppList, Trans::SheetUp);
             return;
           case Gesture::SwipeDown:
-            hapticBuzz(20, 22);
+            haptic(HapticRole::Open);
             switchToAnimated(Screen::QuickSettings, Trans::SheetDown);
             return;
           case Gesture::SwipeLeft:  cycleFace(+1); return;
@@ -160,7 +162,7 @@ public:
           default: return;
         }
       case EventType::ButtonShort:
-        hapticBuzz(20, 22);
+        haptic(HapticRole::Sleep);
         powerRequestSleep();
         return;
       default:
@@ -181,7 +183,7 @@ private:
     f = (uint8_t)((f + kNumFaces + dir) % kNumFaces);
     { ModelLock lk; model.watchFaceStyle = f; model.revision++; }
     Storage::save();
-    hapticBuzz(24, 30);
+    haptic(HapticRole::ModeChange);
     facePop.start(1.0f, 0.0f, 320, easeOutCubic);
   }
 
@@ -191,6 +193,7 @@ private:
     bool rtcOk;
     bool wifiOn;      // user's WiFi enable (model)
     bool wifiUp;      // radio actually associated / AP up right now
+    LinkQ wifiQ, bleQ; // status icons: Off = no icon
   };
   Snap grab() {
     Snap sn;
@@ -200,6 +203,8 @@ private:
       sn.year = model.year; sn.rtcOk = model.rtcOk;
       sn.wifiOn = model.wifiEnabled; }
     sn.wifiUp = wifiSvcRadioActive();
+    sn.wifiQ  = wifiLinkQ();
+    sn.bleQ   = bleLinkQ();
     return sn;
   }
 
@@ -232,16 +237,18 @@ private:
   static const char *kWd[7];
   static const char *kMon[12];
 
-  // Top-left WiFi status (all faces; display-only). accent = radio up,
-  // dim = enabled but idle (duty-cycled), slashed line-color = off.
+  // Top-left radio status (all faces; display-only). Each radio's icon shows
+  // only while that radio is on, coloured by link quality: grey = no link,
+  // red / orange / green = poor / medium / good (core/radio_status.cpp).
   void drawWifiStatus(const AuraTheme &th, const Snap &sn) {
-    const int16_t cx = 36, cy = 34;
-    uint16_t c = sn.wifiUp ? th.accent : (sn.wifiOn ? th.textDim : th.line);
-    drawIcon(canvas, Icon::Wifi, cx, cy, 26, c, th.bg);
-    if (!sn.wifiOn) {
-      canvas->drawLine(cx - 12, cy + 12, cx + 12, cy - 12, th.line);
-      canvas->drawLine(cx - 11, cy + 12, cx + 13, cy - 12, th.line);
+    int16_t cx = 36;
+    const int16_t cy = 34, step = 30;
+    if (sn.wifiQ != LinkQ::Off) {
+      drawIcon(canvas, Icon::Wifi, cx, cy, 26, linkQColor(sn.wifiQ), th.bg);
+      cx += step;
     }
+    if (sn.bleQ != LinkQ::Off)
+      drawIcon(canvas, Icon::Bluetooth, cx, cy, 22, linkQColor(sn.bleQ), th.bg);
   }
 
   void dateLine(char *buf, size_t n, const Snap &sn) {
@@ -417,10 +424,12 @@ private:
     canvas->setCursor(28, 150);
     canvas->print(dbuf);
     canvas->setCursor(28, 176);
-    canvas->printf("> wifi %s", sn.wifiOn ? (sn.wifiUp ? "up" : "on") : "off");
+    canvas->printf("> wifi %s", linkQName(sn.wifiQ));
+    canvas->setCursor(28, 200);
+    canvas->printf("> bt %s", linkQName(sn.bleQ));
     drawWifiStatus(th, sn);
     // blinking block cursor
-    if ((sn.s & 1) == 0) canvas->fillRect(28, 198, 12, 18, green);
+    if ((sn.s & 1) == 0) canvas->fillRect(28, 222, 12, 18, green);
   }
 
   // No-canvas fallback: bare time straight to gfx so the watch still works

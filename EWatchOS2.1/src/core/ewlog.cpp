@@ -17,10 +17,18 @@
 #if EW_APP_MOUSE
 #include "btmouse.h"
 #endif  // EW_APP_MOUSE
+#if EW_APP_HOPPER
+bool hopperConsole(const char *line);   // modules/hopper/hopper.cpp
+#endif  // EW_APP_HOPPER
 #if EW_APP_MOTION
 #include "motion_engine.h"   // `motion ...` console commands
 #endif  // EW_APP_MOTION
 #include "power_mgr.h"     // powerStatsPrint / powerSelfTest for the console
+#include "haptic_bench.h"   // `hap ...` haptic bench
+#include "controller.h"     // requestSetRTC for `rtc set`
+#include "radio_status.h"   // `radio`: status-icon link quality
+#include "wifi_svc.h"
+#include "ble_stack.h"
 #include "ewsim.h"         // `sim ...` host test commands
 
 // ---------------------------------------------------------------------------
@@ -287,7 +295,7 @@ static void handleLine(char *line) {
   if (strcmp(line, "help") == 0) {
     Serial.println("commands: log dump | log clear | log level <0-3> | "
                    "pwr stats | pwr selftest | pwr set <dim|off|deep|sync> <n> | "
-                   "keepcon <0|1> | sim <seq> <cmd> (ewsim.h)");
+                   "keepcon <0|1> | rtc set YYYY-MM-DD HH:MM:SS | hap (haptics) | sim <seq> <cmd> (ewsim.h)");
   } else if (strcmp(line, "log dump") == 0) {
     cmdLogDump();
   } else if (strcmp(line, "log clear") == 0) {
@@ -324,6 +332,10 @@ static void handleLine(char *line) {
   } else if (soakHandleLine(line)) {
     // wake soak test (apps/wake_soak.cpp)
 #endif  // EW_APP_WAKESOAK
+#if EW_APP_HOPPER
+  } else if (hopperConsole(line)) {
+    // Hopper test hooks (modules/hopper/hopper.cpp)
+#endif  // EW_APP_HOPPER
 #if EW_APP_MOTION
   } else if (motionConsole(line)) {
     // motion LM commands (modules/motion/motion_engine.cpp)
@@ -338,6 +350,31 @@ static void handleLine(char *line) {
   } else if (cfLinkConsole(line)) {
     // `cf ...` commands (modules/claudeface/cf_link.cpp)
 #endif  // EW_APP_CLAUDEFACE
+  } else if (strcmp(line, "radio") == 0) {
+    int8_t wr = 0, br = 0;
+    bool wOk = wifiSvcLastLink(wr), bOk = bleLastRssi(br, 12000);
+    bool en, conn; int8_t live;
+    { ModelLock lk; en = model.wifiEnabled; conn = model.wifiConnected; live = model.wifiRssi; }
+    Serial.printf("radio wifi=%s en=%d conn=%d live_rssi=%d last_ok=%d last_rssi=%d | "
+                  "ble=%s users=%d rssi_ok=%d rssi=%d\n",
+                  linkQName(wifiLinkQ()), en, conn, live, wOk, wr,
+                  linkQName(bleLinkQ()), bleStackUsers(), bOk, br);
+  } else if (strncmp(line, "rtc set ", 8) == 0) {
+    // rtc set YYYY-MM-DD HH:MM:SS  (local time; applied by the I/O task)
+    int y, mo, d, h, mi, s;
+    if (sscanf(line + 8, "%d-%d-%d %d:%d:%d", &y, &mo, &d, &h, &mi, &s) == 6 &&
+        y >= 2000 && y <= 2099 && mo >= 1 && mo <= 12 && d >= 1 && d <= 31 &&
+        h >= 0 && h < 24 && mi >= 0 && mi < 60 && s >= 0 && s < 60) {
+      static const int t[] = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};   // Sakamoto weekday
+      int yy = mo < 3 ? y - 1 : y;
+      uint8_t wd = (uint8_t)((yy + yy / 4 - yy / 100 + yy / 400 + t[mo - 1] + d) % 7);
+      requestSetRTC((uint8_t)h, (uint8_t)mi, (uint8_t)s, wd, (uint8_t)d, (uint8_t)mo, (uint16_t)y);
+      Serial.printf("rtc set %04d-%02d-%02d %02d:%02d:%02d wd=%u queued\n", y, mo, d, h, mi, s, wd);
+    } else {
+      Serial.println("usage: rtc set YYYY-MM-DD HH:MM:SS");
+    }
+  } else if (hapticConsole(line)) {
+    // haptic effects + vibration meter (core/haptic_bench.cpp)
   } else if (ewsimHandleLine(line)) {
     // host test command (ewsim.cpp)
   } else {

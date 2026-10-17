@@ -91,6 +91,9 @@
 #if EW_APP_RACER
 View *racerViewPtr();   // games/racer_view.cpp
 #endif  // EW_APP_RACER
+#if EW_APP_HOPPER
+View *hopperViewPtr();  // modules/hopper/hopper.cpp
+#endif  // EW_APP_HOPPER
 #if EW_APP_DOOM
 View *doomViewPtr();    // games/doom_app.cpp
 #endif  // EW_APP_DOOM
@@ -179,19 +182,23 @@ static const AuraEntry kTopApps[] = {
 #if EW_APP_RACER
   { "Racer",     Icon::Car,       aura::kOrange, Screen::Racer,       nullptr },
 #endif  // EW_APP_RACER
+#if EW_APP_HOPPER
+  { "Hopper",    Icon::Frog,      aura::kGreen,  Screen::Hopper,      nullptr },
+#endif  // EW_APP_HOPPER
 #if EW_APP_PET
   { "Pet",       Icon::Paw,       aura::kPink,   Screen::Tamagotchi,  nullptr },
 #endif  // EW_APP_PET
 #if defined(EWATCH_ENABLE_ISLAND) && EWATCH_ENABLE_ISLAND
   { "Island",    Icon::Island,    aura::kGreen,  Screen::Island,      nullptr },
 #endif
-  { "Particles", Icon::Sparkle,   aura::kYellow, Screen::Particles,   "TOYS"  },
-  { "Flock",     Icon::Bird,      aura::kTeal,   Screen::Boids,       nullptr },
   { "Settings",  Icon::Gear,      aura::kLine,   Screen::Settings,    "SYSTEM" },
   { "System",    Icon::Wrench,    aura::kLine,   Screen::SystemApps,  nullptr },
 };
 
 static const AuraEntry kSystemApps[] = {
+  { "Haptic Lab",     Icon::Vibrate, aura::kPurple, Screen::HapticLab,     nullptr },
+  { "Particles",      Icon::Sparkle, aura::kYellow, Screen::Particles,     nullptr },
+  { "Flock",          Icon::Bird,    aura::kTeal,   Screen::Boids,         nullptr },
   { "Sensor Test",    Icon::Info,    aura::kTeal,   Screen::SensorTest,    nullptr },
   { "Touch Gestures", Icon::Sparkle, aura::kBlue,   Screen::TouchGestures, nullptr },
   { "IMU Gestures",   Icon::Cube,    aura::kPurple, Screen::ImuGestures,   nullptr },
@@ -317,6 +324,7 @@ View *viewFor(Screen s) {
     case Screen::SettingsDisplay: return settingsDisplayViewPtr();
     case Screen::SettingsFont:    return settingsFontViewPtr();
     case Screen::SettingsHaptics: return settingsHapticsViewPtr();
+    case Screen::HapticLab:       return hapticLabViewPtr();
     case Screen::SettingsMemory:  return settingsMemoryViewPtr();
 #if defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
     case Screen::SettingsWifi:      return settingsWifiViewPtr();
@@ -403,6 +411,9 @@ View *viewFor(Screen s) {
 #if EW_APP_RACER
     case Screen::Racer:           return racerViewPtr();
 #endif  // EW_APP_RACER
+#if EW_APP_HOPPER
+    case Screen::Hopper:          return hopperViewPtr();
+#endif  // EW_APP_HOPPER
 #if EW_APP_DOOM
     case Screen::Doom:            return doomViewPtr();
 #endif  // EW_APP_DOOM

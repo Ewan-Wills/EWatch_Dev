@@ -4,6 +4,7 @@
 #include <Arduino_GFX_Library.h>
 #include "display.h"
 #include "haptic.h"
+#include "haptic_roles.h"
 #include "power.h"
 #include "ui_kit.h"
 #include "controller.h"
@@ -115,7 +116,7 @@ private:
       gfx->print("bye");
     }
     backlightOff();
-    hapticBuzz(180, 200);
+    haptic(HapticRole::PowerOff);
     vTaskDelay(pdMS_TO_TICKS(80));
     unlatchPower();
     for (;;) vTaskDelay(pdMS_TO_TICKS(1000));
@@ -128,7 +129,7 @@ private:
       gfx->setCursor(60, 130);
       gfx->print("sleeping");
     }
-    hapticBuzz(120, 80);
+    haptic(HapticRole::Sleep);
     vTaskDelay(pdMS_TO_TICKS(120));
     backlightOff();
     enterDeepSleep();         // does not return

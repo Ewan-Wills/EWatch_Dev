@@ -10,6 +10,7 @@
 #include "tunnel.h"
 #include "display.h"     // gfx, frameCanvas
 #include "haptic.h"      // hapticBuzz
+#include "haptic_roles.h"
 #include "model.h"       // model + ModelLock (accel for tilt)
 #include "event.h"       // eventQueue
 #include "view.h"        // switchTo, tappedBack
@@ -211,7 +212,7 @@ void startGame() {
   shardCount = 0;
   phase = Phase::Playing;
   lastFrameMs = millis();
-  hapticBuzz(70, 45);
+  haptic(HapticRole::ToggleOn);
 }
 
 // ---- steering ----
@@ -235,8 +236,8 @@ void resolveObstacle(long g) {
   float gc = gapCenter(g), gh = gapHalf();
   float diff = fabsf(wrapPi(playerAngle - gc));
   if (diff <= gh) {
-    if (diff < gh * 0.28f) { bonusScore += 25; hapticBuzz(90, 22); }  // clean pass
-    else if (diff > gh * 0.62f) hapticBuzz(45, 12);                   // scrape
+    if (diff < gh * 0.28f) { bonusScore += 25; haptic(HapticRole::Collect); }  // clean pass
+    else if (diff > gh * 0.62f) haptic(HapticRole::HitLight);                   // scrape
   } else {
     triggerCrash();
   }
@@ -264,7 +265,7 @@ void update(float dt) {
           lastHapticBucket = bucket;
           float f = (speed - BASE_SPEED) / (MAX_SPEED - BASE_SPEED);
           if (f < 0) f = 0; if (f > 1) f = 1;
-          hapticBuzz((uint8_t)(70 + 130 * f), 28);   // rising pulse with speed
+          hapticBuzz((uint8_t)(70 + 130 * f), 28);   // rising pulse with speed (analog on purpose: strength = speed)
         }
       }
       break;
@@ -458,7 +459,7 @@ void triggerCrash() {
   // Hard crash buzz — but kept inside the firmware's proven-safe motor envelope
   // (≤180 PWM / ~200 ms elsewhere). A full 255/280 ms pulse spikes motor current
   // hard enough to brown out the soft-latch rail on a low battery → reset on death.
-  hapticBuzz(190, 170);
+  haptic(HapticRole::Explosion);
 
   // Seed shards from the nearest few rings' edges, blown outward from centre.
   rngState ^= (uint32_t)millis() * 2654435761u | 1u;

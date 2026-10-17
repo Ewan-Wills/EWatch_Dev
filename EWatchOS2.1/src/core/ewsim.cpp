@@ -38,6 +38,7 @@ Arduino_DataBus *ewsimMakeBus(int8_t dc, int8_t cs, int8_t sck, int8_t mosi,
   return new Arduino_ESP32SPI(dc, cs, sck, mosi, miso, spiNum);
 }
 bool ewsimHandleLine(char *) { return false; }
+void ewsimEnsureAwake() {}
 
 #else
 
@@ -285,6 +286,7 @@ static char ensureAwake() {
   }
   return ps == PowerState::Idle ? 'I' : 'A';
 }
+void ewsimEnsureAwake() { (void)ensureAwake(); }
 
 // Finger path from (x1,y1) to (x2,y2) over durMs, one step per I/O cycle.
 static void path(int x1, int y1, int x2, int y2, uint32_t durMs) {

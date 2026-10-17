@@ -31,6 +31,7 @@ int     mouseTakeGoto();                                   // -1 or Screen id
 bool    mouseTakeWake();                                   // moved while screen off
 bool    mouseTakeActivity();                               // moved since last call
 bool    mouseConnected();
+bool    mousePeer(uint8_t out[6]);   // connected mouse's address (false if none)
 bool    mouseCursorActive();                               // cursor showing / moving
 void    mouseCursorPaint();                                // render task, after render()
 void    mouseBegin();                                      // boot: auto-start if enabled

@@ -3,6 +3,7 @@
 #include <esp_task_wdt.h>
 #include "display.h"
 #include "haptic.h"
+#include "haptic_roles.h"
 #include "ui_kit.h"
 #include "ui_style.h"
 #include "power_mgr.h"
@@ -297,7 +298,7 @@ int AuraListView::hitRow(int16_t x, int16_t y) const {
 }
 
 void AuraListView::goBack() {
-  hapticBuzz(20, 22);
+  haptic(HapticRole::Back);
   switchToAnimated(backScreen, backTrans);
 }
 
@@ -364,7 +365,7 @@ void AuraListView::handleEvent(const Event &e) {
       }
       phys.release();
       if (!dragMode && !travelled && pressed >= 0 && !longFired) {
-        hapticBuzz(24, 30);
+        haptic(HapticRole::Open);
         launchRow  = pressed;
         launchAtMs = millis() + 110;             // one press-flash frame first
       }

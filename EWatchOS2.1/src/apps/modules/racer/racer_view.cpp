@@ -24,6 +24,7 @@
 #include "event.h"
 #include "display.h"
 #include "haptic.h"
+#include "haptic_roles.h"
 #include <Preferences.h>
 
 // ---- Brand palette (spec: #0E0D0B sky-to-road, #E86B2B car/UI accent) ----
@@ -253,7 +254,7 @@ private:
     // keep advancing playerZ_ so the road shape carries over from the menu
     for (int i = 0; i < NUM_TRAFFIC; i++) spawnCar(i, playerZ_ + i * 2200.0f);
     lastFrameMs_ = millis();
-    hapticBuzz(220, 70);
+    haptic(HapticRole::ToggleOn);
   }
 
   void endRun() {
@@ -267,7 +268,7 @@ private:
     crashFlashMs_ = millis();
     boosting_ = false;
     speed_ = 0;
-    hapticBuzz(255, 280);             // full-strength crash jolt
+    haptic(HapticRole::Explosion);             // crash
   }
 
   void spawnCar(int i, float baseZ) {
@@ -327,7 +328,7 @@ private:
     // off-road rumble
     if (offRoad && speed_ > 250.0f && (now - lastRumbleMs_) > 110) {
       lastRumbleMs_ = now;
-      hapticBuzz(90, 35);
+      haptic(HapticRole::Speed);
     }
 
     // traffic: advance, recycle, and test for collisions

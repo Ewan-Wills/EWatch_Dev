@@ -1007,8 +1007,15 @@ static void teardownToOff() {
 // Session bookkeeping (RadioManager). All close paths log one WIFI line —
 // that log stream is the acceptance evidence that the radio only associates
 // inside windows.
+// Last sync session's link, for the watch-face signal icon: the radio is off
+// between windows, so the live RSSI is only meaningful inside one.
+static volatile bool   sLastLinkOk   = false;
+static volatile int8_t sLastLinkRssi = 0;
+
 static void windowCloseOk(const char *result) {
   uint32_t assocMs = millis() - assocStartMs;
+  sLastLinkRssi = (int8_t)WiFi.RSSI();
+  sLastLinkOk   = sLastLinkRssi < 0;
   EWLOGI("WIFI", "session result=%s connect_ms=%lu rssi=%d dur_ms=%lu "
                  "assoc_ms=%lu bytes_tx=NA bytes_rx=NA",
          result, (unsigned long)sessConnectMs, (int)WiFi.RSSI(),
@@ -1021,6 +1028,7 @@ static void windowCloseOk(const char *result) {
 }
 
 static void windowCloseFail(const char *result) {
+  sLastLinkOk = false;
   EWLOGW("WIFI", "session result=%s connect_ms=NA dur_ms=%lu rssi_best=%d "
                  "backoff_x=%u",
          result, (unsigned long)(millis() - windowStartMs),
@@ -1310,6 +1318,11 @@ bool wifiSvcWindowActive() {
   return windowOpen;
 }
 
+bool wifiSvcLastLink(int8_t &rssi) {
+  rssi = sLastLinkRssi;
+  return sLastLinkOk;
+}
+
 uint32_t wifiSvcNextWindowInMs() {
   bool en; WifiMode m;
   { ModelLock lk; en = model.wifiEnabled; m = model.wifiMode; }
@@ -1370,6 +1383,7 @@ void wifiSvcStartTask() {}
 void wifiSvcRequestScan() {}
 bool wifiSvcRadioActive() { return false; }
 bool wifiSvcWindowActive() { return false; }
+bool wifiSvcLastLink(int8_t &rssi) { rssi = 0; return false; }
 uint32_t wifiSvcNextWindowInMs() { return 0xFFFFFFFFUL; }
 void wifiSvcKickWindow() {}
 void wifiSvcHold(bool) {}

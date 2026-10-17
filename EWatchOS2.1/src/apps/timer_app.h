@@ -32,7 +32,8 @@ private:
 
   // Alert state: timer-fired flashing-bg + triplet-buzz pattern.
   uint32_t alertCycleStartMs = 0;   // start of the current ~1.2 s pattern cycle
-  uint8_t  alertPulseStage   = 0;   // 0..3 — pulses already fired this cycle
+  uint8_t  alertPulseStage   = 0;   // (unused since the Alarm effect carries the rhythm)
+  uint32_t alertRingStartMs  = 0;   // when ringing began: keeps the screen awake for 60 s
   int8_t   lastAlertFlip     = -1;  // -1 = unknown, 0/1 = drawn state
 
   void enterSetting();

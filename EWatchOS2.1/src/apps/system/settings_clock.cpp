@@ -4,6 +4,7 @@
 #include <Arduino_GFX_Library.h>
 #include "display.h"
 #include "haptic.h"
+#include "haptic_roles.h"
 #include "ui_kit.h"
 #include "controller.h"
 #include "system_views.h"
@@ -87,7 +88,7 @@ public:
 
     if (e.type == EventType::Touch) {
       if (col >= 0) {
-        bump(col, sign); hapticBuzz(40, 50);
+        bump(col, sign); haptic(HapticRole::Adjust);
         startHold(col, sign);
         return;
       }
@@ -99,7 +100,7 @@ public:
           wd = model.weekday; dd = model.day;
           mo = model.month;   yr = model.year; }
         requestSetRTC(h, m, s, wd, dd, mo, yr);
-        hapticBuzz(120, 70);
+        haptic(HapticRole::Confirm);
         switchTo(Screen::Settings);
       }
       return;
@@ -218,7 +219,7 @@ public:
 
     if (e.type == EventType::Touch) {
       if (col >= 0) {
-        bump(col, sign); hapticBuzz(40, 50);
+        bump(col, sign); haptic(HapticRole::Adjust);
         startHold(col, sign);
         return;
       }
@@ -228,7 +229,7 @@ public:
         { ModelLock lk; hh = model.hour; mm = model.minute; ss = model.second; }
         uint8_t wd = kvSakamoto(year, mon, day);
         requestSetRTC(hh, mm, ss, wd, day, mon, year);
-        hapticBuzz(120, 70);
+        haptic(HapticRole::Confirm);
         switchTo(Screen::Settings);
       }
       return;

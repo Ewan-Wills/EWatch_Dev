@@ -30,6 +30,7 @@
 #include "hidctl.h"
 #include "display.h"
 #include "haptic.h"
+#include "haptic_roles.h"
 #include "model.h"
 #include "ewlog.h"
 
@@ -436,12 +437,12 @@ void HidCtlView::handleTap(uint16_t x, uint16_t y) {
   // Clear
   if (inBtn(x, y, CLR_X, CLR_W)) {
     gLen = 0; gCaret = 0; gText[0] = '\0'; gDirty = true;
-    hapticBuzz(150, 25); gForceRepaint = true; return;
+    haptic(HapticRole::Destructive); gForceRepaint = true; return;
   }
   // Save
   if (inBtn(x, y, SAVE_X, SAVE_W)) {
     bool ok = saveNote();
-    hapticBuzz(ok ? 180 : 80, ok ? 40 : 120); gForceRepaint = true; return;
+    haptic(ok ? HapticRole::Confirm : HapticRole::Failed); gForceRepaint = true; return;
   }
 }
 

@@ -6,6 +6,7 @@
 #include <esp_random.h>
 #include "display.h"
 #include "haptic.h"
+#include "haptic_roles.h"
 #include "ui_kit.h"
 #include "particles.h"
 
@@ -96,14 +97,14 @@ void ParticlesView::onExit() {
 }
 
 void ParticlesView::onEvent(const Event &e) {
-  if (e.type == EventType::ButtonShort) { switchTo(Screen::AppList); return; }
+  if (e.type == EventType::ButtonShort) { switchTo(Screen::SystemApps); return; }
   if (e.type == EventType::Gesture) {
     if (e.gesture == Gesture::SwipeUp || e.gesture == Gesture::SwipeDown) {
       int d = (e.gesture == Gesture::SwipeUp) ? 1 : -1;
       mode = (uint8_t)((mode + 3 + d) % 3);
       resetParticles();
       modeLabelUntil = millis() + 1500;
-      hapticBuzz(50, 50);
+      haptic(HapticRole::ModeChange);
     }
     return;
   }
@@ -117,7 +118,7 @@ void ParticlesView::onEvent(const Event &e) {
         pool[i] = { (float)e.x, (float)(H - 4),
                     (frnd() - 0.5f) * 0.6f, -(4.5f + frnd() * 1.5f),
                     (uint16_t)(46 + (rnd() % 20)), (uint8_t)rnd(), 0 };
-        hapticBuzz(40, 30);
+        haptic(HapticRole::Shoot);
       }
     }
     return;
@@ -202,7 +203,7 @@ void ParticlesView::step() {
           uint8_t baseHue = p.hue;
           float bx = p.x, by = p.y;
           p.life = 0;
-          hapticBuzz(90, 40);
+          haptic(HapticRole::HitLight);
           for (int s = 0; s < 70; s++) {
             int j = alloc();
             if (j < 0) break;

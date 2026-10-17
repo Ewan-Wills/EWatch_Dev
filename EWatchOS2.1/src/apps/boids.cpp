@@ -5,6 +5,7 @@
 #include <esp_random.h>
 #include "display.h"
 #include "haptic.h"
+#include "haptic_roles.h"
 #include "ui_kit.h"
 #include "boids.h"
 
@@ -78,7 +79,7 @@ void BoidsView::onEnter() {
 }
 
 void BoidsView::onEvent(const Event &e) {
-  if (e.type == EventType::ButtonShort) { switchTo(Screen::AppList); return; }
+  if (e.type == EventType::ButtonShort) { switchTo(Screen::SystemApps); return; }
   if (e.type == EventType::Touch) {
     touchDown = true;
     touchX = (int16_t)e.x; touchY = (int16_t)e.y;
@@ -98,7 +99,7 @@ void BoidsView::onEvent(const Event &e) {
     if (!pressMoved && millis() - pressMs < 350) {
       scene = (uint8_t)(1 - scene);
       sceneLabelUntil = millis() + 1500;
-      hapticBuzz(50, 50);
+      haptic(HapticRole::ModeChange);
     }
     return;
   }

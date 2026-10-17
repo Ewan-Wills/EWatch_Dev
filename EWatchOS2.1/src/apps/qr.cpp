@@ -15,6 +15,7 @@
 #include "qr.h"
 #include "display.h"
 #include "haptic.h"
+#include "haptic_roles.h"
 #include "event.h"
 
 static const int16_t W = 240, H = 280;
@@ -135,11 +136,11 @@ void QRCodeView::render() {
     if (e.type == EventType::Gesture) {
       if (e.gesture == Gesture::SwipeUp) {
         index = (index + 1) % kPayloadCount;
-        hapticBuzz(50, 50);
+        haptic(HapticRole::Scroll);
         renderQR(index);
       } else if (e.gesture == Gesture::SwipeDown) {
         index = (index + kPayloadCount - 1) % kPayloadCount;
-        hapticBuzz(50, 50);
+        haptic(HapticRole::Scroll);
         renderQR(index);
       }
     }

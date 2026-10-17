@@ -48,6 +48,7 @@
 #include "pins.h"
 #include "display.h"
 #include "haptic.h"
+#include "haptic_roles.h"
 #include "ewsim.h"     // host test hooks: simulated finger / side button / tilt
 #include "ewlog.h"
 #include "controller.h" // readAccel(): the I/O task is parked, the bus is ours
@@ -928,7 +929,7 @@ static void hurtPlayerFrom(float sx, float sy, int dmg) {
   if (health < 0) health = 0;
   hurtFlash = 0.30f;
   shake(0.18f, 4);
-  hapticBuzz(200, 70);
+  haptic(HapticRole::Damage);
   float tx, ty; worldToCamera(sx, sy, tx, ty);
   if (ty < 0.2f) { dmgLeft = dmgRight = 1; }
   else if (tx / ty < -0.25f) dmgLeft = 1;
@@ -985,7 +986,7 @@ static void damageEnemy(int i, int dmg, uint8_t dtype, bool ap, float fromX, flo
     e.dying = 0.45f;
     e.burn = 0;
     kills++;
-    hapticBuzz(220, 90);
+    haptic(HapticRole::HitHeavy);
     if (d.kind == K_BOMBER) e.boom = true;
     dropLoot(e);
     EWLOGI("DOOM", "kill %s %d/%d", d.name, kills, enemyN);
@@ -996,7 +997,7 @@ static void explode(float x, float y, float radius, int dmg, bool byPlayer) {
   addFx(x, y, 0.35f, radius * 0.9f);
   shake(0.3f, 6);
   boomFlash = 0.18f;
-  hapticBuzz(255, 120);
+  haptic(HapticRole::Explosion);
   for (int i = 0; i < enemyN; i++) {
     if (!enemy[i].alive) continue;
     float dx = enemy[i].x - x, dy = enemy[i].y - y, d = sqrtf(dx * dx + dy * dy);
@@ -1055,7 +1056,7 @@ static void fireGun() {
       sawT = 0.15f;
       int n = hitscan(0, g.window, g.range, hits, 2);
       for (int k = 0; k < n; k++) damageEnemy(hits[k], g.dmg, g.dtype, false, posX, posY, 0.4f);
-      if (n) { shake(0.05f, 2); hapticBuzz(140, 30); }
+      if (n) { shake(0.05f, 2); haptic(HapticRole::HitLight); }
       return;
     }
     case M_FLAME: {
@@ -1070,7 +1071,7 @@ static void fireGun() {
         damageEnemy(i, g.dmg, g.dtype, false, posX, posY, 0.1f);
         if (kEnemies[enemy[i].type].mult[DT_FIRE] > 0.3f) enemy[i].burn = BURN_S;
       }
-      if (rndi(3) == 0) hapticBuzz(90, 20);
+      if (rndi(3) == 0) haptic(HapticRole::HitLight);
       return;
     }
     default: break;
@@ -1079,7 +1080,7 @@ static void fireGun() {
   bool heavy = gun == G_SNIPER || gun == G_SHOTGUN || g.mode == M_ROCKET || g.mode == M_RAIL || g.mode == M_GREN;
   gunRecoil = heavy ? 1.6f : 1.0f;
   shake(heavy ? 0.14f : 0.08f, gun == G_SHOTGUN || g.mode == M_ROCKET || g.mode == M_RAIL ? 4 : 2);
-  hapticBuzz(gun == G_SMG || g.mode == M_PLASMA ? 110 : 170, gun == G_SMG || g.mode == M_PLASMA ? 25 : 50);
+  haptic(gun == G_SMG || g.mode == M_PLASMA ? HapticRole::HitLight : HapticRole::Shoot);   // rapid fire stays light
   switch (g.mode) {
     case M_ROCKET: spawnProj(posX + dirX * 0.4f, posY + dirY * 0.4f, ang, RPG_SPEED, g.dmg, PK_ROCKET, true); return;
     case M_PLASMA: spawnProj(posX + dirX * 0.3f, posY + dirY * 0.3f, ang + (rndf() * 2 - 1) * g.spread, 12.0f, g.dmg, PK_PLASMA, true); return;
@@ -1117,7 +1118,7 @@ static void switchWeapon() {
       railCharge = 0; fireCd = 0.15f;
       EWLOGI("DOOM", "switch %s", kGuns[g].name);
       toast(kGuns[g].name, 0.7f);
-      hapticBuzz(80, 20);
+      haptic(HapticRole::ModeChange);
       return;
     }
   }
@@ -1136,12 +1137,12 @@ static void tryFire() {
   if (fireCd > 0) return;
   const GunDef &g = kGuns[gun];
   if (g.ammo != AM_NONE && ammo[g.ammo] < g.perShot) {
-    if (clickCd <= 0) { toast("NO AMMO - SWITCH", 0.8f); hapticBuzz(60, 20); clickCd = 0.6f; }
+    if (clickCd <= 0) { toast("NO AMMO - SWITCH", 0.8f); haptic(HapticRole::Refused); clickCd = 0.6f; }
     fireCd = 0.2f;
     return;
   }
   if (g.mode == M_RAIL) {                              // charge, then fire (see handlePlay)
-    if (railCharge <= 0) { railCharge = 0.001f; hapticBuzz(60, 30); }
+    if (railCharge <= 0) { railCharge = 0.001f; haptic(HapticRole::PowerUp); }
     return;
   }
   fireGun();
@@ -1391,7 +1392,7 @@ static void updateItems() {
     }
     it.live = false;
     pickFlash = it.kind == IT_COIN ? 0.12f : 0.25f;
-    hapticBuzz(it.kind == IT_COIN ? 70 : 120, it.kind == IT_COIN ? 15 : 40);
+    haptic(it.kind == IT_COIN ? HapticRole::Collect : HapticRole::PowerUp);
     if (it.kind != IT_COIN)
       EWLOGI("DOOM", "pickup %s hp=%d gun=%s ammo=%d", it.kind == IT_MED ? "health" : it.kind == IT_GUN ? kGuns[it.sub].name : kAmmoName[it.sub],
              health, kGuns[gun].name, kGuns[gun].ammo == AM_NONE ? 0 : ammo[kGuns[gun].ammo]);
@@ -1826,7 +1827,7 @@ static bool shopUseless(const ShopItem &s) {
 static void shopBuy(int i) {
   ShopItem s = shop[i];                                // copy: buying a gun rebuilds shop[]
   if (shopUseless(s)) { toast(s.kind == SH_GUN ? "ALREADY OWNED" : "ALREADY FULL", 0.8f); return; }
-  if (coins < s.price) { toast("NOT ENOUGH $", 0.8f); hapticBuzz(60, 30); return; }
+  if (coins < s.price) { toast("NOT ENOUGH $", 0.8f); haptic(HapticRole::Refused); return; }
   coins -= s.price;
   switch (s.kind) {
     case SH_HEAL: health = health + 25 > 100 ? 100 : health + 25; break;
@@ -1842,7 +1843,7 @@ static void shopBuy(int i) {
              break;
   }
   char m[28], l[20]; shopLabel(s, l, sizeof l); snprintf(m, sizeof m, "BOUGHT %s", l); toast(m, 0.9f);
-  hapticBuzz(120, 40);
+  haptic(HapticRole::PowerUp);
   EWLOGI("DOOM", "shop bought %s $%d left", l, coins);
 }
 
@@ -1946,7 +1947,7 @@ static void relevel() {
   tiltZero = tiltLat;
   turnVel = spin = 0;
   toast("LEVEL SET", 0.8f);
-  hapticBuzz(90, 30);
+  haptic(HapticRole::Confirm);
 }
 
 static void handlePlay(float dt, bool finger, int fx, int fy, bool fireNow, bool fireHeld) {
@@ -2044,7 +2045,7 @@ static void handlePlay(float dt, bool finger, int fx, int fy, bool fireNow, bool
   if (state == PLAY && kills >= enemyN) {
     if (clearT <= 0) {
       clearT = CLEAR_S;
-      hapticBuzz(150, 120);
+      haptic(HapticRole::LevelUp);
       EWLOGI("DOOM", "round cleared level %d: %ds to collect", level, (int)CLEAR_S);
     } else if ((clearT -= dt) <= 0) {
       clearT = 0;
@@ -2159,7 +2160,7 @@ void doomFrame() {
   uint32_t held = btn ? now - btnDownMs : 0;
   exitHold = held > EXIT_SHOW_MS ? (float)(held - EXIT_SHOW_MS) / (EXIT_MS - EXIT_SHOW_MS) : 0;
   if (exitHold > 1) exitHold = 1;
-  if (btn && held >= EXIT_MS) { sDoomExit = true; btnDownMs = now; hapticBuzz(200, 60); }
+  if (btn && held >= EXIT_MS) { sDoomExit = true; btnDownMs = now; haptic(HapticRole::LongPress); }
   bool doublePress = btnEdge && now - lastPressMs < DOUBLE_MS;
   if (btnEdge) lastPressMs = doublePress ? 0 : now;
   prevBtn = btn;

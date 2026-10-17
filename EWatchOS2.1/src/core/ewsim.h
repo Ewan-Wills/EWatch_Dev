@@ -70,3 +70,6 @@ static inline void    ewsimAccel(bool &, int16_t &, int16_t &, int16_t &) {}
 static inline int     ewsimTakeGoto() { return -1; }
 static inline bool    ewsimTakeWake() { return false; }
 #endif
+
+// Wake a screen-off watch (I/O task resumes) and wait for it. Console tasks only.
+void ewsimEnsureAwake();

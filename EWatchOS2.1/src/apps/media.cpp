@@ -20,6 +20,7 @@
 #include "media.h"
 #include "display.h"
 #include "haptic.h"
+#include "haptic_roles.h"
 #include "event.h"
 #include "manifest.h"
 
@@ -176,7 +177,7 @@ void MediaView::render() {
 
     if (verdict == 0) break;                              // exit
     index = (index + count + verdict) % count;            // next / prev
-    hapticBuzz(50, 50);
+    haptic(HapticRole::Scroll);
   }
   switchTo(exitTarget);
 }

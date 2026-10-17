@@ -3,7 +3,8 @@
 #include "island.h"
 #include "r3d.h"
 #include "display.h"     // gfx, frameCanvas
-#include "haptic.h"      // hapticBuzz
+#include "haptic.h"
+#include "haptic_roles.h"
 #include "model.h"       // model + ModelLock
 #include "view.h"        // switchTo, tappedBack, Screen
 
@@ -349,7 +350,7 @@ void IslandView::onEvent(const Event &e) {
   if (e.type == EventType::ButtonShort) { switchTo(Screen::AppList); return; }
   if (e.type == EventType::Gesture &&
       (e.gesture == Gesture::SwipeRight || e.gesture == Gesture::SwipeLeft)) {
-    hapticBuzz(50, 60);
+    haptic(HapticRole::Scroll);
     switchTo(Screen::AppList);
     return;
   }

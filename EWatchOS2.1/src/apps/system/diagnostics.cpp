@@ -3,6 +3,7 @@
 #include "pins.h"
 #include "display.h"
 #include "haptic.h"
+#include "haptic_roles.h"
 #include "ui_kit.h"
 #include "system_views.h"
 
@@ -171,7 +172,7 @@ public:
     }
     if (e.type == EventType::Gesture) {
       pushGesture(e.gesture);
-      hapticBuzz(40, 40);
+      haptic(HapticRole::Tap);
     }
     if (e.type == EventType::Touch || e.type == EventType::TouchHold) {
       // Track finger inside the pad area for the live dot.
@@ -342,7 +343,7 @@ public:
     if (e.type == EventType::ImuMotion) {
       motionCount++;
       lastMotionMs = millis();
-      hapticBuzz(120, 80);
+      haptic(HapticRole::HitLight);
     }
   }
 private:

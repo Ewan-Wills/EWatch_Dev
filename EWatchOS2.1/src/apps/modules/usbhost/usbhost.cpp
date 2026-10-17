@@ -9,6 +9,7 @@
 #include "usb_kbd_host.h"
 #include "display.h"
 #include "haptic.h"
+#include "haptic_roles.h"
 #include "ewlog.h"
 
 static const int16_t W = 240, H = 280;
@@ -173,5 +174,5 @@ void UsbHostView::onEvent(const Event &e) {
   }
   if (e.type != EventType::Touch) return;
   if (tappedBack(e.x, e.y)) { switchTo(Screen::AppList); return; }
-  if (!usbhRunning()) { startAt = 0; hapticBuzz(120, 40); usbhStart(WINDOW_MS); }
+  if (!usbhRunning()) { startAt = 0; haptic(HapticRole::ToggleOn); usbhStart(WINDOW_MS); }
 }

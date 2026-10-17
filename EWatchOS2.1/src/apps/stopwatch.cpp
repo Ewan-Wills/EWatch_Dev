@@ -7,6 +7,7 @@
 #include "stopwatch.h"
 #include "display.h"
 #include "haptic.h"
+#include "haptic_roles.h"
 #include "model.h"
 #include "apptimer.h"
 
@@ -74,14 +75,14 @@ void StopwatchView::onEvent(const Event &e) {
   if (inRect(e.x, e.y, BTN1_X, BTN_Y, BTN_W, BTN_H)) {       // Start / Stop
     if (stopwatchRunning()) stopwatchStop(ep, ms);
     else                    stopwatchStart(ep, ms);
-    hapticBuzz(60, 60);
+    haptic(stopwatchRunning() ? HapticRole::ToggleOn : HapticRole::ToggleOff);
     lastShownRunning = !stopwatchRunning();                  // force redraw
     lastShownElapsed = 0xFFFFFFFF;
     return;
   }
   if (inRect(e.x, e.y, BTN2_X, BTN_Y, BTN_W, BTN_H)) {       // Reset
     stopwatchReset();
-    hapticBuzz(90, 70);
+    haptic(HapticRole::Destructive);
     lastShownRunning = !stopwatchRunning();
     lastShownElapsed = 0xFFFFFFFF;
     return;

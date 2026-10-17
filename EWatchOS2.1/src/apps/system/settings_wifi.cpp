@@ -5,6 +5,7 @@
 #include <string.h>
 #include "display.h"
 #include "haptic.h"
+#include "haptic_roles.h"
 #include "ui_kit.h"
 #include "storage.h"
 #include "wifi_svc.h"
@@ -58,15 +59,15 @@ public:
 
     if (uiInRect(e.x, e.y, ENA_X, ENA_Y, ENA_W, ENA_H)) {
       { ModelLock lk; model.wifiEnabled = !model.wifiEnabled; model.revision++; }
-      Storage::save(); hapticBuzz(50, 60); return;
+      Storage::save(); haptic(HapticRole::Tap); return;
     }
     if (uiInRect(e.x, e.y, MODE_AP_X, MODE_Y, MODE_W, MODE_H)) {
       { ModelLock lk; model.wifiMode = WifiMode::AP; model.revision++; }
-      Storage::save(); hapticBuzz(50, 60); return;
+      Storage::save(); haptic(HapticRole::ModeChange); return;
     }
     if (uiInRect(e.x, e.y, MODE_CL_X, MODE_Y, MODE_W, MODE_H)) {
       { ModelLock lk; model.wifiMode = WifiMode::Client; model.revision++; }
-      Storage::save(); hapticBuzz(50, 60); return;
+      Storage::save(); haptic(HapticRole::ModeChange); return;
     }
     if (uiInRect(e.x, e.y, KN_X, KN_Y, KN_W, KN_H)) {
       switchTo(Screen::SettingsKnownNets); return;
@@ -201,7 +202,7 @@ public:
       if (uiInRect(e.x, e.y, DEL_X, y, DEL_W, ROW_H - 4)) {
         Storage::knownRemove(i);
         Storage::knownSave();
-        hapticBuzz(80, 80);
+        haptic(HapticRole::Confirm);
         lastN = 0xFF;        // force list redraw
         return;
       }

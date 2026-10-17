@@ -4,6 +4,7 @@
 #include "macropad_config.h"
 #include "display.h"   // gfx, frameCanvas
 #include "haptic.h"    // hapticBuzz
+#include "haptic_roles.h"
 #include "model.h"     // model + ModelLock (via view.h -> model.h)
 
 // Screen is 240 wide x 280 tall.
@@ -124,7 +125,7 @@ void MacropadView::onEvent(const Event &e) {
     if (idx >= 0) {
       pressedTile = idx;
       drawTile(idx, true);                 // immediate visual feedback
-      hapticBuzz(200, 60);                 // the platform "feel"
+      haptic(HapticRole::Tap);                 // the platform "feel"
       // Serial protocol: one ASCII line per press. The PC listener maps the id.
       Serial.printf("MACRO %d\n", idx);
       Serial.flush();

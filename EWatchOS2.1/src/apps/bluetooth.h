@@ -15,6 +15,7 @@ enum : uint8_t { BT_KEY_PLAYPAUSE = 1 << 0, BT_KEY_NEXT = 1 << 1, BT_KEY_PREV = 
 bool btRemoteOn();
 bool btRemoteSetOn(bool on);           // blocking (~0.3 s on); saved to NVS; false if the stack failed
 bool btRemoteConnected();
+bool btRemotePeer(uint8_t out[6]);     // connected phone's address (false if none)
 bool btRemoteFailed();
 bool btRemoteSend(uint8_t key);        // press+release; false if not connected
 void btBegin();                        // boot: restore the saved on/off state

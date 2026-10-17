@@ -26,6 +26,7 @@
 #include "display.h"
 #include "touch.h"
 #include "haptic.h"
+#include "haptic_roles.h"
 
 #include "model.h"
 #include "event.h"
@@ -477,7 +478,12 @@ void setup() {
 
   // Quieter cue if we woke from sleep — single short buzz instead of the
   // boot-confirmation buzz.
-  hapticBuzz(150, fromSleep ? 40 : 80);
+  // The early "boot ... wake=" line predates the flash log sink and never
+  // reaches `log dump`; repeat the wake cause now that it is mounted.
+  EWLOGI("SYS", "wake cause=%d reset=%s timer_armed=%d", (int)wake,
+         resetReasonStr(resetReason), timerArmed() ? 1 : 0);
+  // (Not when the countdown timer woke us: its Alarm is the cue.)
+  if (!(fromSleep && (timerArmed() || timerFired()))) haptic(fromSleep ? HapticRole::Wake : HapticRole::Boot);
 
   // 30 s from now, clear the panic-loop counter. If we survive that window
   // the firmware is healthy enough that the next crash counts as fresh.

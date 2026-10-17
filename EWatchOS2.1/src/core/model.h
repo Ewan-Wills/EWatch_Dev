@@ -61,6 +61,8 @@ enum class Screen : uint8_t {
   PrintStream,      // module: user app: Creality K2 Plus camera + stats + control (WiFi)
   HomeAssistant,    // module: user app: toggle a Home Assistant light over WiFi/REST
   Stocks,           // module: user app: live stock tracker (PC pushes tickers via USB)
+  Hopper,           // module: game: side-scrolling platformer
+  HapticLab,        // user app: try every haptic effect
   PowerOff
 };
 
@@ -152,7 +154,7 @@ struct Model {
   uint16_t lineColor   = 0x7BEF;    // RGB565 — DARKGREY (dividers, outlines)
 
   // Haptic feedback strength as a percentage (0 = off, 100 = full motor).
-  // Every hapticBuzz() call scales its PWM intensity by this factor, so this
+  // Every haptic effect / hapticBuzz() scales its drive level by this factor, so this
   // single slider tames every alert/UI buzz on the device.
   uint8_t  hapticStrength = 100;
 

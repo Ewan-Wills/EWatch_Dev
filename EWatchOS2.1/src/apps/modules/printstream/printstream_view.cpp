@@ -8,6 +8,7 @@
 #include "printstream.h"
 #include "display.h"
 #include "haptic.h"
+#include "haptic_roles.h"
 #include "model.h"
 #include "view.h"
 
@@ -283,7 +284,7 @@ void PrintStreamView::render() {
 void PrintStreamView::onEvent(const Event &e) {
   // Back: hardware button or right-swipe. If a confirm is open, back cancels it.
   if (e.type == EventType::ButtonShort) {
-    if (confirm != Confirm::None) { clearConfirm(); hapticBuzz(60, 20); return; }
+    if (confirm != Confirm::None) { clearConfirm(); haptic(HapticRole::Back); return; }
     switchTo(Screen::AppList); return;
   }
 
@@ -295,10 +296,10 @@ void PrintStreamView::onEvent(const Event &e) {
         PsCmd c = confirm == Confirm::Pause  ? PsCmd::Pause
                 : confirm == Confirm::Resume ? PsCmd::Resume : PsCmd::Home;
         printstreamPostCmd(c);
-        hapticBuzz(180, 40);
+        haptic(HapticRole::Confirm);
         clearConfirm();
       } else if (inRect(e.x, e.y, mx + 106, my + 48, 80, 44)) { // CANCEL
-        hapticBuzz(60, 20);
+        haptic(HapticRole::Back);
         clearConfirm();
       }
     }
@@ -308,10 +309,10 @@ void PrintStreamView::onEvent(const Event &e) {
   // Page toggle via vertical swipe.
   if (e.type == EventType::Gesture) {
     if (e.gesture == Gesture::SwipeUp && page == Page::Stats) {
-      page = Page::Camera; psSetCameraWanted(true); firstDraw = true; hapticBuzz(60, 15); return;
+      page = Page::Camera; psSetCameraWanted(true); firstDraw = true; haptic(HapticRole::Scroll); return;
     }
     if (e.gesture == Gesture::SwipeDown && page == Page::Camera) {
-      page = Page::Stats; psSetCameraWanted(false); firstDraw = true; hapticBuzz(60, 15); return;
+      page = Page::Stats; psSetCameraWanted(false); firstDraw = true; haptic(HapticRole::Scroll); return;
     }
   }
 
@@ -320,17 +321,17 @@ void PrintStreamView::onEvent(const Event &e) {
       if (tappedBack(e.x, e.y)) { switchTo(Screen::AppList); return; }
       // control buttons -> arm a confirm
       if (inRect(e.x, e.y, BTN_PAUSE_X, BTN_Y, BTN_W, BTN_H)) {
-        confirm = Confirm::Pause; hapticBuzz(100, 25); firstDraw = false; drawConfirmOverlay(); return;
+        confirm = Confirm::Pause; haptic(HapticRole::Tap); firstDraw = false; drawConfirmOverlay(); return;
       }
       if (inRect(e.x, e.y, BTN_RESUME_X, BTN_Y, BTN_W, BTN_H)) {
-        confirm = Confirm::Resume; hapticBuzz(100, 25); drawConfirmOverlay(); return;
+        confirm = Confirm::Resume; haptic(HapticRole::Tap); drawConfirmOverlay(); return;
       }
       if (inRect(e.x, e.y, BTN_HOME_X, BTN_Y, BTN_W, BTN_H)) {
-        confirm = Confirm::Home; hapticBuzz(100, 25); drawConfirmOverlay(); return;
+        confirm = Confirm::Home; haptic(HapticRole::Tap); drawConfirmOverlay(); return;
       }
     } else {
       // camera page: tapping the bottom strip returns to stats
-      if (e.y >= STRIP_Y) { page = Page::Stats; psSetCameraWanted(false); firstDraw = true; hapticBuzz(60, 15); return; }
+      if (e.y >= STRIP_Y) { page = Page::Stats; psSetCameraWanted(false); firstDraw = true; haptic(HapticRole::Scroll); return; }
     }
   }
 }

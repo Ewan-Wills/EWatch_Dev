@@ -11,3 +11,8 @@
 bool bleStackAcquire(const char *who, const char *devName = "EWatch Remote");   // false if bluedroid failed to start
 void bleStackRelease(const char *who);
 int  bleStackUsers();
+
+// Link quality of a connected peer: ask (non-blocking), then read the latest
+// answer if it is no older than maxAgeMs.
+void bleRequestRssi(const uint8_t bda[6]);
+bool bleLastRssi(int8_t &rssi, uint32_t maxAgeMs);

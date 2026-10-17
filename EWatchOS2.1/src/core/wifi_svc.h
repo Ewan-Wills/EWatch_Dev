@@ -35,6 +35,8 @@ bool     wifiSvcRadioActive();
 // the duration so the watch doesn't sleep mid-connect. AP mode does NOT
 // count — it's persistent and would block sleep forever.
 bool     wifiSvcWindowActive();
+// RSSI of the last sync session; false if it failed or none has run yet.
+bool     wifiSvcLastLink(int8_t &rssi);
 
 // ms until the next scheduled sync window; 0 = due now, UINT32_MAX = none
 // scheduled (radio disabled, AP mode, or a window already open). Used by the

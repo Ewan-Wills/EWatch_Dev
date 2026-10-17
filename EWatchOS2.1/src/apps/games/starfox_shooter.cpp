@@ -9,6 +9,7 @@
 #include "starfox_shooter.h"
 #include "display.h"      // gfx, frameCanvas
 #include "haptic.h"       // hapticBuzz
+#include "haptic_roles.h"
 #include "model.h"        // model + ModelLock (tilt input)
 #include "event.h"
 #include "view.h"         // switchTo, Screen
@@ -141,7 +142,6 @@ struct Game {
   uint32_t hitFlashUntil = 0;
 
   // Deferred second pulse → a real (gapped) double-buzz on a kill.
-  uint32_t buzz2At = 0; uint8_t buzz2I = 0; uint16_t buzz2D = 0;
 
   Star     stars[NSTAR];
   Obj      objs[NOBJ];
@@ -329,7 +329,7 @@ static void resetPlay() {
 static void gameOver() {
   G.phase = PH_OVER;
   if (G.score > G.high) { G.high = G.score; G.newHigh = true; saveHigh(); }
-  hapticBuzz(255, 320);
+  haptic(HapticRole::GameOver);
 }
 
 static void killScore(uint8_t type, float sx, float sy) {
@@ -338,9 +338,7 @@ static void killScore(uint8_t type, float sx, float sy) {
     case T_ASTEROID: G.score += 150; burst(sx, sy, C_ASTER,   12, 170); break;
     case T_BOSS:     G.score += 2000; burst(sx, sy, C_BOSS,   24, 240); break;
   }
-  // Real double-buzz: one now, a second scheduled ~90 ms later.
-  hapticBuzz(170, 30);
-  G.buzz2At = millis() + 90; G.buzz2I = 170; G.buzz2D = 30;
+  haptic(HapticRole::HitHeavy);
 }
 
 // A centred enemy rams the cockpit: the shield soaks it first, any overflow
@@ -356,7 +354,7 @@ static void collidePlayer(uint8_t type) {
     G.hp -= over;
   }
   G.hitFlashUntil = millis() + 220;
-  hapticBuzz(220, 110);
+  haptic(HapticRole::Damage);
   if (G.hp <= 0) { G.hp = 0; gameOver(); }
 }
 
@@ -366,13 +364,13 @@ static void leakPlayer(uint8_t type) {
   int dmg = (type == T_ASTEROID) ? 10 : 7;
   G.hp -= dmg;
   G.hitFlashUntil = millis() + 160;
-  hapticBuzz(150, 60);
+  haptic(HapticRole::Damage);
   if (G.hp <= 0) { G.hp = 0; gameOver(); }
 }
 
 static void fireShot() {
   if (G.phase != PH_PLAYING) return;
-  hapticBuzz(80, 12);
+  haptic(HapticRole::Shoot);
   addLaser(G.reticleX, G.reticleY);
 
   // Nearest shootable object whose projected disc covers the reticle.
@@ -401,7 +399,7 @@ static void fireShot() {
   } else {
     burst(sx, sy, C_ASTER, 5, 110);   // chipped (asteroid first hit / boss)
     G.score += 10;
-    hapticBuzz(110, 16);
+    haptic(HapticRole::HitLight);
   }
 }
 
@@ -412,7 +410,7 @@ static void startRoll(int8_t dir) {
   G.rollStart   = now;
   G.rollDir     = dir;
   G.rollCdUntil = now + ROLL_CD_MS;
-  hapticBuzz(140, 40);
+  haptic(HapticRole::ModeChange);
 }
 
 // ----------------------------------------------------------------------------
@@ -484,7 +482,7 @@ static void updatePlay(float dt) {
         G.score += 250;
         G.hp += RING_HEAL; if (G.hp > HP_MAX) G.hp = HP_MAX;
         burst(sx, sy, C_RING, 14, 150);
-        hapticBuzz(150, 40);
+        haptic(HapticRole::Collect);
       }
     } else {
       bool central = fabsf(sx - CXf) < DANGER_W && fabsf(sy - CYf) < DANGER_H;
@@ -519,11 +517,6 @@ static void updatePlay(float dt) {
     if (p.life <= 0) p.alive = false;
   }
 
-  // --- Deferred kill double-buzz ---
-  if (G.buzz2At && now >= G.buzz2At) {
-    hapticBuzz(G.buzz2I, G.buzz2D);
-    G.buzz2At = 0;
-  }
 }
 
 // ----------------------------------------------------------------------------
@@ -696,7 +689,6 @@ void StarfoxShooterView::onEnter() {
   G.phase  = PH_TITLE;
   G.lastMs = millis();
   G.reticleX = CXf; G.reticleY = CYf;
-  G.buzz2At = 0;
   G.inited = true;
 }
 

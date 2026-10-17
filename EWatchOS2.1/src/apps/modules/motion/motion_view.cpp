@@ -11,6 +11,7 @@
 #include "motion_tok.h"
 #include "display.h"
 #include "haptic.h"
+#include "haptic_roles.h"
 #include "ui_kit.h"
 
 static const int16_t W = 240;
@@ -199,7 +200,7 @@ void MotionView::onEvent(const Event &e) {
       } else {
         page ^= 1;
       }
-      hapticBuzz(24, 25);
+      haptic(HapticRole::Scroll);
       firstDraw = true;
       return;
     }
@@ -207,7 +208,7 @@ void MotionView::onEvent(const Event &e) {
       MotionSnap s; motionGetSnap(&s);
       if (e.x < 120) motionSetGlobal(!s.global);
       else motionSetCapture(s.capLabel + 1 >= MT_NLABELS ? -1 : s.capLabel + 1);
-      hapticBuzz(24, 25);
+      haptic(HapticRole::Scroll);
       return;
     }
     return;

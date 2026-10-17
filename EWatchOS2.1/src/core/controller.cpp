@@ -15,6 +15,8 @@
 #include "ewsim.h"
 #include "display.h"
 #include "haptic.h"
+#include "haptic_bench.h"
+#include "haptic_roles.h"
 #include "controller.h"
 #if EW_APP_MOTION
 #include "motion_engine.h"   // motion LM: sample feed + action hook
@@ -173,6 +175,8 @@ int mmaFifoRead(int16_t (*out)[3], int max) {
 // flag and the I/O task re-runs the config at its next safe point.
 static volatile bool sMmaReconfigReq = false;
 void requestMmaMotionReconfig() { sMmaReconfigReq = true; }
+
+uint8_t mmaAddress() { return mmaAddr; }
 
 void mmaClearMotionLatch() {
   if (!mmaAddr) return;
@@ -458,6 +462,11 @@ static void taskIO(void *) {
                 postEvent(ge);
               } else
 #endif  // EW_APP_MOTION
+#if EW_APP_HOPPER
+              // Hopper: a jump tap that drifts sideways must not quit the level.
+              if (scr == Screen::Hopper) {
+              } else
+#endif  // EW_APP_HOPPER
               if (scr != Screen::Viewer3D && scr != Screen::Starfox) {
                 Event back = makeEvent(EventType::ButtonShort);
                 postEvent(back);
@@ -516,6 +525,7 @@ static void taskIO(void *) {
     if (accOk) gestFeed(ax, ay, az);     // wake soak trace: ~1 s after a wake
 #endif  // EW_APP_WAKESOAK
     ewsimAccel(accOk, ax, ay, az);       // host tilt/shake override (ewsim)
+    hapticMeterPoll();                   // `hap meter` bench recording (no-op unless queued)
     if (accOk) {
       uint32_t d = (uint32_t)abs(ax - pax) + abs(ay - pay) + abs(az - paz);
       pax = ax; pay = ay; paz = az;
@@ -606,7 +616,7 @@ static void taskIO(void *) {
       uint32_t nowEpoch = rtcEpochSec(yr, mo, dy, h, mm, s);
       if (nowEpoch >= timerDeadlineEpoch()) {
         timerMarkFired();
-        hapticBuzz(255, 400);                 // strong initial alarm buzz
+        haptic(HapticRole::Alarm);            // timer done
         Event e = makeEvent(EventType::TimerExpired);
         postEvent(e);
       }
@@ -627,7 +637,7 @@ static void shutdownNow() {
     gfx->setCursor(80, 130);
     gfx->print("bye");
   }
-  hapticBuzz(180, 200);
+  haptic(HapticRole::PowerOff);
   vTaskDelay(pdMS_TO_TICKS(80));
   backlightOff();
   unlatchPower();
@@ -811,6 +821,9 @@ void enterDeepSleep() {
     rtcH = model.hour; rtcM = model.minute; rtcS = model.second;
     rtcDay = model.day; rtcMon = model.month; rtcYear = model.year;
     rtcOk = model.rtcOk; }
+  // The model's clock stops updating at screen-off (the I/O task is parked),
+  // so it can be minutes stale here: read the RTC itself for the timer wake.
+  { uint8_t wd; if (readRTC(rtcH, rtcM, rtcS, wd, rtcDay, rtcMon, rtcYear)) rtcOk = true; }
 
   EWLOGI("PWR", "state=DEEP_SLEEP wake_touch=%d wake_btn=%d wake_imu=%d",
          wkTouch ? 1 : 0, wkBtn ? 1 : 0, wkImu ? 1 : 0);
@@ -893,6 +906,7 @@ void enterDeepSleep() {
     if (remain == 0) remain = 1;          // fire almost immediately
     esp_sleep_enable_timer_wakeup((uint64_t)remain * 1000000ULL);
     armedTimerWake = true;
+    EWLOGI("PWR", "deep_timer_wake_in_s=%lu", (unsigned long)remain);
   }
   if (!armedTimerWake && toOffSec > 0) {
     esp_sleep_enable_timer_wakeup((uint64_t)toOffSec * 1000000ULL);

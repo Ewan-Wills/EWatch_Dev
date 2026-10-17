@@ -6,6 +6,7 @@
 #include <Arduino.h>
 #include "view.h"
 #include "haptic.h"
+#include "haptic_roles.h"
 
 // Hit test against a rectangle. Touch coordinates are uint16_t; rect is
 // signed so callers can pass computed positions without casts.
@@ -58,7 +59,7 @@ struct RampPlusMinus {
                       held < 3000 ? 150 :
                       held < 4500 ?  80 : 50;
     nextFireMs = now + period;
-    if (period >= 150) hapticBuzz(30, 25);
+    if (period >= 150) haptic(HapticRole::Adjust);
     return true;
   }
 };

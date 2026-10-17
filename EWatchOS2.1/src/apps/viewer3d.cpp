@@ -13,6 +13,7 @@
 #include "display.h"
 #include "safe_canvas.h"
 #include "haptic.h"
+#include "haptic_roles.h"
 #include "ui_kit.h"
 #include "viewer3d.h"
 #include "models/cow_obj.h"
@@ -446,13 +447,13 @@ void Viewer3DView::switchModel(int dir) {
   modelIdx = (modelIdx + MODEL_COUNT + dir) % MODEL_COUNT;
   loadModel(modelIdx);
   buildShadeLut();
-  hapticBuzz(50, 50);
+  haptic(HapticRole::ModeChange);
   drawChrome();
 }
 
 void Viewer3DView::cycleShading() {
   shading = (uint8_t)((shading + 1) % 3);
-  hapticBuzz(40, 40);
+  haptic(HapticRole::ModeChange);
   drawChrome();
 }
 

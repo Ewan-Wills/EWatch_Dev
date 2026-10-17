@@ -25,6 +25,7 @@
 #include "display.h"
 #include "event.h"
 #include "haptic.h"
+#include "haptic_roles.h"
 #include "model.h"
 #include "lz4_decode.h"
 
@@ -138,7 +139,7 @@ static void drawError(const char *msg) {
 static bool streamClient(WiFiClient &c, ExitReq &req) {
   c.setNoDelay(true);
   gfx->fillScreen(BLACK);
-  hapticBuzz(40, 30);
+  haptic(HapticRole::Connected);
 
   uint32_t frames   = 0;
   uint32_t lastStat = millis();

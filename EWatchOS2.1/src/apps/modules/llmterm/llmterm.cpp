@@ -5,6 +5,7 @@
 #include "llmterm.h"
 #include "display.h"   // gfx, frameCanvas()
 #include "haptic.h"    // hapticBuzz
+#include "haptic_roles.h"
 #include "model.h"     // model + ModelLock
 #include "view.h"      // switchTo, theme, drawTitleBar, drawBackButton, tappedBack
 #include "ewlog.h"     // ewlogConsolePause
@@ -328,7 +329,7 @@ void LlmTermView::onEvent(const Event &e) {
     for (int i = 0; i < kPromptCount; ++i) {
       int16_t y = kRowTop + i * (kRowH + kRowGap);
       if (e.y >= y && e.y < y + kRowH) {
-        hapticBuzz(180, 25);
+        haptic(HapticRole::Tap);
         mode = Mode::Chat;
         if (gfx) { ThemeColors t = theme(); gfx->fillScreen(t.bg); }
         sendPrompt(kPrompts[i]);

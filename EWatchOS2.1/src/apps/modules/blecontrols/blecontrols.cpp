@@ -13,6 +13,7 @@
 #include "blecontrols.h"
 #include "display.h"
 #include "haptic.h"
+#include "haptic_roles.h"
 #include "ewlog.h"
 #include "power_mgr.h"
 #include "wifi_svc.h"
@@ -325,7 +326,7 @@ void BleControlsView::onEvent(const Event &e) {
     if (i < gNVars) {
       char b[48]; snprintf(b, sizeof(b), "evt tap=%s", gVars[i].id);
       notify(b);
-      hapticBuzz(60, 30);
+      haptic(HapticRole::MessageIn);
       EWLOGI("BLECTL", "tap row id=%s", gVars[i].id);
     }
   }

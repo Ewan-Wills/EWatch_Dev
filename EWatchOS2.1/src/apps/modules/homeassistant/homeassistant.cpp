@@ -8,6 +8,7 @@
 #include <Arduino_GFX_Library.h>
 #include "display.h"   // gfx, frameCanvas, theme
 #include "haptic.h"    // hapticBuzz
+#include "haptic_roles.h"
 #include "model.h"     // model + ModelLock
 #include "FreeSansBold24pt7b.h"  // big ON/OFF label font
 
@@ -373,13 +374,13 @@ void HomeAssistantView::onEvent(const Event &e) {
       // Only act when we can actually reach HA.
       if (s.conn == HAConn::Online || s.conn == HAConn::Error ||
           s.conn == HAConn::Connecting) {
-        hapticBuzz(180, 25);
+        haptic(HapticRole::Tap);
         // Optimistic flip so the button reacts instantly.
         optimistic      = true;
         optimisticLight = (s.light == HALight::On) ? HALight::Off : HALight::On;
         haPostCmd(HACmd::Toggle);
       } else {
-        hapticBuzz(90, 15);   // acknowledge the tap even if we can't act
+        haptic(HapticRole::Failed);   // tapped, but HA is unreachable
       }
     }
   }

@@ -10,6 +10,7 @@
 #include "flypet.h"
 #include "display.h"     // gfx, frameCanvas, backlightSet
 #include "haptic.h"      // hapticBuzz
+#include "haptic_roles.h"
 #include "model.h"       // model + ModelLock
 #include "view.h"        // theme(), switchTo(), contrastFor()
 #include "ewlog.h"       // ewlogConsolePause (TRAP A: console steals Serial bytes)
@@ -476,7 +477,7 @@ void FlyPetView::onEnter() {
   gMsg[0] = 0; gMsgUntil = 0;
   gStateLabel[0] = 0;
   Serial.println(">>HELLO flypet v1");
-  hapticBuzz(70, 40);
+  haptic(HapticRole::Connected);
 }
 
 void FlyPetView::onExit() {
@@ -550,7 +551,7 @@ void FlyPetView::render() {
 
   // one-shot haptic when the PC link state flips
   if (pc != gPcDrivingLast) {
-    hapticBuzz(90, 50);
+    haptic(pc ? HapticRole::Connected : HapticRole::Disconnected);
     setMsg(pc ? "PC connected" : "flying solo", 1200);
     gPcDrivingLast = pc;
   }
@@ -564,7 +565,7 @@ static void feedAt(float nX, float nY) {
   fly.action = FlyAction::Feed; fly.tx = nX; fly.ty = nY;
   gActionUntil = millis() + 5000;
   setMsg("yum! a crumb", 1400);
-  hapticBuzz(120, 70);
+  haptic(HapticRole::Eat);
   Serial.printf(">>FEED x=%d y=%d\n", (int)nX, (int)nY);
 }
 
@@ -577,7 +578,7 @@ void FlyPetView::onEvent(const Event &e) {
     fly.action = FlyAction::Walk;
     fly.tx = frand(10, 90); fly.ty = frand(10, 90);
     gActionUntil = millis() + 2500;
-    hapticBuzz(80, 40);
+    haptic(HapticRole::Tap);
     setMsg("bzzzt!", 900);
     return;
   }

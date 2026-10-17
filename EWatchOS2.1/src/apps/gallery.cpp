@@ -7,6 +7,7 @@
 #include <Arduino_GFX_Library.h>
 #include "display.h"
 #include "haptic.h"
+#include "haptic_roles.h"
 #include "ui_kit.h"
 #include "ui_style.h"
 #include "photo_store.h"
@@ -70,9 +71,7 @@ void GalleryView::onEvent(const Event &e) {
         char name[16];
         if (photoName(cur, name)) {
           photoSetBg(name);
-          hapticBuzz(40, 50);
-          delay(90);
-          hapticBuzz(40, 50);
+          haptic(HapticRole::Confirm);
           bump();
         }
       }
@@ -87,6 +86,6 @@ void GalleryView::onEvent(const Event &e) {
 
 void GalleryView::bump() {
   dirty = true;
-  hapticBuzz(18, 22);
+  haptic(HapticRole::Scroll);
   ModelLock lk; model.revision++;
 }

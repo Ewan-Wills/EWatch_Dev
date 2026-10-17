@@ -2,6 +2,7 @@
 #include <Arduino_GFX_Library.h>
 #include "display.h"
 #include "haptic.h"
+#include "haptic_roles.h"
 #include "ui_kit.h"
 #include "ui_style.h"
 #include "storage.h"
@@ -94,7 +95,7 @@ public:
 
     if (e.type == EventType::Touch) {
       if (col >= 0) {
-        bumpRow(col, sign); hapticBuzz(40, 50);
+        bumpRow(col, sign); haptic(HapticRole::Adjust);
         startHold(col, sign);
         return;
       }
@@ -104,7 +105,7 @@ public:
           if (i == 0) wkTouch = !wkTouch;
           if (i == 1) wkBtn   = !wkBtn;
           if (i == 2) wkImu   = !wkImu;
-          dirty |= TOGGLES; hapticBuzz(40, 50);
+          dirty |= TOGGLES; haptic(HapticRole::Tap);
           return;
         }
       }
@@ -118,7 +119,7 @@ public:
           model.wakeOnImu        = wkImu;
           model.revision++; }
         Storage::save();
-        hapticBuzz(120, 70);
+        haptic(HapticRole::Confirm);
         switchTo(Screen::Settings);
       }
       return;
@@ -297,7 +298,7 @@ public:
 
     if (e.type == EventType::Touch) {
       if (col >= 0) {
-        bumpRow(col, sign); hapticBuzz(40, 50);
+        bumpRow(col, sign); haptic(HapticRole::Adjust);
         startHold(col, sign);
         return;
       }
@@ -311,7 +312,7 @@ public:
           model.revision++; }
         Storage::save();
         requestMmaMotionReconfig();     // apply the new raise threshold live
-        hapticBuzz(120, 70);
+        haptic(HapticRole::Confirm);
         switchTo(Screen::Settings);
       }
       return;
@@ -497,7 +498,7 @@ public:
 
     if (e.type == EventType::Touch) {
       if (col >= 0) {
-        bumpRow(col, sign); hapticBuzz(40, 50);
+        bumpRow(col, sign); haptic(HapticRole::Adjust);
         startHold(col, sign);
         return;
       }
@@ -510,7 +511,7 @@ public:
           model.lineColor    = kColors[lineIdx].color;
           model.revision++; }
         Storage::save();
-        hapticBuzz(120, 70);
+        haptic(HapticRole::Confirm);
         switchTo(Screen::Settings);
       }
       return;
@@ -655,7 +656,7 @@ public:
         sel = (uint8_t)i;
         { ModelLock lk; model.watchFaceStyle = sel; model.revision++; }
         Storage::save();
-        hapticBuzz(60, 60);
+        haptic(HapticRole::Confirm);
         drawAllCells();
         return;
       }
@@ -751,7 +752,7 @@ public:
         bump(sign);
         // Preview the new strength so the user can feel the difference live.
         hapticSetStrengthPct(strength);
-        hapticBuzz(200, 60);
+        hapticPlay(Haptic::Snap);
         startHold(0, sign);
         return;
       }
@@ -759,7 +760,7 @@ public:
         { ModelLock lk; model.hapticStrength = strength; model.revision++; }
         Storage::save();
         hapticSetStrengthPct(strength);
-        hapticBuzz(160, 80);
+        haptic(HapticRole::Confirm);
         switchTo(Screen::Settings);
       }
       return;

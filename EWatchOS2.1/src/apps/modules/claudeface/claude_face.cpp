@@ -47,6 +47,7 @@
 #include "cf_util.h"
 #include "cf_board.h"
 #include "cf_settings.h"
+#include "haptic_roles.h"
 
 // ---------------------------------------------------------------------------
 // UI-loop state
@@ -95,47 +96,17 @@ static bool     sLongFired = false;
 static uint32_t sTaps = 0, sAcks = 0, sSelects = 0, sSwipes = 0;
 
 // ---------------------------------------------------------------------------
-// Haptic pattern player. hapticBuzz() queues back-to-back with no gap (and
-// only 4 deep), so multi-pulse patterns are sequenced by a one-shot
-// esp_timer — timing stays right even while the UI loop is busy.
+// Status buzzes -> haptic roles (core/haptic_roles.cpp). Each role is one
+// effect with its own rhythm, so no pulse sequencer is needed here.
 // ---------------------------------------------------------------------------
-struct CFPulse { uint8_t intensity; uint16_t onMs; uint16_t gapMs; };
-static const CFPulse kShort  = { 200,  70, 140 };
-static const CFPulse kMedium = { 230, 240,   0 };
-static CFPulse           sSeq[3];
-static volatile uint8_t  sSeqN = 0, sSeqI = 0;
-static esp_timer_handle_t sSeqTimer = nullptr;
-
-static void seqStep(void *) {
-  if (sSeqI >= sSeqN) return;
-  CFPulse p = sSeq[sSeqI];
-  sSeqI = (uint8_t)(sSeqI + 1);
-  hapticBuzz(p.intensity, p.onMs);
-  if (sSeqI < sSeqN && sSeqTimer)
-    esp_timer_start_once(sSeqTimer, (uint64_t)(p.onMs + p.gapMs) * 1000ULL);
-}
-
 static void playBuzz(CFBuzz b) {
-  if (b == CF_BUZZ_NONE) return;
-  if (!sSeqTimer) {
-    esp_timer_create_args_t a = {};
-    a.callback = &seqStep;
-    a.dispatch_method = ESP_TIMER_TASK;
-    a.name = "cfbuzz";
-    if (esp_timer_create(&a, &sSeqTimer) != ESP_OK) sSeqTimer = nullptr;
-  }
-  if (sSeqI < sSeqN) return;               // a pattern is still playing
-  uint8_t n = 0;
   switch (b) {
-    case CF_BUZZ_BLOCKED: sSeq[0] = sSeq[1] = sSeq[2] = kShort; n = 3; break;
-    case CF_BUZZ_DONE:    sSeq[0] = kMedium; n = 1; break;
-    case CF_BUZZ_CROSS:   sSeq[0] = sSeq[1] = kShort; n = 2; break;
-    case CF_BUZZ_RESET:   sSeq[0] = kShort; n = 1; break;
-    default: return;
+    case CF_BUZZ_BLOCKED: haptic(HapticRole::Warning);  break;   // needs your permission
+    case CF_BUZZ_DONE:    haptic(HapticRole::Confirm);  break;   // long turn finished
+    case CF_BUZZ_CROSS:   haptic(HapticRole::Reminder); break;   // 5 h usage crossed 80 / 95 %
+    case CF_BUZZ_RESET:   haptic(HapticRole::ToggleOn); break;   // limit window reset
+    default: break;
   }
-  sSeqI = 0;
-  sSeqN = n;
-  seqStep(nullptr);                        // first pulse now, rest on the timer
 }
 
 bool claudeFaceRequestTestBuzz(const char *which) {
@@ -198,7 +169,7 @@ static void openDetail(uint32_t now) {
 
 static void toggleDetail(uint32_t now) {
   if (sDetail) closeDetail(); else openDetail(now);
-  hapticBuzz(20, 22);
+  haptic(HapticRole::Open);
 }
 
 // ---------------------------------------------------------------------------
@@ -370,7 +341,7 @@ static void cycleSession(int dir, uint32_t now) {
   cfHapticNoteSelect(sHs, now);
   cfLinkSendEvent(CF_EVENTCODE_SELECT_SESSION, idx);
   sSelects++;
-  hapticBuzz(24, 30);
+  haptic(HapticRole::Tap);
 }
 
 static void onTap(uint32_t now) {
@@ -380,7 +351,7 @@ static void onTap(uint32_t now) {
   cfHapticAck(sHs);                        // stop BLOCKED repeats now
   cfLinkSendEvent(CF_EVENTCODE_ACK, 0);
   sAcks++;
-  hapticBuzz(24, 30);
+  haptic(HapticRole::Confirm);
 }
 
 void claudeFaceTouchDown(uint16_t x, uint16_t y) {
@@ -429,7 +400,7 @@ void claudeFaceGesture(uint8_t g) {
     case CF_ACT_CLOSE_DETAIL: closeDetail(); break;
     case CF_ACT_SESSION_NEXT: cycleSession(+1, now); break;
     case CF_ACT_SESSION_PREV: cycleSession(-1, now); break;
-    case CF_ACT_OPEN_DETAIL:  openDetail(now); hapticBuzz(20, 22); break;
+    case CF_ACT_OPEN_DETAIL:  openDetail(now); haptic(HapticRole::Open); break;
     default: break;
   }
 }

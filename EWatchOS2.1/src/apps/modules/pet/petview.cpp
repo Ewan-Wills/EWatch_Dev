@@ -4,7 +4,8 @@
 #include "petview.h"
 #include "pet.h"
 #include "display.h"     // gfx, frameCanvas, backlightSet
-#include "haptic.h"      // hapticBuzz
+#include "haptic.h"
+#include "haptic_roles.h"
 #include "model.h"       // model + ModelLock
 #include "view.h"        // theme(), switchTo()
 #include "apptimer.h"    // rtcEpochSec
@@ -400,7 +401,7 @@ void PetView::onEnter() {
   gMsg[0] = '\0'; gMsgUntil = 0;
   gPressActive = false;
   // Greet on entry: if a need is already critical, nag once.
-  if (petNagDue()) { hapticBuzz(70, 70); hapticBuzz(70, 70); }
+  if (petNagDue()) haptic(HapticRole::Reminder);
 }
 
 void PetView::onExit() {
@@ -422,11 +423,11 @@ void PetView::render() {
 
   // One-shot celebrations raised by pet.cpp.
   if (petTakeEvolved()) { startAnim(Anim::Evolve, 2200); setMsg("evolved!", 2200);
-                          hapticBuzz(150, 90); hapticBuzz(150, 90); hapticBuzz(150, 120); }
+                          haptic(HapticRole::LevelUp); }
   if (petTakeTreat())   { startAnim(Anim::Treat, 1600); setMsg("treat! +", 1600);
-                          hapticBuzz(120, 70); hapticBuzz(120, 70); }
+                          haptic(HapticRole::Collect); }
   // Periodic "needs attention" nag.
-  if (petNagDue()) { hapticBuzz(70, 70); hapticBuzz(70, 70); }
+  if (petNagDue()) haptic(HapticRole::Reminder);
 
   // Dim the backlight while the pet sleeps; restore when it wakes.
   if (s.asleep && !gDimmed) {
@@ -470,21 +471,21 @@ static void performAction(PetAction a) {
     case PetReact::Ok:
       switch (a) {
         case PetAction::Feed:  startAnim(Anim::Eat, 1800);  setMsg("yum!");
-                               hapticBuzz(130, 90); break;
+                               haptic(HapticRole::Eat); break;
         case PetAction::Play:  startAnim(Anim::Play, 1500); setMsg("wheee!");
-                               hapticBuzz(120, 60); hapticBuzz(120, 60); break;
+                               haptic(HapticRole::Happy); break;
         case PetAction::Clean: startAnim(Anim::Treat, 900); setMsg("all clean!");
-                               hapticBuzz(100, 70); break;
+                               haptic(HapticRole::Confirm); break;
         default: break;
       }
       break;
     case PetReact::Refused:
       startAnim(Anim::Refuse, 600);
       setMsg(a == PetAction::Feed ? "not hungry" : "too tired");
-      hapticBuzz(50, 180);                       // slow, low "no"
+      haptic(HapticRole::Sad);                   // slow, low "no"
       break;
-    case PetReact::Slept: setMsg("nap time");      hapticBuzz(60, 150); break;
-    case PetReact::Woke:  setMsg("good morning!"); hapticBuzz(90, 60);  break;
+    case PetReact::Slept: setMsg("nap time");      haptic(HapticRole::Sleep); break;
+    case PetReact::Woke:  setMsg("good morning!"); haptic(HapticRole::Wake);  break;
   }
 }
 
@@ -497,13 +498,13 @@ void PetView::onEvent(const Event &e) {
     TimeNow tn = timeNow();
     petShake(tn.epoch);
     PetSnapshot s = petGet();
-    if (!s.asleep) { startAnim(Anim::Play, 900); hapticBuzz(90, 50); }
+    if (!s.asleep) { startAnim(Anim::Play, 900); haptic(HapticRole::Happy); }
     return;
   }
 
   if (e.type == EventType::Gesture) {
-    if (e.gesture == Gesture::SwipeUp)   { gSel = (gSel + 3) & 3; hapticBuzz(40, 40); }
-    if (e.gesture == Gesture::SwipeDown) { gSel = (gSel + 1) & 3; hapticBuzz(40, 40); }
+    if (e.gesture == Gesture::SwipeUp)   { gSel = (gSel + 3) & 3; haptic(HapticRole::Scroll); }
+    if (e.gesture == Gesture::SwipeDown) { gSel = (gSel + 1) & 3; haptic(HapticRole::Scroll); }
     if (e.gesture == Gesture::DoubleTap) { performAction((PetAction)gSel); }
     return;
   }
@@ -528,7 +529,7 @@ void PetView::onEvent(const Event &e) {
         TimeNow tn = timeNow();
         petPet(tn.epoch);
         PetSnapshot s = petGet();
-        if (!s.asleep) { hapticBuzz(60, 40); setMsg("<3", 700); }
+        if (!s.asleep) { haptic(HapticRole::Happy); setMsg("<3", 700); }
       }
     }
     gPressActive = false; gPressMoved = false;

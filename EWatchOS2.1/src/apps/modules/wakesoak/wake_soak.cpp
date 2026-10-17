@@ -8,6 +8,7 @@
 #include "wake_soak.h"
 #include "display.h"
 #include "haptic.h"
+#include "haptic_roles.h"
 #include "ewlog.h"
 #include "power_mgr.h"
 #include "wake_gest.h"
@@ -227,7 +228,7 @@ uint16_t WakeSoakView::desiredFrameMs() const { return sPending ? 50 : 0; }
 void WakeSoakView::finish(const char *answer) {
   appendRecord(sRec, answer, millis() - sWakeMs);
   sPending = false;
-  hapticBuzz(strcmp(answer, "yes") == 0 ? 120 : 60, strcmp(answer, "yes") == 0 ? 80 : 40);
+  haptic(strcmp(answer, "yes") == 0 ? HapticRole::Confirm : HapticRole::Tap);
   switchTo(Screen::Watch);
   // No answer = assume it was accidental: straight back to sleep.
   if (strcmp(answer, "yes") != 0) powerRequestSleep();
@@ -323,11 +324,11 @@ void WakeSoakView::onEvent(const Event &e) {
   if (e.type == EventType::ButtonShort ||
       (e.type == EventType::Gesture && e.gesture == Gesture::SwipeRight)) { switchTo(Screen::AppList); return; }
   if (e.type == EventType::Gesture && e.gesture == Gesture::LongPress && hit(e, TOG_X, TOG_Y, TOG_W, TOG_H)) {
-    LittleFS.remove(kPath); sCount = 0; gestClear(); hapticBuzz(150, 120); firstDraw = true; return;
+    LittleFS.remove(kPath); sCount = 0; gestClear(); haptic(HapticRole::Destructive); firstDraw = true; return;
   }
   if (e.type == EventType::Touch && tappedBack(e.x, e.y)) { switchTo(Screen::AppList); return; }
   // Toggle on the tap gesture (not Touch), so a long-press can clear instead.
   if (e.type == EventType::Gesture && e.gesture == Gesture::SingleTap && hit(e, TOG_X, TOG_Y, TOG_W, TOG_H)) {
-    setEnabled(!sEnabled); hapticBuzz(60, 30); firstDraw = true;
+    setEnabled(!sEnabled); haptic(sEnabled ? HapticRole::ToggleOn : HapticRole::ToggleOff); firstDraw = true;
   }
 }

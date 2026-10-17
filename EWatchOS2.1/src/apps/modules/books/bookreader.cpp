@@ -13,6 +13,7 @@
 #include "ewlog.h"     // ewlogConsolePause
 #include "display.h"   // gfx, frameCanvas
 #include "haptic.h"    // hapticBuzz
+#include "haptic_roles.h"
 #include "model.h"     // model + ModelLock
 #include "event.h"
 #include "system/ui_style.h"
@@ -630,13 +631,13 @@ void LibraryView::activate(int row) {
   if (row < 0 || row >= gBookN) return;
   char path[96]; snprintf(path, sizeof(path), "%s/%s", BOOK_DIR, gBooks[row].name);
   if (bookOpen(path)) switchToAnimated(Screen::BookReader, Trans::PushLeft);
-  else hapticBuzz(200, 60);   // unreadable / out of memory: stay on the list
+  else haptic(HapticRole::Failed);   // unreadable / out of memory: stay on the list
 }
 
 void LibraryView::longPress(int row) {
   if (row < 0 || row >= gBookN) return;
   delRow = row;
-  hapticBuzz(200, 50);
+  haptic(HapticRole::LongPress);
 }
 
 // Delete dialog geometry (Cancel / Delete buttons).
@@ -673,7 +674,7 @@ bool LibraryView::interceptEvent(const Event &e) {
     if (inBtns && e.x >= DEL_X && e.x < DEL_X + BTN_W && delRow < gBookN) {
       char path[96]; snprintf(path, sizeof(path), "%s/%s", BOOK_DIR, gBooks[delRow].name);
       { FsLock lk; if (gFsOk) LittleFS.remove(path); }
-      hapticBuzz(160, 40);
+      haptic(HapticRole::Destructive);
       delRow = -1;
       rescan();
     } else if (inBtns && e.x >= CANCEL_X && e.x < CANCEL_X + BTN_W) {
@@ -962,7 +963,7 @@ void ReaderView::handleTap(int16_t x, int16_t y) {
       return;
     default: break;   // value labels (font/speed) aren't buttons
   }
-  hapticBuzz(120, 20);
+  haptic(HapticRole::Tap);
   if (fontOrSpeed) {
     prefsBegin(); gPrefs.putUChar("font", gFontIdx); gPrefs.putUChar("speed", gSpeedIdx);
     // font change requires a re-index; keep position by byte offset
@@ -1015,12 +1016,12 @@ void ReaderView::onEvent(const Event &e) {
       pendingTapMs = 0;                               // a swipe/double tap is not a tap
       // Swipe right arrives as ButtonShort (OS-wide back) and closes the menu.
       if (e.gesture == Gesture::SwipeLeft) {
-        if (!controls) { openControls(); hapticBuzz(100, 20); kick(); }
+        if (!controls) { openControls(); haptic(HapticRole::Open); kick(); }
         return;
       }
       if (controls) return;          // menu open: vertical swipes do nothing
       if (e.gesture == Gesture::DoubleTap) {
-        playing = !playing; hapticBuzz(140, 25); kick();
+        playing = !playing; haptic(playing ? HapticRole::ToggleOn : HapticRole::ToggleOff); kick();
         return;
       }
       if (e.gesture == Gesture::SwipeUp || e.gesture == Gesture::SwipeDown) {

@@ -9,6 +9,8 @@
 #include "timer_app.h"
 #include "display.h"
 #include "haptic.h"
+#include "haptic_roles.h"
+#include "power_mgr.h"   // powerOnActivity: keep awake while ringing
 #include "model.h"
 #include "apptimer.h"
 
@@ -48,7 +50,8 @@ uint16_t TimerView::desiredFrameMs() const {
 // ---------- mode transitions ----------
 void TimerView::onEnter() {
   if (gfx) { ThemeColors _t = theme(); gfx->fillScreen(_t.bg); };
-  if      (timerFired()) mode = Mode::Fired;
+  if      (timerFired()) { mode = Mode::Fired;          // usually: the alarm just switched here
+                           alertCycleStartMs = alertRingStartMs = millis(); }
   else if (timerArmed()) mode = Mode::Running;
   else                   mode = Mode::Setting;
 
@@ -67,7 +70,8 @@ void TimerView::enterRunning() { mode = Mode::Running; { ThemeColors _t = theme(
                                  lastShownRemain = 0xFFFFFFFF; }
 void TimerView::enterFired()   { mode = Mode::Fired;   { ThemeColors _t = theme(); gfx->fillScreen(_t.bg); }; firstDraw = true;
                                  lastBuzzMs = 0;
-                                 alertCycleStartMs = millis();
+                                 alertCycleStartMs = millis();   // the I/O task just rang once
+                                 alertRingStartMs  = millis();
                                  alertPulseStage   = 0;
                                  lastAlertFlip     = -1; }
 
@@ -90,22 +94,18 @@ void TimerView::render() {
     }
     case Mode::Fired:
       drawFired();
-      // Repeating triplet-then-pause buzz pattern. Each ~1.4 s cycle fires
-      // three short pulses (at +0, +220, +440 ms) followed by a longer pause
-      // so the alarm reads as a distinct rhythm, not a single buzz on a loop.
+      // Ring: the Alarm effect (3+3 pulses, ~1.5 s) every 2.5 s, and keep the
+      // screen awake so it isn't cut off by the idle timeout, for up to
+      // RING_MS; after that the watch may sleep (stops ringing) to save battery.
       {
-        const uint32_t cycleMs  = 1400;
-        const uint32_t pulseAt[3] = { 0, 220, 440 };
+        const uint32_t cycleMs = 2500, RING_MS = 60000;
         uint32_t now = millis();
-        uint32_t elapsed = now - alertCycleStartMs;
-        if (elapsed >= cycleMs) {
-          alertCycleStartMs = now;
-          alertPulseStage   = 0;
-          elapsed = 0;
-        }
-        while (alertPulseStage < 3 && elapsed >= pulseAt[alertPulseStage]) {
-          hapticBuzz(220, 110);
-          alertPulseStage++;
+        if (now - alertRingStartMs < RING_MS) {
+          powerOnActivity();
+          if (now - alertCycleStartMs >= cycleMs && !hapticBusy()) {
+            alertCycleStartMs = now;
+            haptic(HapticRole::Alarm);
+          }
         }
       }
       break;
@@ -131,17 +131,17 @@ void TimerView::onEvent(const Event &e) {
     // +/- columns.
     for (int c = 0; c < 3; c++) {
       int16_t x = COL_X(c);
-      if (inRect(e.x, e.y, x, PLUS_Y,  COL_W, BTN_H)) { bumpField(c, +1); hapticBuzz(35, 45);
+      if (inRect(e.x, e.y, x, PLUS_Y,  COL_W, BTN_H)) { bumpField(c, +1); haptic(HapticRole::Adjust);
                                                         drawSettingDigits(); return; }
-      if (inRect(e.x, e.y, x, MINUS_Y, COL_W, BTN_H)) { bumpField(c, -1); hapticBuzz(35, 45);
+      if (inRect(e.x, e.y, x, MINUS_Y, COL_W, BTN_H)) { bumpField(c, -1); haptic(HapticRole::Adjust);
                                                         drawSettingDigits(); return; }
     }
     // START.
     if (inRect(e.x, e.y, ACT_X, ACT_Y, ACT_W, ACT_H)) {
       uint32_t dur = (uint32_t)setH * 3600u + (uint32_t)setM * 60u + setS;
-      if (dur == 0) { hapticBuzz(60, 40); return; }     // nothing to count
+      if (dur == 0) { haptic(HapticRole::Refused); return; }     // nothing to count
       timerArm(nowEpoch(), dur);
-      hapticBuzz(120, 80);
+      haptic(HapticRole::ToggleOn);
       enterRunning();
     }
     return;
@@ -151,7 +151,7 @@ void TimerView::onEvent(const Event &e) {
     // CANCEL.
     if (inRect(e.x, e.y, ACT_X, ACT_Y, ACT_W, ACT_H)) {
       timerCancel();
-      hapticBuzz(100, 70);
+      haptic(HapticRole::ToggleOff);
       enterSetting();
     }
     return;
@@ -161,7 +161,7 @@ void TimerView::onEvent(const Event &e) {
     // DISMISS — anywhere in the action strip.
     if (inRect(e.x, e.y, ACT_X, ACT_Y, ACT_W, ACT_H)) {
       timerClearFired();
-      hapticBuzz(80, 70);
+      haptic(HapticRole::Back);
       enterSetting();
     }
     return;

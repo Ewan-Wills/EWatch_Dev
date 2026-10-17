@@ -47,3 +47,6 @@ void mmaClearMotionLatch();
 // Ask the I/O task to re-apply the accel wake config (raise-to-wake
 // threshold changed in Settings -> Wake). Safe from any task.
 void requestMmaMotionReconfig();
+
+// MMA8451 I2C address (0 = not fitted). taskIO only, like readAccel.
+uint8_t mmaAddress();

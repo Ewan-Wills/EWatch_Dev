@@ -4,6 +4,7 @@
 #include "screenshare.h"
 #include "display.h"   // gfx, frameCanvas
 #include "haptic.h"    // hapticBuzz
+#include "haptic_roles.h"
 #include "model.h"     // model + ModelLock
 #include "ewlog.h"     // ewlogConsolePause
 
@@ -244,12 +245,12 @@ void ScreenshareView::render() {
 void ScreenshareView::onEvent(const Event &e) {
   // Back affordance: hardware button and right-swipe both arrive as ButtonShort.
   if (e.type == EventType::ButtonShort) {
-    hapticBuzz(120, 20);
+    haptic(HapticRole::Back);
     switchTo(Screen::AppList);
     return;
   }
   if (e.type == EventType::Touch && tappedBack(e.x, e.y)) {
-    hapticBuzz(120, 20);
+    haptic(HapticRole::Back);
     switchTo(Screen::AppList);
     return;
   }

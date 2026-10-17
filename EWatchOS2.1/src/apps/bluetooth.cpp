@@ -18,6 +18,7 @@
 #include "ble_stack.h"
 #include "display.h"
 #include "haptic.h"
+#include "haptic_roles.h"
 #include "ewlog.h"
 #if EW_APP_USBHOST
 #include "usb_kbd_host.h"
@@ -278,8 +279,12 @@ static volatile bool gConnChanged = false;
 static bool gRemoteUp = false;
 
 // Callbacks run on the BTC task (small stack): flags only, no logging.
+static uint8_t gPeer[6];                    // connected phone (for the RSSI icon)
 class RemoteServerCb : public BLEServerCallbacks {
-  void onConnect(BLEServer *) override    { gConnected = true;  gConnChanged = true; }
+  void onConnect(BLEServer *, esp_ble_gatts_cb_param_t *p) override {
+    memcpy(gPeer, p->connect.remote_bda, sizeof gPeer);
+    gConnected = true;  gConnChanged = true;
+  }
   void onDisconnect(BLEServer *) override { gConnected = false; gConnChanged = true; }
 };
 static RemoteServerCb gServerCb;
@@ -373,6 +378,11 @@ static void svcTask(void *) {
 bool btRemoteOn()        { return gRemoteOn; }
 bool btRemoteConnected() { return gRemoteOn && gConnected; }
 bool btRemoteFailed()    { return gFailed; }
+bool btRemotePeer(uint8_t out[6]) {
+  if (!btRemoteConnected()) return false;
+  memcpy(out, gPeer, sizeof gPeer);
+  return true;
+}
 
 static void saveBtPref(bool on) {
   Preferences p;
@@ -572,7 +582,7 @@ void BluetoothView::serviceUsbKeys() {
     for (const Btn &b : kBtns) if (b.key == key) btn = &b;
     if (btn) drawRemoteButton(*btn, true);
     bool ok = remoteSend(key, btn ? btn->name : "mute");
-    hapticBuzz(ok ? 50 : 120, ok ? 20 : 80);
+    haptic(ok ? HapticRole::Tap : HapticRole::Failed);
     if (btn) drawRemoteButton(*btn, false);
   }
   if (mode == Mode::Remote && shownUsbGen != usbhGen()) drawKbdPill();
@@ -740,7 +750,7 @@ void BluetoothView::onEvent(const Event &e) {
     if (inBox(e, SCAN_X, SCAN_Y, SCAN_W, SCAN_H)) { setMode(Mode::Scan); return; }
 #if EW_APP_USBHOST
     if (inBox(e, KBD_X, KBD_Y, KBD_W, KBD_H)) {
-      hapticBuzz(90, 30);
+      haptic(HapticRole::Open);
       if (usbhRunning()) { usbhStop(); EWLOGI("BLE", "usb keyboard off"); }
       else { EWLOGI("BLE", "usb keyboard on: serial goes away"); delay(100); usbhStart(0); }
       drawKbdPill();
@@ -751,7 +761,7 @@ void BluetoothView::onEvent(const Event &e) {
       if (!inBox(e, b.x, b.y, b.w, b.h)) continue;
       drawRemoteButton(b, true);
       bool ok = remoteSend(b.key, b.name);
-      hapticBuzz(ok ? 70 : 120, ok ? 30 : 80);   // long buzz = not connected
+      haptic(ok ? HapticRole::Tap : HapticRole::Failed);   // failed = not connected
       drawRemoteButton(b, false);
       return;
     }
@@ -762,7 +772,7 @@ void BluetoothView::onEvent(const Event &e) {
     int i = scroll + (e.y - LIST_Y) / ROW_H;
     if (i < sCount) {
       detail = i;
-      hapticBuzz(60, 40);
+      haptic(HapticRole::Open);
       char a[18]; fmtAddr(sDev[i].addr, a);
       EWLOGI("BLE", "detail addr=%s", a);
       drawDetail();

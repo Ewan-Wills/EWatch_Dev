@@ -20,6 +20,7 @@
 #include "ble_stack.h"
 #include "display.h"
 #include "haptic.h"
+#include "haptic_roles.h"
 #include "ewlog.h"
 #include "ewsim.h"
 
@@ -746,5 +747,12 @@ void MouseView::onEvent(const Event &e) {
     int i = (e.y - LIST_Y) / ROW_H;
     if (i < gFoundN && i < 4) gReqPair = i; else changed = false;
   } else changed = false;
-  if (changed) { hapticBuzz(60, 30); gGen++; }
+  if (changed) { haptic(HapticRole::Tap); gGen++; }
+}
+
+// Connected mouse address, for the watch-face BLE signal icon.
+bool mousePeer(uint8_t out[6]) {
+  if (gSt != MSt::Connected || !gClient) return false;
+  memcpy(out, *gClient->getPeerAddress().getNative(), 6);
+  return true;
 }

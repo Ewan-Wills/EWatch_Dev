@@ -9,7 +9,7 @@
 
 enum class Icon : uint8_t {
   Stopwatch, Timer, Music, QR, Photo, Cube, Sparkle, Bird,
-  Skull, Tunnel, Ship, Car, Paw, Island,
+  Skull, Tunnel, Ship, Car, Paw, Island, Frog,
   Gear, Wrench, Info, Power, Moon, Sun, Torch, Wifi,
   Play, Pause, Next, Prev, Check, Cross, Clock, Vibrate, Memory, Bluetooth,
   Pen,

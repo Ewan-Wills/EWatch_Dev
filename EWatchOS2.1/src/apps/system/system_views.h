@@ -15,6 +15,7 @@ View *settingsDisplayViewPtr();  // settings_system.cpp
 View *settingsFontViewPtr();     // settings_system.cpp
 View *settingsHapticsViewPtr();  // settings_system.cpp
 View *settingsMemoryViewPtr();   // settings_system.cpp
+View *hapticLabViewPtr();        // haptic_lab.cpp
 
 #if defined(EWATCH_ENABLE_WIFI) && EWATCH_ENABLE_WIFI
 View *settingsWifiViewPtr();     // settings_wifi.cpp

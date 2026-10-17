@@ -11,6 +11,7 @@
 #include "view.h"
 #include "ewlog.h"
 #include "haptic.h"
+#include "haptic_roles.h"
 #include "storage.h"
 #include "power_mgr.h"
 #include "motion_tok.h"
@@ -195,7 +196,7 @@ static void report(const float *lg, bool touch, const int *seq, int len) {
   portEXIT_CRITICAL(&sMux);
 
   if (fin != ML_NONE) {
-    hapticBuzz(40, 35);
+    haptic(HapticRole::Tap);
     sPendingAction = fin;             // render task logs (dry) or executes it
   }
 }
@@ -418,7 +419,7 @@ void motionServiceRender() {
       { ModelLock lk; model.hapticStrength = model.hapticStrength ? 0 : 100; hs = model.hapticStrength; model.revision++; }
       hapticSetStrengthPct(hs);
       Storage::save();
-      if (hs) hapticBuzz(40, 45);
+      if (hs) haptic(HapticRole::ToggleOn);
       break;
     }
     case ML_TAP_TAP_R:  switchTo(Screen::Stopwatch); break;
